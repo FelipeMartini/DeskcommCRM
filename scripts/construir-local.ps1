@@ -16,8 +16,9 @@ $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $RootDir = Split-Path -Parent $ScriptDir
 
-# Converter caminho do Windows para formato WSL (/mnt/d/...)
-$WslPath = $RootDir -replace '\\', '/' -replace '^([A-Za-z]):', { '/mnt/' + $_.Groups[1].Value.ToLower() }
+$Drive = $RootDir.Substring(0, 1).ToLower()
+$Rest = $RootDir.Substring(2).Replace('\', '/')
+$WslPath = "/mnt/$Drive$Rest"
 
 Write-Host "== Disparando build local no WSL: $WslPath" -ForegroundColor Cyan
 

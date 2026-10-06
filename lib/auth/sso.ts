@@ -37,6 +37,7 @@ export function validarTokenSSO(token: string, secret: string): PayloadSSO | nul
   if (partes.length !== 3) return null;
 
   const [headerB64, payloadB64, assinaturaB64] = partes;
+  if (!headerB64 || !payloadB64 || !assinaturaB64) return null;
 
   try {
     // 1. Validar cabeçalho
