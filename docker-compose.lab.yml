@@ -9,10 +9,7 @@ version: "3.9"
 services:
   app:
     container_name: expanda-crm
-    image: ${APP_IMAGE:-expanda-crm:latest}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${APP_IMAGE:-ghcr.io/felipemartini/deskcommcrm:latest}
     restart: unless-stopped
     ports:
       - "3033:3000"
@@ -20,13 +17,15 @@ services:
       NODE_ENV: production
       PORT: 3000
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://deskcommcrm.poa.metodoatuarial.com.br}
-      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@10.1.1.4:5432/deskcomm_db}
-      SUPABASE_DB_URL: ${SUPABASE_DB_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@10.1.1.4:5432/deskcomm_db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/deskcomm_db}
+      SUPABASE_DB_URL: ${SUPABASE_DB_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/deskcomm_db}
       DESKCOMM_SSO_SECRET: ${DESKCOMM_SSO_SECRET}
       WAHA_API_BASE_URL: http://waha:3000
       WAHA_API_KEY: ${WAHA_API_KEY}
-      REDIS_URL: ${REDIS_URL:-redis://10.1.1.4:6379/2}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     depends_on:
+      - db
+      - redis
       - waha
     mem_limit: 768m
     networks:
@@ -53,26 +52,48 @@ services:
 
   worker:
     container_name: expanda-crm-worker
-    image: ${WORKER_IMAGE:-expanda-crm-worker:latest}
-    build:
-      context: .
-      dockerfile: Dockerfile.worker
+    image: ${WORKER_IMAGE:-ghcr.io/felipemartini/deskcommcrm-worker:latest}
     restart: unless-stopped
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@10.1.1.4:5432/deskcomm_db}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/deskcomm_db}
       WAHA_API_BASE_URL: http://waha:3000
       WAHA_API_KEY: ${WAHA_API_KEY}
-      REDIS_URL: ${REDIS_URL:-redis://10.1.1.4:6379/2}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
     depends_on:
+      - db
+      - redis
       - app
       - waha
     mem_limit: 512m
     networks:
       - crm-net
 
+  db:
+    container_name: expanda-crm-db
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: deskcomm_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - crm-db-data:/var/lib/postgresql/data
+    mem_limit: 512m
+    networks:
+      - crm-net
+
+  redis:
+    container_name: expanda-crm-redis
+    image: redis:7-alpine
+    restart: unless-stopped
+    mem_limit: 128m
+    networks:
+      - crm-net
+
 volumes:
   crm-waha-sessions:
   crm-waha-media:
+  crm-db-data:
 
 networks:
   crm-net:
