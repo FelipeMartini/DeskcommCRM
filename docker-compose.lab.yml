@@ -9,7 +9,10 @@ version: "3.9"
 services:
   app:
     container_name: expanda-crm
-    image: ${APP_IMAGE:-ghcr.io/melgarafael/deskcommcrm:stable}
+    image: ${APP_IMAGE:-expanda-crm:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "3033:3000"
@@ -50,7 +53,10 @@ services:
 
   worker:
     container_name: expanda-crm-worker
-    image: ${WORKER_IMAGE:-ghcr.io/melgarafael/deskcomm-worker:stable}
+    image: ${WORKER_IMAGE:-expanda-crm-worker:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@10.1.1.4:5432/deskcomm_db}
