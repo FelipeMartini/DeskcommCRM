@@ -1,5 +1,6 @@
 "use client";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { TopBar } from "@/components/shell/TopBar";
 import { BarraInferior } from "@/components/shell/BarraInferior";
@@ -30,6 +31,20 @@ export function AppShell({ sidebarCollapsed, podeAtender, children }: AppShellPr
   useInboundCallAlerts();
   useCrmAlerts();
   useNotifyOpenFromServiceWorker();
+
+  const searchParams = useSearchParams();
+  const [isEmbedded, setIsEmbedded] = useState(false);
+
+  useEffect(() => {
+    const isFrame = typeof window !== "undefined" && window.self !== window.top;
+    const isParam = searchParams?.get("embedded") === "true";
+    const hasCookie =
+      typeof document !== "undefined" && document.cookie.includes("deskcomm_embedded=1");
+    if (isFrame || isParam || hasCookie) {
+      setIsEmbedded(true);
+    }
+  }, [searchParams]);
+
   // O SINAL DE PRESENÇA (issue #996) sai daqui porque presença é "esta aba
   // está aberta" — não "a pessoa está na tela Equipe". Quem atende passa o dia
   // no Inbox e na Agenda; um emissor amarrado à tela de gestão diria que só o
@@ -41,21 +56,13 @@ export function AppShell({ sidebarCollapsed, podeAtender, children }: AppShellPr
   // decide a faixa que o conteúdo perde, e ninguém mais mede isso por fora.
   const ocupacaoDoRodape = useOcupacaoDoRodape();
   return (
-    /*
-      `min-h-dvh`, e não `min-h-screen`: `100vh` no celular é a janela com a
-      barra de endereço RECOLHIDA, um valor que o navegador nunca corrige.
-      Enquanto a barra está visível — que é o estado em que a página abre — a
-      casca mede mais que a janela, e o fundo da tela fica sempre um pouco
-      além do alcance, com a página nascendo rolável sem ter conteúdo para
-      rolar. `dvh` é a altura dinâmica, que acompanha a barra aparecendo e
-      sumindo. Princípio 2 de `docs/design-system/screen-flow/07-responsive-strategy.md`,
-      escrito em abril de 2026 e aplicado em 6 lugares de 33 até aqui.
-    */
     <div className="flex min-h-dvh w-full bg-background">
       <BarraDeProgressoNavegacao />
-      <div className="hidden md:block">
-        <Sidebar collapsed={sidebarCollapsed} />
-      </div>
+      {!isEmbedded && (
+        <div className="hidden md:block">
+          <Sidebar collapsed={sidebarCollapsed} />
+        </div>
+      )}
       {/*
         `min-w-0` é o que permite a coluna de conteúdo ENCOLHER. Um flex item
         nasce com `min-width: auto`, ou seja, nunca fica menor que o conteúdo —

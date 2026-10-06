@@ -1,0 +1,73 @@
+# Stack Docker para o DeskcommCRM no ambiente de homologação e produção do laboratório (10.1.1.4).
+# Mapeado para o subdomínio https://crm.poa.metodoatuarial.com.br atrás do HAProxy.
+#
+# Uso no host 10.1.1.4:
+#   docker compose -f docker-compose.lab.yml --env-file .env.lab up -d
+
+version: "3.9"
+
+services:
+  app:
+    container_name: expanda-crm
+    image: ${APP_IMAGE:-ghcr.io/melgarafael/deskcommcrm:stable}
+    restart: unless-stopped
+    ports:
+      - "3033:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://crm.poa.metodoatuarial.com.br}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@10.1.1.4:5432/deskcomm_db}
+      SUPABASE_DB_URL: ${SUPABASE_DB_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@10.1.1.4:5432/deskcomm_db}
+      DESKCOMM_SSO_SECRET: ${DESKCOMM_SSO_SECRET}
+      WAHA_API_BASE_URL: http://waha:3000
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      REDIS_URL: ${REDIS_URL:-redis://10.1.1.4:6379/2}
+    depends_on:
+      - waha
+    mem_limit: 768m
+    networks:
+      - crm-net
+
+  waha:
+    container_name: expanda-crm-waha
+    image: devlikeapro/waha:noweb
+    restart: unless-stopped
+    ports:
+      - "3034:3000"
+    environment:
+      WAHA_API_KEY: ${WAHA_API_KEY_SHA512}
+      WHATSAPP_DEFAULT_ENGINE: NOWEB
+      WHATSAPP_HOOK_URL: http://app:3000/api/v1/webhooks/waha
+      WHATSAPP_HOOK_EVENTS: "message.any,message.ack,message.edited,message.revoked,session.status,state.change"
+      WHATSAPP_RESTART_ALL_SESSIONS: "True"
+    volumes:
+      - crm-waha-sessions:/app/.sessions
+      - crm-waha-media:/app/.media
+    mem_limit: 512m
+    networks:
+      - crm-net
+
+  worker:
+    container_name: expanda-crm-worker
+    image: ${WORKER_IMAGE:-ghcr.io/melgarafael/deskcomm-worker:stable}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD}@10.1.1.4:5432/deskcomm_db}
+      WAHA_API_BASE_URL: http://waha:3000
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      REDIS_URL: ${REDIS_URL:-redis://10.1.1.4:6379/2}
+    depends_on:
+      - app
+      - waha
+    mem_limit: 512m
+    networks:
+      - crm-net
+
+volumes:
+  crm-waha-sessions:
+  crm-waha-media:
+
+networks:
+  crm-net:
+    driver: bridge
