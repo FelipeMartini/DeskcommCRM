@@ -26,6 +26,8 @@ export const PUBLIC_PATHS: RegExp[] = [
   // Retorno de OAuth social: documento público sem efeitos que reconecta a
   // navegação interna para manter os cookies de sessão sob SameSite=Strict.
   /^\/auth\/social-return$/,
+  // Single Sign-On (SSO): a rota valida o token JWT internamente e efetiva os cookies de sessão.
+  /^\/api\/auth\/sso$/,
   /^\/403$/,
   /^\/admin\/forbidden$/,
   /^\/404$/,
