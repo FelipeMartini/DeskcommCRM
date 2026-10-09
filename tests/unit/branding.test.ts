@@ -209,6 +209,12 @@ type EntradaDeMarca = {
 
 const MARCA_CONGELADA: Record<string, EntradaDeMarca> = {
   // ─── PROTOCOLO — contrato de fio. Renomear quebra integração alheia. ───
+  "lib/ai/pontos/pkce-da-assinatura.ts": {
+    categoria: "PROTOCOLO",
+    motivo:
+      "`agent_name_hint` identifica o aplicativo auto-hospedado durante a autorização SIWC da OpenAI; não é o nome apresentado nas telas do CRM. O fluxo de login depende deste identificador de produto.",
+    marcas: ["deskcommcrm"],
+  },
   "lib/webhooks/assinatura.ts": {
     categoria: "PROTOCOLO",
     motivo:
@@ -231,6 +237,12 @@ const MARCA_CONGELADA: Record<string, EntradaDeMarca> = {
     categoria: "PROTOCOLO",
     motivo:
       "nome do servidor MCP, que o cliente (Claude Desktop e afins) grava na própria configuração. Renomear derruba as conexões já configuradas de quem usa",
+    marcas: ["deskcomm-crm"],
+  },
+  "lib/mcp/servidor-externo/chamada.ts": {
+    categoria: "PROTOCOLO",
+    motivo:
+      "clientInfo do handshake `initialize` do MCP que este cliente manda ao servidor REMOTO: ele registra quem conectou e é comum haver regra de acesso por identificação do cliente lá do lado. Não é texto de interface — a tela nunca mostra — e renomear muda a identidade reportada no fio do protocolo",
     marcas: ["deskcomm-crm"],
   },
   "lib/supabase/admin.ts": {
@@ -298,6 +310,20 @@ const MARCA_CONGELADA: Record<string, EntradaDeMarca> = {
     motivo:
       "chave de localStorage do modo de depuração das citações da IA — irmã de `deskcomm-theme` em lib/theme.tsx. Não é texto de interface: renomear só faz quem já tinha o modo ligado perdê-lo, e o par leitura/escrita teria de mudar junto",
     marcas: ["deskcomm.show_ai_citations"],
+  },
+
+  // Customização do fork ProjetoSocial (SSO + modo embutido, commit feat(sso)).
+  "app/api/auth/sso/route.ts": {
+    categoria: "INFRA",
+    motivo:
+      "identificadores técnicos do Single Sign-On do ProjetoSocial: o cookie `deskcomm_embedded` (contrato com AppShell.tsx, que o lê para entrar em modo embutido) e a variável de ambiente `DESKCOMM_SSO_SECRET` (segredo compartilhado que assina o token vindo do ProjetoSocial). Renomear qualquer um quebra o SSO e o modo embutido em produção, em silêncio",
+    marcas: ["deskcomm_embedded", "deskcomm_sso_secret", "process.env.deskcomm_sso_secret"],
+  },
+  "app/app/_components/AppShell.tsx": {
+    categoria: "INFRA",
+    motivo:
+      "lê o cookie `deskcomm_embedded` (setado por app/api/auth/sso/route.ts) para detectar o modo embutido do ProjetoSocial e esconder o cromo. Par com a rota de SSO; renomear tem de mudar os dois juntos",
+    marcas: ["deskcomm_embedded"],
   },
 
   // ─── DIVIDA — vazamento real. Cada linha declara a fase que a apaga. ───
@@ -815,6 +841,11 @@ type CategoriaDeHost =
 type EntradaDeHost = { categoria: CategoriaDeHost; motivo: string };
 
 const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
+  "chatgpt.com": {
+    categoria: "FORNECEDOR",
+    motivo:
+      "é o serviço da conta ChatGPT nos DOIS papéis deste provedor: o destino do link que leva o operador a conectar a conta por Sign in with ChatGPT E o endpoint de listagem de modelos da assinatura (`lib/ai/catalogo/modelos-da-assinatura.ts` chama `chatgpt.com/backend-api/codex/models`, medido 200 na issue #2602 — a API pública devolve 403 Missing scopes para o mesmo token). O código FALA com ele; trocar pelo domínio do revendedor faria login e listagem não chegarem a lugar nenhum.",
+  },
   "datamanager.googleapis.com": {
     categoria: "FORNECEDOR",
     motivo: "endpoint oficial da Google Data Manager API: recebe conversões e consulta o processamento na conta autorizada pela própria organização. O destino pertence ao fornecedor e não à instalação do CRM.",
@@ -859,11 +890,6 @@ const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
     categoria: "FORNECEDOR",
     motivo:
       "endpoint de autorização OAuth da OpenAI usado pelo login por PKCE da assinatura (`lib/ai/pontos/pkce-da-assinatura.ts`): é onde o fluxo troca o code pelo token e renova o acesso. É o destino do request, iniciado pelo próprio usuário na tela de Sistema — trocar pelo domínio do revendedor faria o login não chegar a lugar nenhum.",
-  },
-  "chatgpt.com": {
-    categoria: "FORNECEDOR",
-    motivo:
-      "backend do Codex (`OPENAI_CODEX_ENDPOINT` em `lib/agent-engine/edge/llm/providers.ts`): é para lá que a chamada da ASSINATURA do ChatGPT vai, com o access_token do login por PKCE, e o mesmo host é o painel que a lista de Credenciais aponta em `ondePegarAChave` (`lib/ai/pontos/provedores.ts`). Não é contrato público da OpenAI e a Openai pode mudá-lo sem aviso — é por isto que a queda para a chave da organização existe: muda o destino, não a conversa.",
   },
   "api.typesafe.ai": {
     categoria: "FORNECEDOR",
@@ -924,6 +950,11 @@ const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
     categoria: "FORNECEDOR",
     motivo: "endpoint da API da Nuvemshop/Tiendanube (ordens e catálogo do e-commerce do cliente).",
   },
+  "api.stripe.com": {
+    categoria: "FORNECEDOR",
+    motivo:
+      "endpoint da API da Stripe (`lib/cobranca/provedores/stripe.ts`): é por onde o DONO da instalação cobra as empresas dele, com a chave da conta Stripe DELE. É o destino do request; trocar pelo domínio do revendedor faria a cobrança não chegar a lugar nenhum.",
+  },
   "www.tiendanube.com": {
     categoria: "FORNECEDOR",
     motivo:
@@ -963,6 +994,11 @@ const HOSTS_DECLARADOS: Record<string, EntradaDeHost> = {
     categoria: "CONSOLE",
     motivo:
       "painel onde o usuário gera a PRÓPRIA chave da Requesty (`ondePegarAChave` em lib/ai/pontos/provedores.ts). Endereço do fornecedor, não nosso.",
+  },
+  "myaccount.google.com": {
+    categoria: "CONSOLE",
+    motivo:
+      "página do Google onde a PESSOA revoga o acesso que deu ao app (`/permissions`). A política de privacidade (`app/legal/privacy/page.tsx`) tem de apontar para ela — o Google exige que o texto diga como revogar, e o endereço é dele, não nosso.",
   },
   "aistudio.google.com": {
     categoria: "CONSOLE",
@@ -1170,6 +1206,10 @@ describe("catraca de host de terceiro no código que embarca", () => {
       // Decisão escrita: painel de chaves da Requesty, o mesmo caso dos outros
       // CONSOLE (o link "Onde pegar a chave" da tela de Credenciais).
       "app.requesty.ai",
+      // `chatgpt.com` saiu daqui para FORNECEDOR (#2602): o código passou a
+      // FALAR com ele (a listagem de modelos da assinatura chama o backend do
+      // Codex), e quem fala com o host é FORNECEDOR — a categoria fechada
+      // perde o host no mesmo diff em que a lista de call sites o ganha.
       "console.anthropic.com",
       // Decisão escrita: é o painel de chaves do Jev, o mesmo caso dos outros
       // CONSOLE — o link "Onde pegar a chave" da tela de Credenciais.
@@ -1188,6 +1228,11 @@ describe("catraca de host de terceiro no código que embarca", () => {
       "meet.jit.si",
       "meusistema.com",
       "mi-gateway.ejemplo.com",
+      // Decisão escrita: a política de privacidade (`app/legal/privacy/page.tsx`) manda a
+      // pessoa revogar o acesso ao Google em `/permissions`, que é onde o Google exige
+      // que o texto aponte. O produto não fala com o host — quem abre o link é a pessoa
+      // — e o endereço é do Google, não nosso. Crescimento escrito, como a regra pede.
+      "myaccount.google.com",
       "partners.tiendanube.com",
       "platform.deepseek.com",
       "platform.openai.com",

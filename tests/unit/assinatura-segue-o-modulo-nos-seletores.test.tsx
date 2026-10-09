@@ -1,7 +1,7 @@
 /**
- * A assinatura do ChatGPT (#1639) só aparece nos seletores de provedor com o
- * módulo `login_codex` ligado — o editor do agente e o passo "O cérebro dele"
- * do onboarding.
+ * A assinatura do ChatGPT (#1639) só aparece no seletor de provedor do editor
+ * do agente com o módulo `login_codex` ligado; no passo "O cérebro dele" do
+ * onboarding, que pede chave colada, ela não aparece nunca.
  *
  * Quem decide é o SERVIDOR (`idsDosProvedoresOferecidos`), e a tela só desenha
  * a lista que recebe. Sem a lista, a tela fica sem a assinatura (falha fechada).
@@ -53,11 +53,10 @@ async function opcoesDoEditor(provedoresOferecidos?: readonly string[]) {
     .map((o) => o.textContent);
 }
 
-function opcoesDoOnboarding(provedoresOferecidos?: readonly string[]) {
+function opcoesDoOnboarding() {
   const { container } = render(
     <InteligenciaDele
       inicial={{ origem: "nenhuma", provedor: "anthropic", rotulo: "Anthropic (Claude)", final: null }}
-      provedoresOferecidos={provedoresOferecidos}
     />,
   );
   const select = container.querySelector("#provedor_da_ia") as HTMLSelectElement;
@@ -86,18 +85,12 @@ describe("editor do agente", () => {
   });
 });
 
+// O passo pede uma chave COLADA, e a assinatura não se cola: ela se conecta pelo
+// login em Credenciais. Por isso ela não é oferecida aqui nem com o módulo ligado.
 describe("onboarding — o cérebro dele", () => {
-  it("módulo desligado: a assinatura não é oferecida, os outros sim", () => {
-    const opcoes = opcoesDoOnboarding(SEM_ELA);
+  it("a assinatura nunca é oferecida no campo de colar chave; os outros sim", () => {
+    const opcoes = opcoesDoOnboarding();
     expect(opcoes).not.toContain(ROTULO);
     expect(opcoes).toContain("Anthropic (Claude)");
-  });
-
-  it("sem a lista do servidor: falha fechada, sem a assinatura", () => {
-    expect(opcoesDoOnboarding(undefined)).not.toContain(ROTULO);
-  });
-
-  it("módulo ligado: a assinatura aparece, como antes", () => {
-    expect(opcoesDoOnboarding(COM_ELA)).toContain(ROTULO);
   });
 });

@@ -47,17 +47,7 @@ type Prova =
   | { estado: "problema"; codigo: string }
   | { estado: "nao_deu" };
 
-export function InteligenciaDele({
-  inicial,
-  provedoresOferecidos,
-}: {
-  inicial: EstadoDaChave;
-  /**
-   * O que a instalação oferece, filtrado no servidor (`idsDosProvedoresOferecidos`):
-   * a assinatura do ChatGPT só com o módulo `login_codex` ligado. Ausente = sem ela.
-   */
-  provedoresOferecidos?: readonly string[];
-}) {
+export function InteligenciaDele({ inicial }: { inicial: EstadoDaChave }) {
   const t = useT();
   const [chave, setChave] = useState(inicial);
   const [prova, setProva] = useState<Prova | null>(null);
@@ -131,12 +121,8 @@ export function InteligenciaDele({
               onChange={(e) => setProvedor(e.target.value)}
               className="h-9 w-full rounded-md border bg-background px-3 text-sm"
             >
-              {PROVEDORES.filter(
-                (p) =>
-                  (provedoresOferecidos
-                    ? provedoresOferecidos.includes(p.id)
-                    : p.id !== PROVEDOR_POR_ASSINATURA) || p.id === provedor,
-              ).map((p) => (
+              {/* A assinatura do ChatGPT nunca: ela não se cola, conecta-se pelo login em Credenciais. */}
+              {PROVEDORES.filter((p) => p.id !== PROVEDOR_POR_ASSINATURA || p.id === provedor).map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.rotulo}
                 </option>

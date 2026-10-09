@@ -84,7 +84,10 @@ vi.mock("@/app/actions/onboarding/_shared", () => ({
   requireOnboardingCtx: vi.fn(async () => ({ orgId: ORG, userId: "u1", role: "admin" })),
   OnboardingError: class extends Error {},
 }));
-vi.mock("@/lib/ai/credenciais/guardar", () => ({ guardarCredencial: onboarding.guardar }));
+vi.mock("@/lib/ai/credenciais/guardar", async (importOriginal) => ({
+  ...((await importOriginal()) as Record<string, unknown>),
+  guardarCredencial: onboarding.guardar,
+}));
 vi.mock("@/lib/ai/pontos/padrao-da-organizacao", () => ({
   definirPadraoDeIaDaOrganizacao: onboarding.padrao,
 }));
@@ -171,8 +174,12 @@ describe("módulo login_codex ligado — igual a antes", () => {
     ]);
   });
 
-  it("o passo da chave do onboarding segue para a gravação", async () => {
-    await salvarChaveDaIa(formularioDaChave(ASSINATURA));
-    expect(onboarding.guardar).toHaveBeenCalledTimes(1);
+  // Ligado, a recusa vem do miolo (`guardarCredencial`): a assinatura não se
+  // cola, conecta-se pelo login. O passo devolve a frase e não toca o padrão.
+  it("o passo da chave do onboarding devolve a recusa do miolo e não grava o padrão", async () => {
+    onboarding.guardar.mockResolvedValueOnce({ ok: false, motivo: "assinatura_so_pelo_login" });
+    const r = await salvarChaveDaIa(formularioDaChave(ASSINATURA));
+    expect(r).toEqual({ ok: false, erro: expect.stringMatching(/login em IA › Credenciais/) });
+    expect(onboarding.padrao).not.toHaveBeenCalled();
   });
 });

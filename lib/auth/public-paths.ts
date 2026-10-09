@@ -28,6 +28,10 @@ export const PUBLIC_PATHS: RegExp[] = [
   /^\/auth\/social-return$/,
   // Single Sign-On (SSO): a rota valida o token JWT internamente e efetiva os cookies de sessão.
   /^\/api\/auth\/sso$/,
+  // Volta do provedor de pagamento (checkout, portal): mesma natureza da linha
+  // acima — vem de outro site, o cookie Strict não viaja, e a rota é só a ponte
+  // para um destino FIXO (`app/cobranca/volta/route.ts`), sem efeito.
+  /^\/cobranca\/volta$/,
   /^\/403$/,
   /^\/admin\/forbidden$/,
   /^\/404$/,

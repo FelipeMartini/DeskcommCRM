@@ -27,7 +27,7 @@
 import { revalidatePath } from "next/cache";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { guardarCredencial } from "@/lib/ai/credenciais/guardar";
+import { guardarCredencial, MENSAGEM_ASSINATURA_SO_PELO_LOGIN } from "@/lib/ai/credenciais/guardar";
 import { definirPadraoDeIaDaOrganizacao } from "@/lib/ai/pontos/padrao-da-organizacao";
 import { IDS_DE_PROVEDOR } from "@/lib/ai/pontos/provedores";
 import {
@@ -114,6 +114,7 @@ export async function salvarChaveDaIa(formData: FormData): Promise<ResultadoDaCh
         erro: "Já existe uma chave cadastrada com esse nome. Veja em IA › Credenciais.",
       };
     }
+    if (r.motivo === "assinatura_so_pelo_login") return { ok: false, erro: MENSAGEM_ASSINATURA_SO_PELO_LOGIN };
     return { ok: false, erro: "Não consegui guardar a chave agora. Tente de novo." };
   }
 
