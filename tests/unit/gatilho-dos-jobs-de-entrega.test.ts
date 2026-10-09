@@ -254,6 +254,15 @@ const GATILHO_ESPERADO: Record<string, { condicao: string | null; efeito: string
       "(`vars.RELOGIO_LIGADO`), não uma adaptação de fork — mas ela fica no mapa para " +
       "que trocar a variável por outra coisa continue passando por revisão.",
   },
+
+  // --- customização do fork ProjetoSocial (não existe no upstream) -------------
+  "publicar-fork.yml::publicar": {
+    condicao: null,
+    efeito:
+      "Workflow próprio do fork ProjetoSocial: constrói e publica as imagens do app e " +
+      "do worker em ghcr.io/felipemartini a cada push na `main`. Sem `if:` de propósito " +
+      "— roda sempre que a `main` anda. Desligá-lo deixa o deploy do fork sem imagem nova.",
+  },
 };
 
 interface JobLido {

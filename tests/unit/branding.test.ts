@@ -312,6 +312,20 @@ const MARCA_CONGELADA: Record<string, EntradaDeMarca> = {
     marcas: ["deskcomm.show_ai_citations"],
   },
 
+  // Customização do fork ProjetoSocial (SSO + modo embutido, commit feat(sso)).
+  "app/api/auth/sso/route.ts": {
+    categoria: "INFRA",
+    motivo:
+      "identificadores técnicos do Single Sign-On do ProjetoSocial: o cookie `deskcomm_embedded` (contrato com AppShell.tsx, que o lê para entrar em modo embutido) e a variável de ambiente `DESKCOMM_SSO_SECRET` (segredo compartilhado que assina o token vindo do ProjetoSocial). Renomear qualquer um quebra o SSO e o modo embutido em produção, em silêncio",
+    marcas: ["deskcomm_embedded", "deskcomm_sso_secret", "process.env.deskcomm_sso_secret"],
+  },
+  "app/app/_components/AppShell.tsx": {
+    categoria: "INFRA",
+    motivo:
+      "lê o cookie `deskcomm_embedded` (setado por app/api/auth/sso/route.ts) para detectar o modo embutido do ProjetoSocial e esconder o cromo. Par com a rota de SSO; renomear tem de mudar os dois juntos",
+    marcas: ["deskcomm_embedded"],
+  },
+
   // ─── DIVIDA — vazamento real. Cada linha declara a fase que a apaga. ───
   "lib/email/templates/ai-budget-alarm.tsx": {
     categoria: "DIVIDA",
