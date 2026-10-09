@@ -597,8 +597,32 @@ jobs:
       # Uma variável, os dois scripts: `scripts/test-db.sh` e
       # `scripts/test-update-com-dados.sh` leem esta para escolher a imagem.
       TEST_DB_IMAGE: pgvector/pgvector:pg${{ matrix.pg }}
+      # [fork ProjetoSocial] A conferência de isolamento do kit
+      # (scripts/conferir-isolamento-do-kit.sh, dentro de `pnpm test:db`) pega o
+      # update.sh da ÚLTIMA RELEASE PUBLICADA. Este fork NÃO publica GitHub
+      # Releases próprias (Abordagem 2 — deploy por CI/compose, ver a análise do
+      # auto-update no ProjetoSocial), então `gh release view` e o
+      # `/releases/latest` do origin vêm vazios e a conferência abortaria com
+      # FATAL. Apontamos à mão para a última release do UPSTREAM, cujas tags o
+      # step "Tags do upstream" abaixo traz para o runner.
+      # ⇒ Atualizar para a maior tag trazida a CADA sincronização do fork.
+      CONFERENCIA_KIT_RELEASE: v1.78.0
     steps:
       - uses: actions/checkout@v7
+
+      # [fork ProjetoSocial] O checkout do origin (nosso fork) não tem as tags
+      # vXX do upstream, e um `git push` de branch não as leva. A conferência do
+      # kit precisa do update.sh da release escolhida (CONFERENCIA_KIT_RELEASE,
+      # no env do job) e da v1.63.0 fixa do próprio script. Trazemos essas tags
+      # do upstream para DENTRO do runner — sem pushar nada no nosso remoto, o
+      # que dispararia o publish-image/release do upstream a cada tag vXX.
+      # As duas tags acompanham a sincronização: a v1.63.0 é fixa (o
+      # ANTES_DO_FILTRO do próprio script); a outra = CONFERENCIA_KIT_RELEASE.
+      - name: Tags do upstream para a conferência do kit (fork sem releases)
+        run: |
+          git fetch --depth=1 https://github.com/melgarafael/DeskcommCRM.git \
+            'refs/tags/v1.63.0:refs/tags/v1.63.0' \
+            'refs/tags/v1.78.0:refs/tags/v1.78.0'
 
       - uses: ./.github/actions/preparar-node
         # O teto do preâmbulo mora aqui porque passo de composite action não
