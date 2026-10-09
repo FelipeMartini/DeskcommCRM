@@ -28,8 +28,10 @@ import { conversaoDeQualificacaoHandler } from "@/lib/conversoes/qualificacao.ha
 import { conversaoDeEtapaMetaHandler } from "@/lib/conversoes/etapa-meta.handler";
 import { conversaoDeVendaHandler } from "@/lib/conversoes/envio.handler";
 import { avisoDeEtapaHandler } from "@/lib/leads/aviso-de-etapa.handler";
+import { comandaDoGanhoHandler } from "@/lib/financeiro/comanda-do-ganho.handler";
 import { avisoDeCasoAoSuporteHandler } from "@/lib/escalacao/aviso-ao-suporte.handler";
 import { avisoDePropostaNoWhatsAppHandler } from "@/lib/propostas/aviso-no-whatsapp.handler";
+import { cobrancaSinalHandler } from "@/lib/cobranca/sinal.handler";
 import { registerHandler } from "@/lib/event-log/dispatcher";
 
 let _registered = false;
@@ -64,12 +66,19 @@ export function ensureHandlersRegistered(): void {
   // lado do outro consumidor de `ai.case_opened` que só escreve no banco, e
   // longe do aviso ao suporte, que sai por rede de terceiro.
   registerHandler(casoNaCentralHandler);
+  // Escrita curta no banco, idempotente pelo vínculo do lead: abre a comanda
+  // do negócio ganho (#1477). Antes de todo consumidor que sai por rede de
+  // terceiro, pelo mesmo critério dos vizinhos de cima.
+  registerHandler(comandaDoGanhoHandler);
   registerHandler(followupGatilhoPresencaHandler);
   registerHandler(mediaPersistHandler);
   registerHandler(mediaDeriveHandler);
   // Os consumidores dos canais (ex.: o pino que entrou sem coordenadas).
   for (const consumidor of CONSUMIDORES_DOS_CANAIS) registerHandler(consumidor);
   registerHandler(webPushInboundHandler);
+  // A cobrança do revendedor: relê o provedor (rede de terceiro) e só então
+  // escreve. Consome um evento só dela, então a posição não atrasa ninguém.
+  registerHandler(cobrancaSinalHandler);
   // Penúltimo, pelo MESMO critério do último: o aviso ao suporte sai por rede de
   // terceiro (o transporte de WhatsApp) e nunca pode atrasar quem escreve no
   // banco — inclusive o `followupGatilhoCasoHandler`, que consome o MESMO evento

@@ -10,6 +10,7 @@ import { versionCreateSchema } from "@/lib/ai/agents/validation";
 import { lockRouter, writeRouterMembers } from "@/lib/ai/agents/router-members";
 import { chaveDePlataforma } from "@/lib/ai/runtime/agent";
 import { PROVIDERS } from "@/lib/ai/agents/validation";
+import { provedorOferecido } from "@/lib/ai/pontos/provedores-oferecidos";
 import { capabilitiesOf } from "@/lib/channels/capabilities";
 import type { ChannelProvider } from "@/lib/channels/types";
 import { prospectingAgentSetupSchema, type ProspectingAgentSetupInput } from "./agent-setup-schema";
@@ -56,10 +57,19 @@ export interface ModelChoice {
   credential_id: string | null;
   label: string;
 }
+/**
+ * `oferece` é `provedorOferecido` (#2458): o modelo escolhido aqui vira o provedor
+ * GRAVADO na versão do agente de prospecção, então a assinatura do ChatGPT com o
+ * módulo `login_codex` desligado é PULADA e a escolha segue para o próximo
+ * provedor utilizável. Pular, e não recusar, porque aqui ninguém pediu aquele
+ * provedor: é uma escolha automática, e a próxima chave válida é a resposta que
+ * a pessoa esperaria.
+ */
 export async function resolveSetupModel(
   db: pg.PoolClient,
   orgId: string,
-  channelId: string | null = null,
+  channelId: string | null,
+  oferece: (provider: string) => boolean,
 ): Promise<ModelChoice> {
   const published = await db.query(
     `select v.provider,v.model,v.credential_id,m.display_name from ai_agents a
@@ -72,7 +82,11 @@ export async function resolveSetupModel(
     [orgId, channelId],
   );
   for (const row of published.rows) {
-    if (PROVIDERS.includes(row.provider) && (row.credential_id || chaveDePlataforma(row.provider)))
+    if (
+      PROVIDERS.includes(row.provider) &&
+      oferece(row.provider) &&
+      (row.credential_id || chaveDePlataforma(row.provider))
+    )
       return {
         provider: row.provider,
         model: row.model,
@@ -90,7 +104,7 @@ export async function resolveSetupModel(
     ...new Set([preferred, ...credentials.rows.map((c) => c.provider), ...PROVIDERS]),
   ];
   for (const provider of providers) {
-    if (!PROVIDERS.includes(provider)) continue;
+    if (!PROVIDERS.includes(provider) || !oferece(provider)) continue;
     const credential = credentials.rows.find((c) => c.provider === provider);
     if (!credential && !chaveDePlataforma(provider)) continue;
     const models = await db.query(
@@ -212,6 +226,9 @@ export async function setupProspectingAgent(
   const agentId = setupAgentId(context.orgId, input.campaign_id, input.request_id);
   const requestHash = hash(input);
   const db = await pool.connect();
+  // #2624 — mesma marcação do #2621: o finally só libera COM erro quem falhou
+  // dentro da transação (release(err) → _remove no pg-pool, cliente descartado).
+  let erroNaTransacao: Error | undefined;
   let saved = false;
   const locked: string[] = [];
   let createdNow = false;
@@ -303,7 +320,12 @@ export async function setupProspectingAgent(
       }
     } else {
       await preflight(db, context.orgId, input, agentId, options.prepareOnly);
-      const model = await resolveSetupModel(db, context.orgId, input.channel_session_id);
+      const model = await resolveSetupModel(
+        db,
+        context.orgId,
+        input.channel_session_id,
+        await provedorOferecido(admin),
+      );
       const version = versionCreateSchema.parse({
         system_prompt: prospectingAgentPrompt(input),
         provider: model.provider,
@@ -505,6 +527,9 @@ export async function setupProspectingAgent(
       model_label: metadata.model_label,
     };
   } catch (error) {
+    // Marcado ANTES do rollback: se o próprio rollback estourar, o cliente ainda
+    // sai com erro e o pg-pool o descarta (release(err) → _remove → client.end()).
+    erroNaTransacao = error instanceof Error ? error : new Error(String(error));
     await db.query("rollback").catch(() => undefined);
     if (error instanceof AgentSetupError) {
       if (saved) error.agentId = agentId;
@@ -527,6 +552,8 @@ export async function setupProspectingAgent(
         break;
       }
     }
-    db.release(destroy);
+    // #2624: quem falhou dentro da transação sai COM erro; quem só não conseguiu
+    // destravar o lock continua saindo com destroy explícito, como antes.
+    db.release(erroNaTransacao ?? destroy);
   }
 }

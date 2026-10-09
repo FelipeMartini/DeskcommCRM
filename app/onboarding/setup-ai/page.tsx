@@ -2,8 +2,6 @@ import { redirect } from "next/navigation";
 
 import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { idsDosProvedoresOferecidos } from "@/lib/ai/pontos/provedores-oferecidos";
 import { lerRetratoDaInstalacao } from "@/lib/instalacao/retrato";
 import { SetupAiForm } from "./_form";
 import { InteligenciaDele } from "./_inteligencia";
@@ -65,7 +63,6 @@ export default async function SetupAiPage() {
           rotulo: retrato.inteligencia.rotulo,
           final: retrato.inteligencia.chaveDaOrg?.final ?? null,
         }}
-        provedoresOferecidos={await idsDosProvedoresOferecidos(createAdminClient())}
       />
 
       <SetupAiForm capacidades={capacidades} conferencias={conferencias} />

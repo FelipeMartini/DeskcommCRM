@@ -204,6 +204,10 @@ export const AUDIT_ACTIONS = [
   "ai_agent.duplicated",
   "ai_agent.paused",
   "ai_agent.published",
+  // A chave por ASSUNTO JURÍDICO por agente mudou de valor numa publicação
+  // (#2156). À parte de `ai_agent.published`: este só emite quando o VALOR
+  // mudou, então dá para perguntar "quando esta empresa desligou a chave?".
+  "ai_agent.legal_handoff_changed",
   "ai_agent.version_created",
   "ai_agent.version_updated",
   "ai_agent.tested",
@@ -508,6 +512,13 @@ export const AUDIT_ACTIONS = [
   // "quem mexeu no cadastro dela?". Fundir as duas obrigaria a ler o metadata
   // para saber qual das duas coisas aconteceu.
   "org.branding_updated",
+  // As ALÍNEAS a), c) e d) do art. 15.º preenchidas pelo controlador
+  // (`organizations.settings.art15`, issue #2356) — mutação de TENANT com a
+  // mesma forma da anterior: `organization_id` + `resource_id` = uuid da org.
+  // Outra ação, e não `org.updated`, porque a pergunta da trilha é "quem
+  // declarou as alíneas que o relatório de acesso imprimiu?" — e o metadata
+  // guarda a declaração como ela foi gravada, que é o que a CNPD pode pedir.
+  "org.art15_updated",
 
   // ── Vindos da `main` durante a continuação do épico ──────────────────
   // Chegaram pelo painel (`action-codes.ts`) no mesmo intervalo em que este
@@ -1025,6 +1036,38 @@ export const AUDIT_ACTIONS = [
   // (#2098): gravada pela tela de Conversões, em `organizations.settings.conversions`.
   "conversions.meta_identity_updated",
 
+  // ── Cobrança do revendedor — rotas do dono (spec 2026-09-29, PR 2) ───────
+  // Plano criado/editado e arquivado; plano atribuído ou trocado numa empresa
+  // (`metadata.quando`: atribuido | imediato); prazo dado e isenção
+  // (`metadata.reativada` diz se a suspensão por cobrança saiu junto); a chave
+  // desligada em /admin/sistema, com quantas suspensas foram liberadas.
+  "cobranca.plano_salvo",
+  "cobranca.plano_arquivado",
+  "cobranca.plano_trocado",
+  "cobranca.prazo_concedido",
+  "cobranca.isencao_definida",
+  "cobranca.modulo_desligado",
+  // ── Cobrança do revendedor — provedor e régua (PR 3a, spec §13) ──────────
+  // Conexão e publicação da chave (metadata só com last4, NUNCA a chave);
+  // checkout iniciado; estado traduzido da releitura (com statusBruto, só
+  // quando mudou); cancelamento no fim; suspensão e reativação por cobrança;
+  // rodada do cron com efeito; tolerância da régua salva.
+  "cobranca.provedor_conectado",
+  "cobranca.modo_publicado",
+  "cobranca.checkout_iniciado",
+  "cobranca.estado_mudou",
+  "cobranca.assinatura_cancelada",
+  "cobranca.org_suspensa",
+  "cobranca.org_reativada",
+  "cobranca.rodada",
+  "cobranca.regua_salva",
+  // O servidor MCP externo registrado pela instalação (#2147): gravado (ou
+  // apagado, com `registrado: false` no metadata) em
+  // `organizations.settings.mcp_externo`. É mutação de TENANT — o endereço que
+  // o agente passa a consultar vem de uma pessoa com poder para instalar —, e
+  // por isso vai com `organization_id` e `resource_id` = uuid da org. A CHAVE
+  // do servidor nunca entra aqui: o metadata traz endpoint e forma.
+  "org.mcp_externo_registrado",
   // #1639, fatia do login: o código colado em /admin/sistema virou tokens e foi
   // guardado cifrado. Sem esta linha, "quem conectou a assinatura, e quando"
   // ficaria sem rastro — e é a conta que passa a pagar as chamadas.
@@ -1045,6 +1088,22 @@ export const AUDIT_ACTIONS = [
   // empresa (e religá-lo) ficaria sem rastro — e é ele que decide se alguma
   // regra consulta o modelo.
   "settings.automation_ai_decide_updated",
+
+  // Planos de tarefa (#1752): a lista `settings.task_plans` mudou pela rota
+  // `settings/task-plans` — mesma família de `campaign.settings_updated`.
+  "task_plans.settings_updated",
+
+  // Gestão de tenants pelo admin da plataforma (migration 0614).
+  // A LÁPIDE, gravada pelo banco dentro de `fn_excluir_organizacao`, com
+  // `organization_id` nulo e `resource_id` = a organização excluída.
+  "organization.deleted",
+  // O fecho da exclusão (Storage, logins, canais externos), gravado pela
+  // aplicação depois do commit — `lib/tenants/exclusao.ts`.
+  "organization.deletion_completed",
+  // Leitura da lista de membros com e-mail de login (dado pessoal) de um tenant.
+  "platform_admin.tenant_members_viewed",
+  // O admin da plataforma corrigiu o e-mail de login de um membro (só hashes).
+  "member.email_changed",
 ] as const;
 
 /** Um código de auditoria. Derivado de `AUDIT_ACTIONS` — não redigite a lista. */

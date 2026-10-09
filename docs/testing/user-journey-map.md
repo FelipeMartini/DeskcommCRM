@@ -1139,7 +1139,7 @@ ação `send_ai_message`, retomada manual (`lib/escalacao/retomada.ts`).
 | J20.12 | Follow-up em cliente atual (não autorizado, gate allowlist) | NÃO enrola | **CÓDIGO** — `silence-sweep.ts` `loadSilentContactIds` consulta a regra compartilhada e pula `!permitidoPeloGate`; **E2E** — `tests/e2e/j20-elegibilidade-followup.spec.ts` (fluxo de silêncio publicado pela API + cron real: silencioso autorizado → nasce `followup_enrollments`; silencioso NÃO autorizado, mesmo canal → nenhum enrollment) |
 | J20.13 | Reinício do worker com backlog de eventos pending | zero disparos: cada evento cujo inbound já foi superado vira `done` sem job | **UNIT** — `drain.test.ts` "evento superado por inbound mais recente" |
 | J20.14 | Submissão antiga (fora do TTL) | NÃO reativa a IA sozinha | **UNIT** — `gate.test.ts` "submissão antiga (fora da janela)", `drain.test.ts` "autorização EXPIRADA" |
-| J20.15 | Org SEM versão de agente publicada (caminho legado `ai-response-worker`), gate allowlist, contato não autorizado | IA NÃO responde por este caminho tampouco | **UNIT** — `ai-response-worker-elegibilidade.test.ts` (skip `nao_elegivel_para_ia` antes de ler mensagem/agente; fail-closed em erro de leitura) |
+| J20.15 | Org SEM versão de agente publicada (caminho legado `ai-response-worker`), gate allowlist, contato não autorizado | IA NÃO responde por este caminho tampouco | **UNIT** — `ai-response-worker-elegibilidade.test.ts` (skip `nao_elegivel_para_ia` antes de ler a mensagem; a leitura dos candidatos legados em `ai_agents` vem primeiro — sem candidato, sai com uma consulta; fail-closed em erro de leitura) |
 | J20.16 | Follow-up de TEXTO FIXO drenado inline (`enviarTextoFixoPendente`, sem worker), contato não autorizado | NÃO envia; job vira `done` | **UNIT** — `enviar-texto-fixo.test.ts` "conversa NÃO elegível" (+ fail-closed volta pra `pending`) |
 | J20.17 | Cliente antigo irritado (gate allowlist, não autorizado) → worker de sentimento dispara `low_sentiment` | `triggerHandoff` NÃO dispara: sem "um humano vai te atender", sem mexer no estado da conversa | **UNIT** — `handoff-orchestrator-elegibilidade.test.ts` (`bloqueioPorAllowlist` e `conversa_silenciada` barram; fail-closed em erro) |
 | J20.18 | Eu respondo o cliente à mão pelo meu WhatsApp numa conversa autorizada | IA para naquela conversa por um PRAZO renovado a cada nova fala humana — o da EMPRESA (`settings.routing.manual_reply_silence_minutes`, Configurações › Atendimento, 5 min a 24 h; padrão `PRAZO_DO_SILENCIO_MS`, 60 min; diagnóstico de @gaberaldo-svg no #2005: clínica que atende o dia inteiro pelo celular nunca via a IA voltar) —, SEM apagar `ai_authorized_at`; volta sozinha quando o prazo vence, ou antes por "devolver ao automático" | **UNIT** — `atendimento-manual.test.ts` (as duas pontas do prazo medidas pelo motor real `decidirElegibilidade`, renovação, e o que NUNCA encurta: `'infinity'` do handoff formal e janela mais longa) + `waha-ingest-atendimento-manual.test.ts` (via `dispatchWahaEvent` real; eco do próprio envio NÃO pausa) + guarda de fonte no Zernio + fiação em `handoff-fantasma-fiacao.test.ts` + o prazo da empresa em `atendimento-manual.test.ts` (15 min gravado; erro/exceção ao ler o ajuste ainda pausa com 60; `#off` nem consulta) e os valores inválidos em `prazo-silencio-knob.test.ts` + o campo em `app/app/settings/atendimento/_form.test.tsx`; **E2E** — `tests/e2e/j20-elegibilidade-atendimento-manual.spec.ts` (webhook `fromMe` genuíno → `bot_silenced_until` finito e futuro, nunca `'infinity'`, + rastro; `ai_authorized_at` intacto; 2ª mensagem RENOVA o prazo; tela mostra o selo; "devolver ao automático" solta a trava e a autorização continua) |
@@ -1344,6 +1344,89 @@ APROVAR um pedido de LGPD pelo hub (a spec abre o pedido, não aprova).
 `evidence/suspensao-administrativa/hub-pedido-lgpd.png`,
 `evidence/suspensao-administrativa/hub-atendente.png`,
 `evidence/suspensao-administrativa/central-apos-reativar.png`.
+
+## J41 — O dono cria planos e os limites de pessoas, números e IA valem de verdade `[P1]` (2026-09-30)
+
+**Origem:** PR 2 da cobrança do revendedor
+(`docs/superpowers/specs/2026-09-29-cobranca-do-revendedor-design.md`, §2.2, §2.3, §5, §7(g)(h), §9).
+A chave `MODULO_COBRANCA` ainda não pode ser ligada pela tela (fica em
+`MODULOS_AINDA_NAO_LIGAVEIS` até a PR 3a), então os casos com a chave ligada
+gravam `platform_config.MODULO_COBRANCA='ligado'` direto no banco pelo fixture.
+
+| Caso | Spec | Estado |
+|---|---|---|
+| O dono acha a porta Cobrança, cria um plano (1 pessoa, 1 número, 5 dias) e o atribui à empresa B pelo card do tenant | `tests/e2e/cobranca-suspensao-e-limites.spec.ts` | CI (PARTE_6) |
+| A admin de B vê a faixa de teste grátis; o convite com o plano cheio é recusado antes do e-mail, com a mensagem do plano | idem | CI (PARTE_6) |
+| Reativar membro acima do teto pela API da sessão: o `PT402` atravessa o PostgREST real e vira 409 `plan_limit_reached` | idem | CI (PARTE_6) |
+| Billing mostra o teste grátis e o uso 1 de 1 | idem | CI (PARTE_6) |
+| B suspensa por cobrança: o dono dá prazo pelo card e B volta; suspensa de novo, desligar a chave em /admin/sistema a libera e a porta some | idem | CI (PARTE_6) |
+| Sem a chave: formulário de novo tenant, painel do tenant, /admin/sistema, Billing e menu como antes; nenhuma faixa; Recursos opcionais sem cobrança | `tests/e2e/cobranca-desligada.spec.ts` | CI (PARTE_6) |
+| As duas tabelas: forma, vocabulário, grants, colunas mortas fora | `tests/invariants/cobranca-tabelas.test.ts` | test:db |
+| Isolamento: admin de A lê só A; `agent` não lê; a sessão não escreve; `cobranca_planos` invisível | `tests/invariants/cobranca-isolamento.test.ts` | test:db |
+| O limite do plano: nulo com a chave desligada, isenta ou sem teto; recurso fora do vocabulário = 22023 | `tests/invariants/cobranca-limite-do-plano.test.ts` | test:db |
+| Assentos: teto 2 → 3º membro `PT402` com a mensagem que o app lê; entradas concorrentes → uma passa; provisório pela sessão → `42501` | `tests/invariants/cobranca-assentos.test.ts` | test:db |
+| Canais: idem com desarquivar, troca de organização, reconexão do número já ativo e `wacalls` fora da conta | `tests/invariants/cobranca-canais.test.ts` | test:db |
+| Teste grátis na criação: chave ligada + plano do cadastro → `trial`; criado por platform admin → nada; chave desligada → `settings.plan` como antes | `tests/invariants/cobranca-trial-na-criacao.test.ts` | test:db |
+| Suspensão por cobrança poupa a isenta; reativar zera o aviso; desligar libera só as de cobrança | `tests/invariants/cobranca-suspensao-e-liberacao.test.ts` | test:db |
+| Teto de IA do plano no Postgres real; o orçamento da org não retrata o aviso do plano | `tests/invariants/teto-do-plano.test.ts` | test:db |
+| Aviso do plano e aviso do orçamento convivem sem se retratar | `tests/invariants/cobranca-aviso-do-plano-e-do-orcamento.test.ts` | test:db |
+| Teto de IA do plano: chave própria nunca bloqueia; finalidade isenta segue; `AI_BUDGET_ENFORCEMENT=off` desliga | `lib/agent-engine/edge/llm/orcamento.test.ts` | unit |
+| O mapa vivo espelha os mapas vizinhos e nenhuma peça é ilha | `tests/unit/mapas-de-arquitetura.test.ts` | unit |
+
+**Evidência** (gerada pelo e2e da PARTE_6 no CI e versionada a partir do artefato
+`evidencia-parte-6`): `evidence/cobranca-planos-e-limites/admin-cobranca-planos.png`,
+`evidence/cobranca-planos-e-limites/tenant-card-cobranca.png`,
+`evidence/cobranca-planos-e-limites/convite-recusado-pelo-plano.png`,
+`evidence/cobranca-planos-e-limites/billing-teste-gratis.png`,
+`evidence/cobranca-planos-e-limites/sistema-desligar-libera.png`,
+`evidence/cobranca-planos-e-limites/desligada-novo-tenant.png`,
+`evidence/cobranca-planos-e-limites/desligada-billing.png`,
+`evidence/cobranca-planos-e-limites/desligada-recursos-opcionais.png`.
+
+**Não coberto pela tela:** ligar a chave pela tela (PR 3a, quando ela sair de
+`MODULOS_AINDA_NAO_LIGAVEIS`); pagamento, régua de avisos e suspensão
+automática por falta de pagamento (PR 3a); o aceite de convite recusado pelo
+limite (provado em `tests/invariants/cobranca-assentos.test.ts` e em
+`lib/auth/aplicar-convite.test.ts`, não pela tela); o teto de IA do plano
+bloqueando uma conversa com agente publicado (provado em unit e no Postgres
+real, não pela tela).
+
+## J43 — A primeira cobrança: o dono conecta a Stripe, o cliente assina, atrasa, é suspenso e volta sozinho ao pagar `[P0]` (2026-09-30)
+
+**Origem:** PR 3a da cobrança do revendedor
+(`docs/superpowers/specs/2026-09-29-cobranca-do-revendedor-design.md`, §3.2, §6.1, §7(a)–(f), §8, §9, §12).
+É P0 porque é a primeira impressão de quem instala para vender: se a primeira cobrança não fecha o ciclo, não há produto para revender. Cobre o que a J41 (PR 2) deixou para esta PR: ligar pela tela, pagamento, régua e suspensão automática.
+
+| Caso | Spec | Estado |
+|---|---|---|
+| O dono liga "Cobrança dos seus clientes" em /admin/sistema e acha a porta Cobrança | `tests/e2e/cobranca-revendedor.spec.ts` | CI |
+| Conecta a Stripe em teste: selo MODO DE TESTE, só os 4 últimos da chave na tela, chave cifrada e fora do audit; webhook sem `invoice.created`; portal sem troca de plano | idem | CI |
+| Ajusta a tolerância na aba Régua; cria dois planos e escolhe o do cadastro | idem | CI |
+| O cliente se cadastra e nasce em teste grátis; a faixa leva ao plano; Assinar abre o checkout hospedado; a volta mostra "1ª cobrança agendada" | idem | CI |
+| Os avisos chegam assinados e ficam só como ponteiro (`{id,type}`, org nula, sem cabeçalhos); assinatura errada → 401 | idem | CI |
+| A 1ª cobrança paga vira "Em dia" e marca o checklist; o passo do e-mail fica aberto, apontando /admin/email | idem | CI |
+| Trocar de plano depois do teste: "vale a partir de DD/MM", sem rateio, e o plano vira só na virada paga | idem | CI |
+| Atraso: aviso na Central e faixa com o link de pagamento; aviso final; suspensão só 48 h depois dele | idem | CI |
+| No hub, "Já paguei" sem pagar não reativa; pagar a fatura reativa sozinha, sem rajada, com um item de revisão | idem | CI |
+| O dublê e o adaptador falam a mesma língua (cabeçalhos, idempotência, formas basil, assinatura dos avisos) | `tests/unit/cobranca-duble-fala-a-lingua-do-adaptador.test.ts` | unit |
+| A base de teste só vale em loopback e com o app em loopback | `lib/cobranca/provedores/base-de-teste.test.ts` | unit |
+| O mapa vivo tem o caminho do dinheiro de ponta a ponta | `tests/unit/mapas-de-arquitetura.test.ts` | unit |
+
+**Não coberto pela tela:** a publicação (troca da chave de teste pela de produção, D-7); "Tornar isenta" com assinatura viva no provedor; o aviso de 80% do teto de IA; o e-mail dos avisos (o fresco não tem envio configurado, e o checklist mostra isso); o cancelamento de org redigida. Onde são provados: nos testes unitários das rotas e da régua (`lib/cobranca/regua.test.ts`, `lib/cobranca/estado.test.ts`) e nos invariantes da PR 3a. A suspensão usa datas recuadas no banco, não relógio falso: cron e régua rodam com o `now()` real.
+
+**Evidência** (PNG em `evidence/cobranca-revendedor/`):
+- `evidence/cobranca-revendedor/billing-cobranca-agendada.png`
+- `evidence/cobranca-revendedor/billing-em-dia.png`
+- `evidence/cobranca-revendedor/billing-troca-agendada.png`
+- `evidence/cobranca-revendedor/central-aviso-final.png`
+- `evidence/cobranca-revendedor/central-aviso-venceu.png`
+- `evidence/cobranca-revendedor/checkout-do-duble.png`
+- `evidence/cobranca-revendedor/conexao-modo-de-teste.png`
+- `evidence/cobranca-revendedor/faixa-em-atraso.png`
+- `evidence/cobranca-revendedor/hub-pagar-agora.png`
+- `evidence/cobranca-revendedor/reativada-sem-rajada.png`
+- `evidence/cobranca-revendedor/sistema-cobranca-ligada.png`
+- `evidence/cobranca-revendedor/visao-geral-checklist.png`
 
 ## Jornadas exercitadas (instalação final, virgem)
 
@@ -1708,8 +1791,10 @@ bash install.sh
 #       de acesso. Se a pergunta não aparecer na sua execução, é regressão — o
 #       caso da VPS limpa em `test-validators.sh` a vigia.
 
-# 2. Confira que o domínio responde 307 (redirect para o login), não 404
+# 2. Confira que `/` responde 200 (página inicial pública) e `/app` responde 307
+#    (redirect para o login), não 404
 curl -s -o /dev/null -w '%{http_code}\n' https://<DOMAIN>/
+curl -s -o /dev/null -w '%{http_code}\n' https://<DOMAIN>/app
 
 # 3. Logue como o admin criado pelo install, abra /admin/marca e grave a cor
 #    (`#f2c94c` serve). Depois SAIA da sessão.
@@ -3288,3 +3373,45 @@ Spec: `tests/e2e/mapas-em-provedores.spec.ts`.
 | J40.6 | O que o Google diz × o endereço anotado em 8 pedidos confirmados (28/09/2026, numa instalação real) | município 8/8, região 8/8, localidade 7/8 (na zona rural virou o povoado), rua 3/5, bairro 1/8, número interpolado → a cidade é o MUNICÍPIO; bairro e número não saem | **MEDIDO em produção** (fora deste repositório); regra em `tests/unit/mapas-pino-com-endereco.test.ts` |
 | J40.7 | O pino com endereço aproximado, aberto na conversa pela equipe | o cartão do pino mostra «Rua, Cidade, Estado (aprox.)», com o texto inteiro no `title` (o cartão corta com …) e o toque abre as COORDENADAS no mapa | **PASS pela tela** — Evidência: `evidence/triagem-16set-l12/mapas-03-pino-na-conversa.png` |
 | J40.8 | A API do canal intermediado não responde a tempo na ingestão do pino (medido 29/09/2026: timeout duas vezes seguidas) | a mensagem entra com o marcador e pede nova busca (`message.location_retry_requested`); 1 min depois, e a cada 2 min até 15, busca de novo e grava tipo `location` + link (+ endereço aproximado com chave); nunca rebaixa um pino que já tem coordenadas; desiste sem virar incidente | **PASS (unit)** — `tests/unit/pino-reintento.test.ts`, `tests/unit/channel-ingest-zernio.test.ts` |
+
+## J42 — Gestão de tenants pelo admin da plataforma `[P1]` (2026-09-29, recortada em 2026-10-05)
+
+Corrigir o e-mail de acesso de um membro, editar o cadastro e excluir um tenant pela
+tela de `/admin/tenants/<id>` — PR #1967 (@Draven9), recortado: a suspensão é a da
+`main` (J37/`suspensao-administrativa.spec.ts`) e saiu desta jornada. Spec:
+`tests/e2e/admin-gestao-de-tenants.spec.ts` (job e2e, parte 5; cria o próprio tenant
+e o próprio login e se desfaz deles), em instalação sem envio de e-mail configurado.
+
+**Estado da medição: os casos abaixo ainda NÃO rodaram na forma recortada.** A spec foi
+reescrita sem rodar localmente (pedido do dono: máquina sem memória para `next build` +
+`next start`); a primeira medição é a do job `e2e` deste PR. As fotos versionadas
+`evidence/admin-gestao-de-tenants/01-ativo.png`,
+`evidence/admin-gestao-de-tenants/02-email-corrigido.png`,
+`evidence/admin-gestao-de-tenants/04-dados-editados.png`,
+`evidence/admin-gestao-de-tenants/06-confirmacao-da-exclusao.png` e
+`evidence/admin-gestao-de-tenants/07-lista-depois.png` são da versão de 29/09 do PR
+(renomeadas para a numeração nova) e são regravadas na primeira rodada; as da Central
+e da recusa por cobrança só existem depois dela. A transação da exclusão tem prova
+própria em `tests/invariants/gestao-de-tenants.test.ts` e
+`tests/invariants/exclusao-recusa-cobranca.test.ts`.
+
+| # | Caso | Expectativa | Resultado |
+|---|------|-------------|-----------|
+| J42.1 | Tenant ativo | cabeçalho com o nome; o e-mail de login do membro na lista; sem "Excluir tenant", com a instrução "suspenda-o primeiro" | a medir (CI) |
+| J42.2 | Corrigir o e-mail de acesso | a lista mostra o novo; o login com o NOVO entra em `/app`; o ANTIGO é recusado; a troca segue sem envio de e-mail configurado | a medir (CI) |
+| J42.3 | A empresa fica sabendo | a Central (`/app/ai/inbox`) do tenant, vista pelo membro, mostra UM aviso com o nome da pessoa, sem nenhum `@`, e o botão "Abrir a equipe" | a medir (CI) |
+| J42.4 | Editar dados | o nome novo aparece no cabeçalho e está gravado no banco | a medir (CI) |
+| J42.5 | Suspensa por cobrança | sem "Excluir tenant", com a explicação; `POST …/delete` → `409 exclusao_com_cobranca_pendente`; a organização continua no banco | a medir (CI) |
+| J42.6 | Suspensa administrativa pela tela, e excluída | botão travado com identificador errado; com o certo, a organização some do banco, a lápide `organization.deleted` fica e o login que só pertencia a ela é removido | a medir (CI) |
+
+Não provado pela tela: o desligamento externo da exclusão (WhatsApp, voz, loja), que
+agora só acontece depois do commit — o tenant de teste não tem canal conectado; a ordem
+é medida por unidade em `lib/tenants/exclusao.test.ts`. O e-mail ao endereço antigo,
+que sem envio configurado não sai: medido por unidade na rota. O aviso em CADA empresa em
+que o login tem acesso ativo (não só na do path) e o 404 para vínculo revogado — com o
+botão "Alterar e-mail" travado para quem tem o selo "Acesso revogado": medidos por
+unidade na rota (`…/members/[userId]/email/route.test.ts`). A exclusão interrompida depois
+do commit (resposta perdida, processo reiniciado) e retomada pela segunda tentativa a
+partir da lápide, com o 500 que não diz "nada foi apagado": medida por unidade em
+`lib/tenants/exclusao.test.ts` e `…/delete/route.test.ts`, e o inventário da lápide em
+`tests/invariants/gestao-de-tenants.test.ts`.
