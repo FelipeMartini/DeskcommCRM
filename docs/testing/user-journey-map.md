@@ -1428,6 +1428,41 @@ real, não pela tela).
 - `evidence/cobranca-revendedor/sistema-cobranca-ligada.png`
 - `evidence/cobranca-revendedor/visao-geral-checklist.png`
 
+## J44 — O revendedor cobra pelo Asaas: Pix e boleto recorrentes, com CPF/CNPJ no checkout `[P0]` (2026-10-06)
+
+**Origem:** PR 3b da cobrança do revendedor (`docs/superpowers/specs/2026-09-29-cobranca-do-revendedor-design.md`, §6.2, §7(a), §7(b), §7(f), §13, §15 riscos 5 e 11).
+
+É P0 porque é a primeira cobrança de quem vende para cliente brasileiro: sem Pix recorrente, que a Stripe no Brasil não faz, o revendedor não fecha a primeira venda. Cobre só o que muda com o Asaas. Régua, suspensão, hub e checklist são os da J43.
+
+| Caso | Spec | Estado |
+|---|---|---|
+| O dono escolhe Asaas na Conexão (a tela diz para que serve cada provedor) e conecta a chave do sandbox. A tela mostra o selo MODO DE TESTE e só os 4 últimos caracteres. Chave e token ficam cifrados, e o webhook é criado pela API, com o token nunca na tela | `tests/e2e/cobranca-asaas.spec.ts` | CI |
+| A tela pede o CPF/CNPJ de quem paga, preenchido com o CNPJ do cadastro. Com dígito errado, Assinar fica desligado e nada chega ao Asaas. O documento vai sem máscara e não fica na assinatura nem no audit | idem | CI |
+| A fatura do Asaas abre numa aba nova e o sistema fica na original, com o recado de voltar. "Já paguei" sem pagar mostra "1ª cobrança agendada", a assinatura segue em teste grátis, e a referência da assinatura do Asaas já está gravada | idem | CI |
+| Um aviso com o token CERTO e corpo que jura "pago" (token vazado) acorda uma releitura, e a assinatura segue em teste | idem | CI |
+| Pix pago: o aviso chega com o token e só acorda a leitura (corpo `{id,type}`, org nula, sem cabeçalhos, sem assinatura, token fora da linha). Nenhum aviso válido fica sem empresa (o `SUBSCRIPTION_CREATED` do Assinar acha o cliente). Token errado leva 401. A tela diz "Em dia" | idem | CI |
+| Cancelar mostra "Você mantém o acesso até DD/MM", o fim do período pago, lido com `includeDeleted` | idem | CI |
+| O dialeto /v3 do dublê e o adaptador falam a mesma língua: datas civis no fim do dia em SP, `existe` só com pagamento confirmado, pendentes futuras geradas depois de um pagamento no dublê (o sandbox gera 1 na criação, medido; a cadência de fundo não foi medida), `nextDueDate` ≠ fim do pago, guarda do `trocarPlano` e a pendente futura com o valor novo, `includeDeleted`, webhook automático e manual, chave só no cabeçalho, User-Agent próprio, chave de produção que nunca sai para o dublê | `tests/unit/cobranca-duble-fala-a-lingua-do-asaas.test.ts` | unit |
+| As armadilhas da §6.2, uma por caso: token vazado, cobrança gerada 40 dias antes, removida sem `includeDeleted`, troca com pendente futura, virada de dia em SP | `lib/cobranca/provedores/asaas.test.ts` | unit |
+| O mapa vivo tem o Asaas no mesmo encaixe | `tests/unit/mapas-de-arquitetura.test.ts` | unit |
+| O sandbox real: as duas bases, o User-Agent, o webhook por API (ou o manual) e a reconexão com a mesma URL, `includeDeleted`, as datas, o `nextDueDate` além de toda cobrança gerada, quantas nascem logo de saída, as notificações do Asaas e o CNPJ alfanumérico | `scripts/smoke-asaas.ts` | fora do CI (chave do dono); bloqueia o merge |
+
+**Não coberto pela tela:**
+- **O passo a passo manual do webhook** (quando a conta do Asaas não deixa criar pela API), com o token mostrado uma vez. Provado em `app/api/v1/admin/cobranca/conexao/route.test.ts` (caso "⭐ Asaas sem a API de avisos"), `tests/unit/admin-cobranca-abas.test.tsx` (caso "⭐ Asaas sem API de avisos") e no contrato acima.
+- **O boleto.** O dublê paga com Pix e cartão; o boleto compensado é o mesmo `RECEIVED` do Pix.
+- **Atraso, aviso final e suspensão pelo Asaas.** A régua é a mesma da J43; o `emAtraso`/`vencidaDesde` do Asaas está no unit.
+- **A troca de plano pelo Asaas.** Está no unit, com a guarda.
+- **A publicação com chave de produção do Asaas (D-7).**
+
+**Evidência** (PNG em `evidence/cobranca-asaas/`):
+- `evidence/cobranca-asaas/conexao-asaas-modo-de-teste.png`
+- `evidence/cobranca-asaas/checkout-asaas-documento.png`
+- `evidence/cobranca-asaas/fatura-do-asaas.png`
+- `evidence/cobranca-asaas/billing-asaas-aguardando.png`
+- `evidence/cobranca-asaas/billing-asaas-em-dia.png`
+- `evidence/cobranca-asaas/billing-asaas-cancelada.png`
+- `evidence/cobranca-asaas/smoke-asaas.txt`
+
 ## Jornadas exercitadas (instalação final, virgem)
 
 | Jornada | Resultado |
