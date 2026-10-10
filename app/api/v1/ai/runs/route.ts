@@ -58,6 +58,10 @@ const O_QUE_FAZER: Record<string, string> = {
   // empresa, e a chave que ia junto era a da instalação (decisão 22-a).
   endereco_exige_chave_da_empresa:
     "A chamada foi recusada porque este ponto usa um endereço próprio e a empresa não tem chave cadastrada para ele — a chave da instalação não vai para endereço escolhido pela empresa. Cadastre a chave da empresa em Agente de IA › Provedores, ou tire o endereço próprio do ponto.",
+  // A terceira recusa deliberada: o `.env` da instalação traz `ANTHROPIC_BASE_URL` e o valor
+  // não é um endereço utilizável. Nada foi enviado ao provedor; quem corrige é quem opera o servidor.
+  anthropic_base_url_invalida:
+    "A chamada foi recusada porque o endereço da Anthropic configurado nesta instalação (ANTHROPIC_BASE_URL, no .env do servidor) não é válido. Nenhuma chave foi enviada. Corrija o valor — por exemplo http://nome-do-conteiner:8080 ou https://proxy.example.com — ou apague a variável para voltar ao endereço padrão, e reinicie o app e o worker.",
   erro_desconhecido:
     "Não conseguimos classificar esta falha. A mensagem original do provedor está abaixo.",
   // As falhas do Jev (`jev_*`), escritas junto do cliente dele.

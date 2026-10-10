@@ -36,6 +36,7 @@ import {
   OPENROUTER_ENDPOINT,
   REQUESTY_ENDPOINT,
 } from "@/lib/agent-engine/edge/llm/providers";
+import { opcoesDaAnthropic } from "@/lib/ai/anthropic-endpoint";
 import { CredentialUnavailableError, loadCredential } from "@/lib/ai/credentials";
 import { lerLoginCodexRenovandoSeProxima } from "@/lib/ai/credenciais/login-codex";
 import { PROVEDOR_POR_ASSINATURA } from "@/lib/ai/pontos/provedores";
@@ -192,8 +193,10 @@ export function buildModel(
   const par = validarParProvedorModelo(provider, modelId);
   if (!par.valido) throw new ParProvedorModeloInvalidoError(provider, modelId, par.motivo);
   switch (provider) {
+    // O `baseUrl` da credencial NÃO vale para a Anthropic: o endereço é da
+    // INSTALAÇÃO (`ANTHROPIC_BASE_URL`, decisão 22-d) — `lib/ai/anthropic-endpoint.ts`.
     case "anthropic":
-      return createAnthropic({ apiKey })(modelId);
+      return createAnthropic(opcoesDaAnthropic(apiKey))(modelId);
     case "openai":
       return createOpenAI({ apiKey })(modelId);
     // A ASSINATURA (#1639): mesma fábrica da OpenAI, API pública de Responses. O

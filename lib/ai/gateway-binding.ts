@@ -27,6 +27,7 @@ import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 
 import { DEEPSEEK_ENDPOINT, REQUESTY_ENDPOINT } from "@/lib/agent-engine/edge/llm/providers";
+import { AnthropicBaseUrlInvalidaError, opcoesDaAnthropic } from "@/lib/ai/anthropic-endpoint";
 import { fetchParaDestinoDaOrganizacao } from "@/lib/automation/destinos-internos-autorizados";
 import { decryptKey, byteaToBuffer } from "@/lib/crypto/aes_gcm";
 import { logger } from "@/lib/logger";
@@ -78,6 +79,34 @@ export async function resolverModeloDoPonto(
   organizationId: string,
   padrao: ModelId,
   opcoes: OpcoesDoResolvedor = {},
+): Promise<ModeloResolvido | null> {
+  try {
+    return await resolverModeloDoPontoSemGuarda(purpose, organizationId, padrao, opcoes);
+  } catch (err) {
+    // `ANTHROPIC_BASE_URL` posta e inutilizável (decisão 22-d, `lib/ai/anthropic-endpoint.ts`)
+    // é erro de CONFIGURAÇÃO DA INSTALAÇÃO, não do ponto. Subir como exceção derrubava a tela de
+    // Credenciais (que pergunta "há IA principal?" sem `try`) e fazia o worker que responde o
+    // cliente tratar a falha como transitória e retentar. `null` é o vocabulário que todos os
+    // chamadores já entendem ("este ponto não tem modelo"), e o motivo vai no log em `error` —
+    // não em `warn`, porque quem opera o servidor precisa ver. NUNCA cai no endereço padrão: a
+    // chave pensada para o proxy não vai à Anthropic em silêncio.
+    if (err instanceof AnthropicBaseUrlInvalidaError) {
+      logger.error("[gateway-binding] ANTHROPIC_BASE_URL inválida: o ponto fica sem modelo (nenhum byte saiu)", {
+        organization_id: organizationId,
+        purpose,
+        motivo: err.motivo,
+      });
+      return null;
+    }
+    throw err;
+  }
+}
+
+async function resolverModeloDoPontoSemGuarda(
+  purpose: string,
+  organizationId: string,
+  padrao: ModelId,
+  opcoes: OpcoesDoResolvedor,
 ): Promise<ModeloResolvido | null> {
   const idPadrao = String(padrao);
   const binding = await lerBinding(purpose, organizationId);
@@ -814,8 +843,10 @@ function instanciar(
   baseUrl: string | null,
 ): LanguageModel | null {
   switch (provider) {
+    // O `baseUrl` da credencial NÃO vale aqui: o endereço da Anthropic é da
+    // INSTALAÇÃO (`ANTHROPIC_BASE_URL`, decisão 22-d) — ver `lib/ai/anthropic-endpoint.ts`.
     case "anthropic":
-      return createAnthropic({ apiKey })(modelId);
+      return createAnthropic(opcoesDaAnthropic(apiKey))(modelId);
     case "openai":
       return createOpenAI({ apiKey })(modelId);
     case "google":

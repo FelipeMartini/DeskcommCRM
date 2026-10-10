@@ -9,6 +9,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import type { LanguageModel } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 
+import { opcoesDaAnthropic } from '@/lib/ai/anthropic-endpoint';
 import { PROVEDOR_POR_ASSINATURA } from '@/lib/ai/pontos/provedores';
 import { fetchParaDestinoDaOrganizacao } from '@/lib/automation/destinos-internos-autorizados';
 
@@ -31,12 +32,12 @@ export type ProviderRegistry = Record<
 >;
 
 /**
- * Endpoint canônico do provider Anthropic (baseURL default do @ai-sdk/anthropic). NÃO é
- * um knob de política (a allowlist de política é a do egress.ts) — é o destino INTRÍNSECO
- * de ter escolhido o provider anthropic. Se uma org precisar de proxy/baseURL custom, é aqui
- * que ele entra (junto do `fetch` contido), nunca espalhado.
+ * O endpoint do provider Anthropic NÃO mora mais aqui: vem de
+ * `enderecoDaAnthropic()` (`lib/ai/anthropic-endpoint.ts`), o lugar único dos seis
+ * pontos que falam com a Anthropic. O padrão é `https://api.anthropic.com/v1` (o
+ * baseURL do @ai-sdk/anthropic); a INSTALAÇÃO pode apontar outro por
+ * `ANTHROPIC_BASE_URL`, e a allowlist de egress abaixo passa a ser a desse endereço.
  */
-const ANTHROPIC_ENDPOINT = 'https://api.anthropic.com';
 const OPENAI_ENDPOINT = 'https://api.openai.com';
 const GOOGLE_ENDPOINT = 'https://generativelanguage.googleapis.com';
 /**
@@ -290,8 +291,13 @@ export function createDefaultRegistry(opts?: {
     };
   };
   return {
-    anthropic: (apiKey, modelId) =>
-      createAnthropic({ apiKey, fetch: contain(ANTHROPIC_ENDPOINT) })(modelId),
+    /**
+     * O terceiro parâmetro (`base_url` da credencial) é IGNORADO de propósito: o
+     * endereço da Anthropic é da INSTALAÇÃO (`ANTHROPIC_BASE_URL`), nunca de uma
+     * organização — decisão 22-d, ver `lib/ai/anthropic-endpoint.ts`. Variável
+     * malformada lança aqui, antes de qualquer byte sair.
+     */
+    anthropic: (apiKey, modelId) => createAnthropic(opcoesDaAnthropic(apiKey, contain))(modelId),
     openai: (apiKey, modelId) => {
       const contido = contain(OPENAI_ENDPOINT);
       const fetchFinal =

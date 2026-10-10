@@ -288,6 +288,12 @@ const schema = z.object({
   // por lá. Ver resolveLanguageModel() em lib/ai/gateway.ts.
   OPENROUTER_API_KEY: z.string().optional().default(""),
   OPENROUTER_BASE_URL: z.string().optional().default(""),
+  // Endereço da API da Anthropic, escolhido pela INSTALAÇÃO (decisão 22-d): vazio =
+  // https://api.anthropic.com. Posto, vale para TODA chamada à Anthropic desta
+  // instalação — o turno do agente, os workers de ponto, o ensaio, o validador da
+  // chave e a prova de crédito. Quem lê é `enderecoDaAnthropic()`, em
+  // lib/ai/anthropic-endpoint.ts, direto do ambiente; está aqui para ser declarada.
+  ANTHROPIC_BASE_URL: z.string().optional().default(""),
   // Atribuição OPCIONAL da OpenRouter (`HTTP-Referer` / `X-Title`): identifica a
   // instalação no painel e no ranking público DELES. A doc da OpenRouter chama
   // os dois de opcionais e a chamada funciona sem — por isso default vazio e

@@ -12,6 +12,8 @@
  */
 import { asSchema, type ToolSet } from 'ai';
 
+import { enderecoDaAnthropic } from '@/lib/ai/anthropic-endpoint';
+
 import { allowlistedFetch, buildAllowlist } from '../egress';
 import type { Logger } from '../../obs/logger';
 
@@ -25,7 +27,7 @@ export interface CountPrefixTokensInput {
   model: string;
   system: string;
   tools?: ToolSet | undefined;
-  /** default: API pública da Anthropic; override para gateway compatível. */
+  /** default: o endereço da instalação (`ANTHROPIC_BASE_URL`; sem ele, a API pública da Anthropic). */
   baseUrl?: string | undefined;
   timeoutMs?: number | undefined;
   /** logger do evento de segurança de egress bloqueado (F4-03; opcional). */
@@ -45,7 +47,7 @@ async function countTokens(
   input: CountPrefixTokensInput,
   body: Record<string, unknown>,
 ): Promise<number> {
-  const base = input.baseUrl ?? 'https://api.anthropic.com';
+  const base = input.baseUrl ?? enderecoDaAnthropic().origem;
   // Egress só pelo cliente único com allowlist (F4-03): o único destino legítimo é o
   // endpoint do provedor configurado (base) — qualquer outro host falha closed.
   const res = await allowlistedFetch(
