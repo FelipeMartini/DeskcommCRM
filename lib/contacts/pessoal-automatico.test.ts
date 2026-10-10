@@ -67,7 +67,7 @@ function entrada(sobre: Partial<EntradaDoNascePessoal> = {}): EntradaDoNascePess
     direcao: "inbound",
     texto: "oi, tudo bem?",
     requestId: "req-1",
-    origem: "waha.ingest",
+    origem: "entrada.teste",
     ...sobre,
   };
 }
@@ -156,7 +156,7 @@ describe("aplicarNascePessoal — o contato que acabou de aparecer", () => {
       orgId: ORG,
       contactId: CONTATO,
       ator: { type: "webhook_source", id: CANAL },
-      origem: "waha.ingest.nasce_pessoal",
+      origem: "entrada.teste.nasce_pessoal",
       origemDaAuditoria: "novo_contato_pessoal",
     });
   });

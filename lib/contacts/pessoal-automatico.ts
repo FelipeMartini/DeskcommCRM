@@ -73,7 +73,7 @@ export async function aplicarComandoPessoal(
       orgId: entrada.orgId,
       contactId: entrada.contactId,
       ator: { type: "webhook_source", id: entrada.channelSessionId },
-      origem: "waha.ingest.comando_pessoal",
+      origem: "entrada.comando_pessoal",
       origemDaAuditoria: "comando_celular",
       motivoDaTimeline: "Contato marcado como pessoal pelo comando #pessoal digitado no celular",
       requestId: entrada.requestId,
@@ -129,7 +129,7 @@ export interface EntradaDoNascePessoal {
  * o lead que já tem card e o contato que uma campanha já autorizou são do negócio,
  * e nenhum deles pode sumir da operação porque mandou a primeira mensagem DEPOIS
  * de o interruptor ser ligado. Quem chega aqui já com a mensagem gravada
- * (`pos-entrada`, `waha.ingest`) tem exatamente uma linha em `messages`.
+ * (o pós-entrada e a ingestão do aparelho) tem exatamente uma linha em `messages`.
  *
  * ## A exceção da campanha
  *

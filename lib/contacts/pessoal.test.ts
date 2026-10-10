@@ -81,7 +81,7 @@ function entrada(sobre: Partial<EntradaDoMarcar> = {}): EntradaDoMarcar {
     orgId: ORG,
     contactId: CONTATO,
     ator: { type: "webhook_source", id: CANAL },
-    origem: "waha.ingest.comando_pessoal",
+    origem: "entrada.comando_pessoal",
     origemDaAuditoria: "comando_celular",
     motivoDaTimeline: "Contato marcado como pessoal pelo comando #pessoal",
     requestId: "req-1",
@@ -138,7 +138,7 @@ describe("marcarContatoComoPessoal — quando o ator não é uma pessoa", () => 
       type: "contact_marked_personal",
       actor: { type: "webhook_source", id: CANAL },
       reason: "Contato marcado como pessoal pelo comando #pessoal",
-      payload: { origem: "waha.ingest.comando_pessoal" },
+      payload: { origem: "entrada.comando_pessoal" },
     });
   });
 

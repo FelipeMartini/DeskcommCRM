@@ -13,8 +13,8 @@ import { resolveActiveLeadForContact, type LeadCandidate } from "@/lib/leads/act
  *
  * Marcar um contato como pessoal começou como o clique de um gerente na tela
  * (`app/api/v1/contacts/[id]/personal/route.ts`). Depois ganhou um segundo gesto,
- * o comando `#pessoal` digitado no celular do dono (`lib/waha/ingest.ts`), e um
- * terceiro, o contato que já NASCE pessoal (`lib/contacts/nasce-pessoal.ts`). Os
+ * o comando `#pessoal` digitado no celular do dono (`lib/escalacao/comando-de-canal.ts`),
+ * e um terceiro, o contato que já NASCE pessoal (`lib/contacts/pessoal-automatico.ts`). Os
  * três precisam dos MESMOS oito efeitos, na MESMA ordem: duas encarnações da mesma
  * regra divergem na primeira vez que alguém mexe numa só (foi assim com o silêncio
  * do atendimento manual, ver `lib/escalacao/atendimento-manual.ts`).
