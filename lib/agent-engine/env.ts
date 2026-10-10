@@ -55,6 +55,15 @@ const envSchema = z.object({
   // Consertar a irmã da OpenAI e deixar esta é o modo de falha desta família:
   // ao mexer aqui, confira as três de uma vez.
   OPENROUTER_API_KEY: z.string().min(1).optional(),
+  // A claude-ponte (`lib/ai/claude-ponte.ts`): um caminho PRÓPRIO, que não mexe no da
+  // Anthropic. Declaradas aqui porque `loadEnv` remove o que o schema não conhece, e
+  // o worker é onde a IA gasta. `z.string()` simples e SEM validar o valor no boot, de
+  // propósito: quem decide se o valor presta é `ponteDaOrganizacao`, e só para a
+  // organização que a usaria — um erro de digitação aqui não pode derrubar o worker de
+  // quem não usa a ponte.
+  CLAUDE_PONTE_BASE_URL: z.string().optional(),
+  CLAUDE_PONTE_API_KEY: z.string().optional(),
+  CLAUDE_PONTE_ORGS: z.string().optional(),
   // `AGENT_DEFAULT_MODEL` morava aqui, com `.default('claude-sonnet-4-5')` —
   // um default da Anthropic escrito no schema de ambiente de um produto que
   // também opera com OpenAI. NÃO EXISTIA CONSUMIDOR: nem `loadEnv` nem

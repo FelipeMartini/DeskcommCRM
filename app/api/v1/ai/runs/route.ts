@@ -58,6 +58,10 @@ const O_QUE_FAZER: Record<string, string> = {
   // empresa, e a chave que ia junto era a da instalação (decisão 22-a).
   endereco_exige_chave_da_empresa:
     "A chamada foi recusada porque este ponto usa um endereço próprio e a empresa não tem chave cadastrada para ele — a chave da instalação não vai para endereço escolhido pela empresa. Cadastre a chave da empresa em Agente de IA › Provedores, ou tire o endereço próprio do ponto.",
+  // A terceira recusa deliberada: o `.env` da instalação traz as variáveis da claude-ponte
+  // (`CLAUDE_PONTE_*`) e elas não estão utilizáveis. Nada foi enviado; quem corrige é quem opera o servidor.
+  claude_ponte_invalida:
+    "A chamada foi recusada porque as variáveis da claude-ponte desta instalação (CLAUDE_PONTE_BASE_URL, CLAUDE_PONTE_API_KEY e CLAUDE_PONTE_ORGS, no .env do servidor) não estão válidas. Nenhuma chave foi enviada. Corrija os valores — por exemplo http://nome-do-conteiner:8080 — ou esvazie CLAUDE_PONTE_ORGS para desligar a ponte.",
   erro_desconhecido:
     "Não conseguimos classificar esta falha. A mensagem original do provedor está abaixo.",
   // As falhas do Jev (`jev_*`), escritas junto do cliente dele.

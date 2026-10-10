@@ -59,6 +59,7 @@ import {
 import { costCents } from './pricing';
 import { chaveDeOrcamentoDaInstalacao } from '../../../instalacao/comportamento';
 import { cobrancaLigadaComMemo } from '../../../instalacao/modulos';
+import { ClaudePonteInvalidaError, FABRICA_DA_PONTE } from '@/lib/ai/claude-ponte';
 import { createDefaultRegistry, type ProviderRegistry } from './providers';
 import { buildStablePrefix } from './stable-prefix';
 import {
@@ -756,7 +757,7 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
   if (config.enabledModels.length > 0 && !config.enabledModels.includes(model)) {
     throw new LlmModelNotEnabledError(model);
   }
-  const factory = registry[config.provider];
+  const factory = registry[fabricaDe(config)];
   if (factory === undefined) {
     throw new LlmProviderUnknownError(config.provider);
   }
@@ -865,7 +866,13 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
       // `config.baseUrl` é o da PRÓPRIA credencial e só o provedor personalizado
       // (#1642) tem um: o endereço nasce junto da chave, então o agente
       // publicado nele alcança o mesmo gateway que a tela testou ao salvar.
-      model: fabrica(cfgUsada.apiKey, model, decisao.baseUrl ?? cfgUsada.baseUrl ?? undefined),
+      // A ponte traz o PRÓPRIO endereço (validado na resolução) e ele vence qualquer outro:
+      // a fábrica da ponte não fala com endereço escolhido por uma empresa.
+      model: fabrica(
+        cfgUsada.apiKey,
+        model,
+        cfgUsada.ponte?.baseURL ?? decisao.baseUrl ?? cfgUsada.baseUrl ?? undefined,
+      ),
       system: prefix.system,
       messages: input.messages,
       abortSignal: input.abortSignal,
@@ -977,7 +984,7 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
     } catch (falhaDaAssinatura) {
       const reserva = await reservaParaAFalha(falhaDaAssinatura);
       if (reserva === null) throw falhaDaAssinatura;
-      const fabricaDaReserva = registry[reserva.provider];
+      const fabricaDaReserva = registry[fabricaDe(reserva)];
       // Sem fábrica para a reserva (registry de teste, provedor removido):
       // o erro original é o que interessa, e ele não muda de mão.
       if (fabricaDaReserva === undefined) throw falhaDaAssinatura;
@@ -1015,7 +1022,7 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
     // também cair.
     const reservaDoModelo = decisao.reserva;
     const { error_code: codigoDaFalha, http_status: statusDaFalha } = normalizarErro(err);
-    const fabricaAtual = registry[config.provider];
+    const fabricaAtual = registry[fabricaDe(config)];
     const vaiParaAReservaDoModelo =
       reservaDoModelo !== undefined &&
       fabricaAtual !== undefined &&
@@ -1172,6 +1179,15 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
  * trocar a chave, escolher outro modelo, esperar/pagar, ou aguardar o provedor.
  */
 /**
+ * QUAL fábrica do registry fala por esta configuração. Quase sempre a do próprio
+ * provedor; a `claude-ponte` é outro DESTINO do provedor `anthropic`, escolhido
+ * por `resolveOrgLlmConfig` (`config.ponte`) e nunca por quem chama.
+ */
+function fabricaDe(cfg: { provider: string; ponte?: unknown }): string | typeof FABRICA_DA_PONTE {
+  return cfg.ponte !== undefined ? FABRICA_DA_PONTE : cfg.provider;
+}
+
+/**
  * Exportada para o diagnóstico da instalação usar a MESMA régua. Sem isto,
  * "por que o funcionário não responde" teria uma classificação própria, e as
  * duas telas dariam nomes diferentes ao mesmo erro do provedor.
@@ -1201,6 +1217,18 @@ export function normalizarErro(err: unknown): {
   if (err instanceof LlmEnderecoExigeChaveDaEmpresaError) {
     return {
       error_code: 'endereco_exige_chave_da_empresa',
+      error_message: redigirMensagemDoProvedor(bruto),
+      http_status: null,
+    };
+  }
+
+  // E a terceira, que também é nossa: as variáveis `CLAUDE_PONTE_*` do `.env` postas e
+  // inutilizáveis para uma organização que a ponte atenderia. Não é chave ruim nem
+  // provedor fora do ar — nenhum byte saiu —, e quem corrige é quem opera o servidor.
+  // Casada pela CLASSE pelo mesmo motivo das duas de cima.
+  if (err instanceof ClaudePonteInvalidaError) {
+    return {
+      error_code: 'claude_ponte_invalida',
       error_message: redigirMensagemDoProvedor(bruto),
       http_status: null,
     };
