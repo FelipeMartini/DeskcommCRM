@@ -41,15 +41,34 @@ jobs:
         id: repo
         run: echo "nome=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
 
+      # `:latest` é "o topo da main" e SÓ da main. Um `workflow_dispatch` de outro ramo (por exemplo
+      # a imagem de produção mais um cherry-pick, para uma janela que não leva migrations) publica
+      # apenas a etiqueta `sha-…`, imutável, e não move o `:latest` de ninguém.
+      - name: Etiquetas das imagens (a latest é só da main)
+        id: etiquetas
+        env:
+          REF: ${{ github.ref }}
+          NOME: ${{ steps.repo.outputs.nome }}
+          CURTA: ${{ steps.marca.outputs.curta }}
+        run: |
+          {
+            echo "app<<FIM"
+            echo "ghcr.io/${NOME}:sha-${CURTA}"
+            if [ "${REF}" = "refs/heads/main" ]; then echo "ghcr.io/${NOME}:latest"; fi
+            echo "FIM"
+            echo "worker<<FIM"
+            echo "ghcr.io/${NOME}-worker:sha-${CURTA}"
+            if [ "${REF}" = "refs/heads/main" ]; then echo "ghcr.io/${NOME}-worker:latest"; fi
+            echo "FIM"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Construir e Publicar App Web Next.js
         uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile
           push: true
-          tags: |
-            ghcr.io/${{ steps.repo.outputs.nome }}:latest
-            ghcr.io/${{ steps.repo.outputs.nome }}:sha-${{ steps.marca.outputs.curta }}
+          tags: ${{ steps.etiquetas.outputs.app }}
           cache-from: type=gha,scope=deskcomm-app
           cache-to: type=gha,mode=max,scope=deskcomm-app
 
@@ -59,8 +78,6 @@ jobs:
           context: .
           file: Dockerfile.worker
           push: true
-          tags: |
-            ghcr.io/${{ steps.repo.outputs.nome }}-worker:latest
-            ghcr.io/${{ steps.repo.outputs.nome }}-worker:sha-${{ steps.marca.outputs.curta }}
+          tags: ${{ steps.etiquetas.outputs.worker }}
           cache-from: type=gha,scope=deskcomm-worker
           cache-to: type=gha,mode=max,scope=deskcomm-worker
