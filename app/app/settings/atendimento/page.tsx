@@ -24,8 +24,14 @@ import { routingConfigSchema } from "@/lib/schemas";
 import { createClient } from "@/lib/supabase/server";
 import { loadChannelRoutingSettings } from "@/lib/routing/channel-policies";
 import { configAssinatura } from "@/lib/messaging/assinatura";
+import { contarDescartadas } from "@/lib/ai/elegibilidade/campanha-gravacao";
+import { lerCampanhas } from "@/lib/ai/elegibilidade/campanha";
+import { nomeDoCanal } from "@/lib/channels/estado";
+import { lerConfigPessoal } from "@/lib/contacts/configuracao-pessoal";
 import { AssinaturaForm } from "./_assinatura-form";
+import { CampanhasPorPalavraForm } from "./_campanhas-form";
 import { ChannelRoutingForm } from "./_channels-form";
+import { ContatosPessoaisForm } from "./_contatos-pessoais-form";
 import { AtendimentoForm } from "./_form";
 import { traduzir } from "@/lib/i18n/dicionario";
 
@@ -57,6 +63,18 @@ export default async function AtendimentoSettingsPage() {
   const channels = await loadChannelRoutingSettings(supabase, activeOrg.orgId);
   const assinatura = configAssinatura(settings);
   const assinaturaInicial = { humanos: assinatura.humanos, ia: assinatura.ia, nome_ia: assinatura.nomeIa };
+  // Contatos pessoais e campanhas por palavra: o mesmo `settings` já lido acima.
+  // Os interruptores são manager+ (como a página); a lista de campanhas decide
+  // quando a IA assume, então só admin a edita — o manager a vê, sem os controles.
+  const pessoal = lerConfigPessoal(settings);
+  const campanhas = lerCampanhas(settings);
+  const campanhasDescartadas = contarDescartadas(settings);
+  const canaisDasCampanhas = channels.channels.map((c) => ({
+    id: c.id,
+    nome: nomeDoCanal(c, (texto) => traduzir(texto, idioma)),
+  }));
+  const podeEditarCampanhas =
+    ROLE_RANK[activeOrg.role] >= ROLE_RANK.admin || (user.is_platform_admin && !user.support);
 
   return (
     <div className="flex h-full flex-col gap-6 overflow-y-auto p-6">
@@ -77,6 +95,13 @@ export default async function AtendimentoSettingsPage() {
       />
       <ChannelRoutingForm initial={channels} />
       <AssinaturaForm initial={assinaturaInicial} />
+      <ContatosPessoaisForm initial={pessoal} />
+      <CampanhasPorPalavraForm
+        initial={campanhas}
+        canais={canaisDasCampanhas}
+        descartadas={campanhasDescartadas}
+        podeEditar={!!podeEditarCampanhas}
+      />
     </div>
   );
 }

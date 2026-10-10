@@ -38,7 +38,10 @@
  * um efeito faltando por uma tempestade de reentregas. Cada passo falha para
  * dentro, com log, e o seguinte roda mesmo assim.
  */
+import { randomUUID } from "node:crypto";
+
 import { audit } from "@/lib/audit";
+import { aplicarNascePessoal } from "@/lib/contacts/pessoal-automatico";
 import { idsDosCanaisDesativados } from "@/lib/channels/desativado";
 import { encerraDemanda } from "@/lib/leads/encerramento";
 import { garantirLeadDaConversa } from "@/lib/leads/nascimento-do-lead";
@@ -156,6 +159,21 @@ export async function aplicarEfeitosPosEntrada(
   }
 
   await aplicarOptOut(admin, entrada);
+  // O contato que acabou de aparecer nasce pessoal, se a organização ligou
+  // `contatos_pessoais.novos_nascem_pessoais` e a mensagem não casa nenhuma
+  // campanha (`lib/contacts/pessoal-automatico.ts`). DEPOIS do STOP — o STOP de
+  // quem nasce pessoal ainda bloqueia — e ANTES da checagem de pessoal logo
+  // abaixo, que então já enxerga a marca e pula o resto. Nunca lança.
+  await aplicarNascePessoal(admin, {
+    orgId: entrada.organizationId,
+    contactId: entrada.contactId,
+    channelSessionId: entrada.channelSessionId,
+    direcao: "inbound",
+    texto: entrada.texto,
+    canal: entrada.canal,
+    requestId: entrada.requestId ?? randomUUID(),
+    origem: entrada.origem,
+  });
   // Contato pessoal (spec 21, etapa 6): a mensagem já está gravada, com o
   // carimbo de não-lida que o ingest gravou — mas NADA nasce dela: sem negócio,
   // sem campanha, sem follow-up, sem IA (fila e resposta). O STOP continua na

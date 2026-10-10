@@ -25,7 +25,8 @@ import {
   pausarIaDuravelmente,
   pausarIaPorAtendimentoManual,
 } from "@/lib/escalacao/atendimento-manual";
-import { agenteAceitaComandoDeCelular, lerComandoDeControle } from "@/lib/escalacao/comando-de-canal";
+import { aplicarComandoPessoal, aplicarNascePessoal } from "@/lib/contacts/pessoal-automatico";
+import { agenteAceitaComandoDeCelular, ehComandoPessoal, lerComandoDeControle } from "@/lib/escalacao/comando-de-canal";
 import { devolverAtendimentoAoAgente } from "@/lib/escalacao/retomada";
 import { getWahaClient } from "@/lib/waha/client";
 import { acelerarPipelineDeEventos } from "@/lib/dev/kick-local-pipeline";
@@ -1552,13 +1553,54 @@ async function handleOutboundFromUserPhone(
     if (comandoAplicado && revogar) await revogarComando(session, chatId, p.id);
   }
 
+  // ── O CONTATO SAI DA OPERAÇÃO: `#pessoal` e o contato que nasce pessoal ───
+  //
+  // DEPOIS do bloco do automático (a cerca de `handoff-fantasma-fiacao.test.ts`
+  // exige aquele `if (!ehEco)` colado ao eco) e ANTES do nascimento do lead,
+  // porque os dois desfechos tornam o card inútil. A pausa que o bloco acima
+  // acabou de gravar numa conversa que o marcar fecha em seguida é inofensiva.
+  // Mesma regra de eco do resto: só a fala do OPERADOR conta.
+  //
+  // `#pessoal` só vale com `contatos_pessoais.comando_pelo_celular` ligado;
+  // desligado (o padrão) é texto comum. Quando marca, esconde o comando do chat
+  // do cliente, igual ao `#on`/`#off`; quando FALHA, o comando fica visível — o
+  // único sinal de que o operador precisa repetir ou marcar pela tela.
+  // `aplicarNascePessoal` cobre o contato que o operador procurou primeiro: o
+  // que apareceu falando com o cliente vem pela pós-entrada.
+  let ficouPessoal = false;
+  let marcouPeloComando = false;
+  if (!ehEco) {
+    if (ehComandoPessoal(bodyOf(p))) {
+      marcouPeloComando =
+        (await aplicarComandoPessoal(admin, {
+          orgId: session.organization_id,
+          contactId,
+          channelSessionId: session.id,
+          requestId,
+        })) === "marcado";
+      if (marcouPeloComando) await revogarComando(session, chatId, p.id);
+    }
+    ficouPessoal =
+      marcouPeloComando ||
+      (await aplicarNascePessoal(admin, {
+        orgId: session.organization_id,
+        contactId,
+        channelSessionId: session.id,
+        direcao: "outbound",
+        texto: null,
+        requestId,
+        origem: "waha.ingest.outbound",
+      })) === "marcado";
+  }
+
   // ── A CONVERSA QUE COMEÇA PELO CELULAR NASCE NO FUNIL (#2448) ────────────
   //
   // Depois da guarda de eco, e SÓ para o que não é eco: o eco é o envio do
   // PRÓPRIO CRM (composer, IA, regra), cuja conversa não nasceu nesta fala do
   // aparelho. Toda a razão — e a idempotência — está em
-  // `nascerLeadDaConversaPeloCelular`.
-  if (!ehEco) {
+  // `nascerLeadDaConversaPeloCelular`. Contato que acabou de sair da operação
+  // (pessoal) não ganha card.
+  if (!ehEco && !ficouPessoal) {
     await nascerLeadDaConversaPeloCelular(admin, session, contactId, conversationId);
   }
 
@@ -1573,6 +1615,7 @@ async function handleOutboundFromUserPhone(
       external_id: p.id,
       from_user_phone: true,
       ...(comandoAplicado ? { control_command: comandoAplicado } : {}),
+      ...(marcouPeloComando ? { control_command: "pessoal" } : {}),
     },
   });
 

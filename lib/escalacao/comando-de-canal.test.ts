@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { agenteAceitaComandoDeCelular, lerComandoDeControle } from "./comando-de-canal";
+import { agenteAceitaComandoDeCelular, ehComandoPessoal, lerComandoDeControle } from "./comando-de-canal";
 
 describe("lerComandoDeControle — reconhece #on/#off, e SÓ a mensagem inteira", () => {
   it.each([
@@ -36,6 +36,41 @@ describe("lerComandoDeControle — reconhece #on/#off, e SÓ a mensagem inteira"
   it("null/undefined → null (nunca lança)", () => {
     expect(lerComandoDeControle(null)).toBeNull();
     expect(lerComandoDeControle(undefined)).toBeNull();
+  });
+});
+
+describe("ehComandoPessoal — reconhece #pessoal, e SÓ a mensagem inteira", () => {
+  it.each([["#pessoal"], ["  #pessoal  "], ["#PESSOAL"], ["#Pessoal"], [String.fromCharCode(10) + "#pessoal" + String.fromCharCode(10)]])(
+    "%j → comando",
+    (entrada) => {
+    expect(ehComandoPessoal(entrada)).toBe(true);
+  });
+
+  it.each([
+    ["oi", "mensagem comum"],
+    ["esse contato é #pessoal", "comando no MEIO da frase"],
+    ["#pessoal sim", "comando com texto ao redor"],
+    ["##pessoal", "prefixo dobrado"],
+    ["/pessoal", "barra — NÃO aceita (só #)"],
+    ["pessoal", "sem prefixo"],
+    ["#pessoais", "variação não aceita"],
+    ["#particular", "sinônimo não aceito"],
+    ["#on", "outro comando"],
+    ["#off", "outro comando"],
+    ["", "vazio"],
+    ["   ", "só espaços"],
+  ])("%j → não é comando (%s)", (entrada) => {
+    expect(ehComandoPessoal(entrada)).toBe(false);
+  });
+
+  it("null/undefined → false (nunca lança)", () => {
+    expect(ehComandoPessoal(null)).toBe(false);
+    expect(ehComandoPessoal(undefined)).toBe(false);
+  });
+
+  it("`#pessoal` não é lido como #on/#off (são tipos de comando diferentes)", () => {
+    expect(lerComandoDeControle("#pessoal")).toBeNull();
+    expect(ehComandoPessoal("#on")).toBe(false);
   });
 });
 
