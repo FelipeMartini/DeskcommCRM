@@ -25,6 +25,7 @@ import {
   OPENROUTER_ENDPOINT,
   REQUESTY_ENDPOINT,
 } from "@/lib/agent-engine/edge/llm/providers";
+import { AnthropicBaseUrlInvalidaError, enderecoDaAnthropic } from "@/lib/ai/anthropic-endpoint";
 
 export type ResultadoDaProva =
   | { ok: true }
@@ -55,8 +56,10 @@ export function montarRequisicaoDeProva(
   const msg = [{ role: "user", content: "oi" }];
   switch (provider) {
     case "anthropic":
+      // O endereço é o da INSTALAÇÃO (`ANTHROPIC_BASE_URL`; sem ele, a API da Anthropic).
+      // O `baseUrl` do parâmetro não vale: nunca vem de uma organização (decisão 22-d).
       return {
-        url: "https://api.anthropic.com/v1/messages",
+        url: `${enderecoDaAnthropic().baseURL}/messages`,
         headers: {
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01",
@@ -173,7 +176,17 @@ export async function provarSaldo(
   modelo: string,
   opcoes?: { baseUrl?: string; fetchImpl?: typeof fetch },
 ): Promise<ResultadoDaProva> {
-  const req = montarRequisicaoDeProva(provider, apiKey, modelo, opcoes?.baseUrl);
+  let req: Requisicao | null;
+  try {
+    req = montarRequisicaoDeProva(provider, apiKey, modelo, opcoes?.baseUrl);
+  } catch (err) {
+    // `ANTHROPIC_BASE_URL` posta e malformada: é configuração da instalação, não
+    // chave ruim nem rede fora. Nenhum byte saiu.
+    if (err instanceof AnthropicBaseUrlInvalidaError) {
+      return { ok: false, codigo: "anthropic_base_url_invalida", mensagem: err.message, httpStatus: null };
+    }
+    throw err;
+  }
   if (!req) {
     return {
       ok: false,
@@ -189,6 +202,9 @@ export async function provarSaldo(
   try {
     const res = await f(req.url, {
       method: "POST",
+      // Sem seguir redirect: o fetch tira o `Authorization` numa troca de origem, mas não
+      // o `x-api-key`; um 3xx vira resposta não-2xx, classificada abaixo.
+      redirect: "manual",
       headers: req.headers,
       body: JSON.stringify(req.body),
       signal: ctrl.signal,

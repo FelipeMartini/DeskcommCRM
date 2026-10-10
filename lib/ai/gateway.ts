@@ -15,6 +15,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 
+import { opcoesDaAnthropic } from "@/lib/ai/anthropic-endpoint";
 import { env } from "@/lib/env";
 
 /** Endpoint da OpenRouter. Compatível com a API da OpenAI, então o provider
@@ -78,9 +79,8 @@ export function resolveLanguageModel(model: ModelId): LanguageModel | null {
   }
 
   if (id.startsWith("anthropic/") && env.ANTHROPIC_API_KEY) {
-    return createAnthropic({ apiKey: env.ANTHROPIC_API_KEY })(
-      id.slice("anthropic/".length),
-    );
+    // Chave da instalação: o endereço também é o da instalação (`ANTHROPIC_BASE_URL`).
+    return createAnthropic(opcoesDaAnthropic(env.ANTHROPIC_API_KEY))(id.slice("anthropic/".length));
   }
 
   if (id.startsWith("openai/") && env.OPENAI_API_KEY) {

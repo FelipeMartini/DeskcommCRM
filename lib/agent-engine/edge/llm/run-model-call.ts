@@ -20,6 +20,7 @@ import { generateText, stepCountIs, streamText, type ModelMessage, type ToolSet 
 import type pg from 'pg';
 import { z } from 'zod';
 
+import { AnthropicBaseUrlInvalidaError } from '@/lib/ai/anthropic-endpoint';
 import { PROVEDOR_POR_ASSINATURA } from '@/lib/ai/pontos/provedores';
 import { PONTO_POR_ID } from '@/lib/ai/pontos/registro';
 // O par (provedor, modelo) é a mesma régua em TODOS os caminhos de execução:
@@ -1201,6 +1202,17 @@ export function normalizarErro(err: unknown): {
   if (err instanceof LlmEnderecoExigeChaveDaEmpresaError) {
     return {
       error_code: 'endereco_exige_chave_da_empresa',
+      error_message: redigirMensagemDoProvedor(bruto),
+      http_status: null,
+    };
+  }
+  // E a terceira, que também é nossa: `ANTHROPIC_BASE_URL` posta e inutilizável no
+  // `.env` da instalação. Não é chave ruim nem provedor fora do ar — nenhum byte
+  // saiu —, e quem corrige é quem opera o servidor. Casada pela CLASSE pelo mesmo
+  // motivo das duas de cima.
+  if (err instanceof AnthropicBaseUrlInvalidaError) {
+    return {
+      error_code: 'anthropic_base_url_invalida',
       error_message: redigirMensagemDoProvedor(bruto),
       http_status: null,
     };

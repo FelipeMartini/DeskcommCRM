@@ -8,6 +8,7 @@
  *
  * Timeout 5s, sem retry. Erros 401 são distintos de erros de rede.
  */
+import { AnthropicBaseUrlInvalidaError, enderecoDaAnthropic } from "@/lib/ai/anthropic-endpoint";
 import { baseDaApiDoJev } from "@/lib/ai/decisao/cliente";
 import { PROVEDOR_POR_ASSINATURA, type ProvedorComChave } from "@/lib/ai/pontos/provedores";
 import { motivoDaRecusaDeDestino } from "@/lib/automation/destinos-internos-autorizados";
@@ -41,8 +42,12 @@ async function timedFetch(url: string, init: RequestInit, timeoutMs: number = TI
 
 export async function validateAnthropicKey(apiKey: string): Promise<ValidationResult> {
   try {
-    const res = await timedFetch("https://api.anthropic.com/v1/models", {
+    // O endereço é o da INSTALAÇÃO (`ANTHROPIC_BASE_URL`; sem ele, a API da Anthropic).
+    // Variável malformada recusa ANTES de a chave sair, e `redirect: "manual"` impede
+    // que um 3xx leve o `x-api-key` (o fetch só tira o `Authorization`) a outra origem.
+    const res = await timedFetch(`${enderecoDaAnthropic().baseURL}/models`, {
       method: "GET",
+      redirect: "manual",
       headers: {
         "x-api-key": apiKey,
         "anthropic-version": "2023-06-01",
@@ -58,6 +63,7 @@ export async function validateAnthropicKey(apiKey: string): Promise<ValidationRe
     const models = (json.data ?? []).map((m) => m.id).filter(Boolean);
     return { ok: true, models };
   } catch (err) {
+    if (err instanceof AnthropicBaseUrlInvalidaError) return { ok: false, error: "anthropic_base_url_invalida" };
     return { ok: false, error: err instanceof Error ? err.name : "network_error" };
   }
 }

@@ -12,6 +12,7 @@ import {
   RETORNO_STAGGER_WINDOW_MS_PADRAO,
 } from '@/lib/followup/janela';
 import { esforcoDeRaciocinioOpenAI } from '@/lib/agent-engine/edge/llm/providers';
+import { enderecoDaAnthropic } from '@/lib/ai/anthropic-endpoint';
 
 const envSchema = z.object({
   // Postgres do Supabase (connection string — Settings → Database). O motor usa
@@ -39,6 +40,21 @@ const envSchema = z.object({
   // ai_provider_credentials). Opcional no boot: sem ela e sem BYOK, o turno
   // falha com erro instrutivo — nunca silêncio.
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  // Endereço da API da Anthropic, escolhido pela INSTALAÇÃO (decisão 22-d); ausente =
+  // https://api.anthropic.com. Validado no BOOT: variável posta e malformada derruba o
+  // worker dizendo o nome dela, em vez de falhar a cada turno (a regra de
+  // `OPENAI_REASONING_EFFORT`). Quem a lê é `enderecoDaAnthropic()`.
+  ANTHROPIC_BASE_URL: z
+    .string()
+    .refine((valor) => {
+      try {
+        enderecoDaAnthropic(valor);
+        return true;
+      } catch {
+        return false;
+      }
+    })
+    .optional(),
   // A irmã da de cima, e ela faltava aqui. O instalador coleta OPENAI_API_KEY, mas
   // sem esta linha ela nunca chegava ao turno do agente: uma organização com agente
   // OpenAI e a chave no `.env` continuava sem credencial utilizável, e a única
