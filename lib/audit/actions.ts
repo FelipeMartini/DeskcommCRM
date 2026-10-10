@@ -1086,6 +1086,17 @@ export const AUDIT_ACTIONS = [
   // titular), não decisão operacional de esconder da operação.
   "contact.marked_personal",
   "contact.unmarked_personal",
+  // Os dois interruptores do contato pessoal da ORGANIZAÇÃO — `#pessoal` pelo
+  // celular e "contato novo nasce pessoal" —, gravados em
+  // `organizations.settings.contatos_pessoais` por Configurações › Atendimento.
+  // Ligar muda quem a operação enxerga, então ligar e desligar deixam rastro; o
+  // metadata traz o estado dos dois depois da mudança e o que foi pedido.
+  "settings.personal_contacts_updated",
+  // A lista de campanhas por palavra (`organizations.settings.campanhas_whatsapp`),
+  // que autoriza a IA a assumir o contato cuja primeira mensagem casa a frase. O
+  // metadata traz o total e os ids adicionados, removidos e editados — as frases
+  // ficam na configuração, não no log.
+  "settings.campaign_keywords_updated",
 
   // O interruptor POR EMPRESA do passo `ai_decide` das automações (#2367):
   // gravado em `organizations.settings.automacoes.ai_decide` pela tela

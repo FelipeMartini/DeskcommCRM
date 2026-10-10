@@ -60,6 +60,31 @@ export function lerComandoDeControle(body: string | null | undefined): ComandoDe
   return null;
 }
 
+/** O literal do comando que marca o contato da conversa como pessoal, já normalizado. */
+const MARCAR_PESSOAL = "#pessoal";
+
+/**
+ * A mensagem é o comando `#pessoal`? Mesmas regras de `lerComandoDeControle`:
+ * só a mensagem INTEIRA conta, sem barra e sem sinônimo, caixa e espaços das
+ * pontas ignorados. "esse contato é #pessoal" não é comando — o operador digita
+ * no chat do cliente, e uma frase de venda que por acaso contenha o texto não
+ * pode esconder o cliente da operação.
+ *
+ * Fica separado de `lerComandoDeControle` de propósito: aquele devolve
+ * `"on" | "off"` (o par que liga e desliga o AUTOMÁTICO desta conversa, e que
+ * vale por agente), e o `#pessoal` é de outra natureza — age sobre o CONTATO,
+ * vale por organização (`contatos_pessoais.comando_pelo_celular`) e não depende
+ * de agente publicado. Misturar os dois no mesmo tipo faria todo `switch` sobre
+ * `ComandoDeCanal` ter de decidir o que fazer com um caso que não lhe pertence.
+ *
+ * Reconhecer não é aplicar: quem decide se o comando VALE é
+ * `aplicarComandoPessoal` (`lib/contacts/pessoal-automatico.ts`).
+ */
+export function ehComandoPessoal(body: string | null | undefined): boolean {
+  if (typeof body !== "string") return false;
+  return body.trim().toLowerCase() === MARCAR_PESSOAL;
+}
+
 /**
  * O agente que atende ESTA conversa aceita comandos de celular (`#on`/`#off`)?
  *

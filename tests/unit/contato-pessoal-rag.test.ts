@@ -21,7 +21,8 @@ import { getLeadContext } from "@/lib/agent-engine/edge/crm/get-lead-context";
  * - Tirar `is_personal` do payload do contexto: o caso "contexto sinaliza" cai.
  * Linha para reverter: `lib/ai/rag/ingest/conversations.ts`,
  * `workers/ai-response-worker.ts`, `lib/agent-engine/edge/crm/get-lead-context.ts`,
- * `app/api/v1/contacts/[id]/personal/route.ts`.
+ * `lib/contacts/pessoal.ts` (onde moram os efeitos de marcar, desde que o comando `#pessoal`
+ * passou a usá-los também) e `app/api/v1/contacts/[id]/personal/route.ts` (que os chama).
  */
 
 const RAIZ = process.cwd();
@@ -31,6 +32,8 @@ const semComentarios = (src: string) =>
 
 const LOTE = semComentarios(fonte("lib", "ai", "rag", "ingest", "conversations.ts"));
 const GUARD = semComentarios(fonte("workers", "ai-response-worker.ts"));
+// Os efeitos de marcar moram num módulo só, usado pela rota e pelo comando `#pessoal`; a rota só os chama.
+const EFEITOS = semComentarios(fonte("lib", "contacts", "pessoal.ts"));
 const ROTA = semComentarios(
   fonte("app", "api", "v1", "contacts", "[id]", "personal", "route.ts"),
 );
@@ -45,8 +48,12 @@ describe("RAG nunca ingere pessoal", () => {
   });
 
   it("marcar zera usable_for_rag (o passado sai do acervo)", () => {
-    expect(ROTA).toMatch(/usable_for_rag/);
-    expect(ROTA).toMatch(/\.update\(\{\s*usable_for_rag:\s*false\s*\}\)/);
+    expect(EFEITOS).toMatch(/usable_for_rag/);
+    expect(EFEITOS).toMatch(/\.update\(\{\s*usable_for_rag:\s*false\s*\}\)/);
+  });
+
+  it("a rota de marcar chama o módulo dos efeitos (não tem cópia própria que possa divergir)", () => {
+    expect(ROTA).toMatch(/marcarContatoComoPessoal\(/);
   });
 });
 
