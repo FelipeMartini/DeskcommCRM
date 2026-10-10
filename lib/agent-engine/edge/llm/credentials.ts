@@ -17,6 +17,7 @@
  */
 import type pg from 'pg';
 
+import { ponteDaOrganizacao, type VariaveisDaPonte } from '@/lib/ai/claude-ponte';
 import { lerLoginCodexRenovandoSeProxima } from '@/lib/ai/credenciais/login-codex';
 import { PROVEDOR_POR_ASSINATURA } from '@/lib/ai/pontos/provedores';
 import { PROVEDOR_DE_RESERVA_DA_ASSINATURA } from '@/lib/ai/pontos/reserva-da-assinatura';
@@ -57,6 +58,13 @@ export interface LlmEdgeConfig {
    */
   openrouterApiKey?: string;
   /**
+   * As três variáveis `CLAUDE_PONTE_*` do `.env`, CRUAS: quem as valida é
+   * `ponteDaOrganizacao` (`lib/ai/claude-ponte.ts`), e só para a organização que
+   * a usaria. Ausente = a ponte não existe nesta instalação, e a escada de
+   * credenciais é exatamente a de sempre.
+   */
+  ponte?: VariaveisDaPonte;
+  /**
    * TTL do prefixo estável de cache (knob LLM_CACHE_TTL). Opcional para quem
    * monta a config na mão (testes) — o seam aplica a doutrina '1h' quando ausente.
    */
@@ -96,6 +104,9 @@ export function llmEdgeConfigFromEnv(env: {
   ANTHROPIC_API_KEY?: string;
   OPENAI_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
+  CLAUDE_PONTE_BASE_URL?: string;
+  CLAUDE_PONTE_API_KEY?: string;
+  CLAUDE_PONTE_ORGS?: string;
   LLM_CACHE_TTL?: string;
   AI_BUDGET_ENFORCEMENT?: string;
   DEEPSEEK_THINKING?: string;
@@ -112,6 +123,16 @@ export function llmEdgeConfigFromEnv(env: {
     ...(env.ANTHROPIC_API_KEY ? { anthropicApiKey: env.ANTHROPIC_API_KEY } : {}),
     ...(env.OPENAI_API_KEY ? { openaiApiKey: env.OPENAI_API_KEY } : {}),
     ...(env.OPENROUTER_API_KEY ? { openrouterApiKey: env.OPENROUTER_API_KEY } : {}),
+    // Só a lista decide se a ponte existe para alguém; sem ela as outras duas nem são lidas.
+    ...(env.CLAUDE_PONTE_ORGS
+      ? {
+          ponte: {
+            CLAUDE_PONTE_ORGS: env.CLAUDE_PONTE_ORGS,
+            CLAUDE_PONTE_BASE_URL: env.CLAUDE_PONTE_BASE_URL,
+            CLAUDE_PONTE_API_KEY: env.CLAUDE_PONTE_API_KEY,
+          },
+        }
+      : {}),
     cacheTtl: ttl,
     deepseekThinking: raciocinio,
     // Sem `if` de valor vazio, ao contrário das chaves acima: aqui o ausente
@@ -173,6 +194,18 @@ export interface OrgLlmConfig {
    * plaintext com as chaves do `.env`, e cada caminho fazia a sua comparação.
    */
   origemDaChave: OrigemDaChaveLlm;
+  /**
+   * Presente SÓ quando a chamada vai pela `claude-ponte` (`lib/ai/claude-ponte.ts`):
+   * a organização não tinha credencial própria executável, está na lista da
+   * instalação e as variáveis prestam. Então `apiKey` é a chave DA PONTE (nunca
+   * uma chave da Anthropic) e o endereço é este, validado. Ausente = o caminho de
+   * sempre, e a fábrica `anthropic` não lê endereço de lugar nenhum.
+   *
+   * `origemDaChave` segue valendo `chave_da_instalacao` nestes casos, de
+   * propósito: toda trava que protege a chave da instalação de um endereço
+   * escolhido por uma empresa (decisão 22-a) protege a da ponte também.
+   */
+  ponte?: { baseURL: string; origem: string };
   defaultModel: string | null;
   params: Record<string, unknown>;
   enabledModels: string[];
@@ -431,6 +464,8 @@ export async function resolveOrgLlmConfig(
   // Atribuída junto com a chave, em cada degrau: a origem é um fato de QUAL
   // ramo escolheu a chave, e só este ponto sabe isso sem adivinhar.
   let origemDaChave: OrigemDaChaveLlm;
+  // Só vira não-nulo no degrau da ponte; vai para o retorno ao lado da chave.
+  let ponte: ReturnType<typeof ponteDaOrganizacao> = null;
   const cred = credRows[0];
   if (cred !== undefined) {
     apiKey = decryptKey({
@@ -439,6 +474,12 @@ export async function resolveOrgLlmConfig(
       tag: byteaToBuffer(cred.api_key_tag),
     });
     origemDaChave = 'credencial_da_organizacao';
+  } else if (provider === 'anthropic' && (ponte = ponteDaOrganizacao(cfg.ponte, organizationId)) !== null) {
+    // A credencial PRÓPRIA já teve a vez no degrau de cima e não existe. Aqui a
+    // organização é da lista da instalação: a chave é a da PONTE, o endereço é o
+    // da ponte, e a chave real da instalação (se houver) não participa.
+    apiKey = ponte.apiKey;
+    origemDaChave = 'chave_da_instalacao';
   } else if (provider === 'anthropic' && cfg.anthropicApiKey) {
     apiKey = cfg.anthropicApiKey;
     origemDaChave = 'chave_da_instalacao';
@@ -475,6 +516,7 @@ export async function resolveOrgLlmConfig(
     apiKey,
     baseUrl,
     origemDaChave,
+    ...(ponte !== null ? { ponte: { baseURL: ponte.baseURL, origem: ponte.origem } } : {}),
     defaultModel: settings.default_model ?? null,
     params: settings.params,
     enabledModels: settings.enabled_models,
