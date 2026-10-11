@@ -1,0 +1,92 @@
+/**
+ * Gravar a configuração de um funil (vocabulário, campos, motivos de perda e de
+ * ganho, reabertura) — a escrita que a tela de funis e a rota
+ * `PATCH /api/v1/pipelines/[id]/config` compartilham.
+ *
+ * Saiu de dentro da server action `updatePipelineConfig` quando quem configura o
+ * CRM por código (Bearer `dsk_…`) passou a precisar da MESMA escrita: duas
+ * mesclagens paralelas do mesmo `jsonb` divergiriam no primeiro campo novo, e a
+ * tela passaria a apagar o que o código gravou (ou o contrário).
+ *
+ * ⚠️ O client pode ser o do usuário (RLS vale) OU o admin (RLS não vale — é o
+ * caso do token). Por isso a consulta e o update filtram `organization_id` à mão,
+ * a organização vem de fonte confiável (sessão ou linha do token) e funil de
+ * outra organização é a MESMA resposta de funil inexistente: dizer "existe, mas
+ * não é seu" já vaza a existência.
+ *
+ * A mesclagem é a de sempre: `vocabulary` mescla chave a chave sobre o que já
+ * existe; as chaves de `settings` presentes no patch SUBSTITUEM a anterior
+ * (lista inteira), e as ausentes ficam como estão.
+ */
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+import type { PipelineConfigPatch } from "@/lib/schemas/settings";
+
+export type ResultadoDaConfig = { ok: true } | { ok: false; error: string };
+
+/** O que o audit grava: contagens e marcas, nunca o conteúdo dos rótulos. */
+export function resumoDaConfig(patch: PipelineConfigPatch): Record<string, unknown> {
+  return {
+    vocabulary_changed: !!patch.vocabulary,
+    fields_count: patch.fields?.length ?? null,
+    lost_reasons_count: patch.lost_reasons?.length ?? null,
+    won_reasons_count: patch.won_reasons?.length ?? null,
+    won_reason_required: patch.won_reason_required ?? null,
+    reabertura: patch.reabertura ?? null,
+  };
+}
+
+/** Mescla o patch sobre o vocabulário e as settings que o funil já tem. */
+export function mesclarConfig(
+  vocabularioAtual: Record<string, unknown> | null,
+  settingsAtuais: Record<string, unknown> | null,
+  patch: PipelineConfigPatch,
+): { vocabulary: Record<string, unknown>; settings: Record<string, unknown> } {
+  const vocabulary = patch.vocabulary
+    ? { ...(vocabularioAtual ?? {}), ...patch.vocabulary }
+    : (vocabularioAtual ?? {});
+
+  const settings: Record<string, unknown> = { ...(settingsAtuais ?? {}) };
+  if (patch.fields !== undefined) settings.fields = patch.fields;
+  if (patch.lost_reasons !== undefined) settings.lost_reasons = patch.lost_reasons;
+  if (patch.won_reasons !== undefined) settings.won_reasons = patch.won_reasons;
+  if (patch.won_reason_required !== undefined) {
+    settings.won_reason_required = patch.won_reason_required;
+  }
+  if (patch.comanda_no_ganho !== undefined) settings.comanda_no_ganho = patch.comanda_no_ganho;
+  if (patch.reabertura !== undefined) settings.reabertura = patch.reabertura;
+  if (patch.reabertura_campos !== undefined) settings.reabertura_campos = patch.reabertura_campos;
+
+  return { vocabulary, settings };
+}
+
+export async function aplicarConfigDoFunil(
+  supabase: SupabaseClient,
+  orgId: string,
+  pipelineId: string,
+  patch: PipelineConfigPatch,
+): Promise<ResultadoDaConfig> {
+  const { data: row, error: readErr } = await supabase
+    .from("crm_pipelines")
+    .select("vocabulary, settings")
+    .eq("id", pipelineId)
+    .eq("organization_id", orgId)
+    .maybeSingle();
+  if (readErr) return { ok: false, error: readErr.message };
+  if (!row) return { ok: false, error: "not_found" };
+
+  const proxima = mesclarConfig(
+    (row.vocabulary as Record<string, unknown> | null) ?? null,
+    (row.settings as Record<string, unknown> | null) ?? null,
+    patch,
+  );
+
+  const { error } = await supabase
+    .from("crm_pipelines")
+    .update({ vocabulary: proxima.vocabulary, settings: proxima.settings })
+    .eq("id", pipelineId)
+    .eq("organization_id", orgId);
+  if (error) return { ok: false, error: error.message };
+
+  return { ok: true };
+}

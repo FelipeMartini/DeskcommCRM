@@ -163,6 +163,35 @@ export const PUBLIC_PATHS: RegExp[] = [
   /^\/api\/v1\/ai\/agents\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/publish$/i,
   /^\/api\/v1\/ai\/agents\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/versions\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
   /^\/api\/v1\/ai\/agents\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/versions\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/test$/i,
+  // CONFIGURAR O CONHECIMENTO, A MEMÓRIA, O FUNIL E OS FOLLOW-UPS DO AGENTE
+  // SERVER-TO-SERVER. Mesma dualidade das linhas acima: sessão OU Bearer
+  // `dsk_…`, resolvidos por `lib/api/auth-dual.ts` DENTRO de cada rota (a org
+  // sai da linha do token e nunca do path nem do body). O token precisa do
+  // escopo PRÓPRIO `config:read`/`config:write` E de papel admin (`tokenRole`),
+  // como a configuração do agente (#2052): o que o material ensina, o que a
+  // memória manda e o funil em que o agente escreve são poder de administração.
+  // Quem automatiza a instalação (configuração como código) não tem navegador.
+  //
+  // Ancorados com `$` e com o segmento de id em FORMA DE UUID, nunca `[^/]+`,
+  // pelo mesmo motivo de sempre: cada diretório tem irmãos literais
+  // (`pipelines/default`, `pipelines/[id]/board`, `knowledge/chave`,
+  // `knowledge/reindex-all`, `memory/versions`…) que um padrão largo tornaria
+  // "públicos" (proxy não decide) sem nenhum deles aceitar Bearer. O que cada
+  // linha libera é só o PATH: quem decide o MÉTODO é a própria rota, e DELETE/POST
+  // que seguem só com sessão (apagar funil, criar etapa, arquivar etapa, apagar
+  // fluxo) continuam recusando o token no `requireRole` delas.
+  /^\/api\/v1\/ai\/knowledge\/sources$/,
+  /^\/api\/v1\/ai\/knowledge\/busca$/,
+  /^\/api\/v1\/ai\/memory$/,
+  /^\/api\/v1\/ai\/memory\/entries$/,
+  /^\/api\/v1\/pipelines$/,
+  /^\/api\/v1\/pipelines\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  /^\/api\/v1\/pipelines\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/config$/i,
+  /^\/api\/v1\/pipelines\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/stages$/i,
+  /^\/api\/v1\/pipelines\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/stages\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  /^\/api\/v1\/pipelines\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/agent-mapping$/i,
+  /^\/api\/v1\/ai\/followup-flows\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+  /^\/api\/v1\/ai\/followup-flows\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/publish$/i,
   /^\/_next\//,
   /^\/favicon\.ico$/,
   // O ícone da aba (`app/icon.tsx`), que o `<head>` de TODA página pede —

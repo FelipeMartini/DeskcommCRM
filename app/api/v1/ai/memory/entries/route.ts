@@ -3,14 +3,17 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  * Épico Operação Visível (F1) — POST: cria entrada manual de memória da org
  * (migration 0067). source='manual', status='active' direto (sem gate de
  * proposta — quem cria é já manager+).
+ *
+ * Auth: sessão OU Bearer `dsk_...` (`lib/api/auth-dual.ts`), com o escopo
+ * PRÓPRIO `config:write` e papel admin no token, como a memória em `../route.ts`.
  */
 import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { ok, fail } from "@/lib/api/wrappers";
+import { resolveAuthDual, tetoDeEscritaDoToken } from "@/lib/api/auth-dual";
 import { audit } from "@/lib/audit";
-import { requireRole } from "@/lib/auth/require-role";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { traduzir } from "@/lib/i18n/dicionario";
 
@@ -26,10 +29,21 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (supportDenied) return supportDenied;
 
   const requestId = randomUUID();
-  const authz = await requireRole("manager", { requestId, resource: "org_memory" });
+  const authz = await resolveAuthDual(req, {
+    requestId,
+    resource: "org_memory",
+    role: "manager",
+    scope: "config:write",
+    tokenRole: "admin",
+  });
   if (!authz.ok) return authz.response;
-  const t = (texto: string) => traduzir(texto, authz.user.idioma);
-  const { user: authUser, org } = authz;
+  const t = (texto: string) => traduzir(texto, authz.idioma ?? "pt-BR");
+  const { actor, apiTokenId } = authz;
+  const org = { orgId: authz.organizationId };
+  const autorId = actor.type === "user" ? actor.id : null;
+
+  const teto = await tetoDeEscritaDoToken(authz, "org_memory", requestId);
+  if (teto) return teto;
 
   const body = await req.json().catch(() => null);
   const parsed = postSchema.safeParse(body);
@@ -49,7 +63,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       body: parsed.data.body,
       source: "manual",
       status: "active",
-      created_by: authUser.id,
+      created_by: autorId,
     })
     .select("id")
     .single();
@@ -59,7 +73,8 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   await audit({
     action: "ai.org_memory_entry_created",
-    actorUserId: authUser.id,
+    actorUserId: autorId,
+    actorApiTokenId: apiTokenId ?? null,
     organizationId: org.orgId,
     resourceType: "org_memory_entries",
     resourceId: data.id as string,

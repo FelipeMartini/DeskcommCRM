@@ -8,17 +8,19 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  * escolha da versão publicada de cada assistente
  * (`ai_agent_versions.knowledge_source_ids`).
  *
- * Auth: sessão por cookie, papel >= manager para escrever.
- * `organization_id` SEMPRE sai da sessão autenticada — nunca do corpo.
+ * Auth: sessão de navegador (papel >= manager para escrever) OU Bearer `dsk_...`
+ * (`lib/api/auth-dual.ts`), com o escopo PRÓPRIO `config:read`/`config:write` e
+ * papel admin no token: o que o material ensina vale para o agente publicado,
+ * então não é poder de integração comum (#2052). `organization_id` SEMPRE sai
+ * da sessão ou da linha do token — nunca do corpo — e toda consulta o filtra à
+ * mão, porque o client do token é o admin.
  */
 
 import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
 import { z } from "zod";
+import { resolveAuthDual, tetoDeEscritaDoToken } from "@/lib/api/auth-dual";
 import { ok, fail } from "@/lib/api/wrappers";
-import { loadAuthUser } from "@/lib/auth/server";
-import { orgAtivaDaApi, requireRole } from "@/lib/auth/require-role";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseFaqMarkdown } from "@/lib/ai/rag/ingest/faq";
 import { temChaveDeEmbedding } from "@/lib/ai/embeddings/chave";
@@ -71,21 +73,25 @@ const SELECT_COLUNAS =
 // GET
 // ---------------------------------------------------------------------------
 
-export async function GET(_req: NextRequest): Promise<Response> {
+export async function GET(req: NextRequest): Promise<Response> {
   const requestId = randomUUID();
 
-  const authUser = await loadAuthUser();
-  if (!authUser) {
-    return fail("unauthenticated", "Auth required.", 401, { requestId });
-  }
-  const ativa = await orgAtivaDaApi(authUser, requestId);
-  if (!ativa.ok) return ativa.response;
-  const activeOrg = ativa.org;
-  if (!activeOrg) {
-    return fail("forbidden", "Nenhuma organização ativa.", 403, { requestId });
-  }
+  const authz = await resolveAuthDual(req, {
+    requestId,
+    resource: "ai_knowledge",
+    role: "viewer",
+    scope: "config:read",
+    tokenRole: "admin",
+  });
+  if (!authz.ok) return authz.response;
+  const activeOrg = { orgId: authz.organizationId };
 
-  const supabase = await createClient();
+  // Rota em `PUBLIC_PATHS` não tem estrangulamento a montante: o teto do token vale
+  // também na leitura (mesmo critério de `GET /api/v1/pipelines`).
+  const teto = await tetoDeEscritaDoToken(authz, "ai_knowledge", requestId);
+  if (teto) return teto;
+
+  const supabase = authz.supabase;
   const { data, error } = await supabase
     .from("ai_knowledge_sources")
     .select(SELECT_COLUNAS)
@@ -112,10 +118,19 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const requestId = randomUUID();
 
-  const authz = await requireRole("manager", { requestId, resource: "ai_knowledge" });
+  const authz = await resolveAuthDual(req, {
+    requestId,
+    resource: "ai_knowledge",
+    role: "manager",
+    scope: "config:write",
+    tokenRole: "admin",
+  });
   if (!authz.ok) return authz.response;
-  const t = (texto: string) => traduzir(texto, authz.user.idioma);
-  const { org: activeOrg } = authz;
+  const t = (texto: string) => traduzir(texto, authz.idioma ?? "pt-BR");
+  const activeOrg = { orgId: authz.organizationId };
+
+  const teto = await tetoDeEscritaDoToken(authz, "ai_knowledge", requestId);
+  if (teto) return teto;
 
   let rawBody: unknown;
   try {
@@ -158,7 +173,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     );
   }
 
-  const supabase = await createClient();
+  const supabase = authz.supabase;
 
   // `agent_id` é HISTÓRICO. Continua validado — mandar o id de um agente de
   // outra organização tem de doer — mas não decide mais quem lê o material.

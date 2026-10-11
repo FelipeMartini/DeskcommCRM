@@ -12,7 +12,10 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  * funil sem negócio, sem formulário e sem automação apontando para ele.
  *
  * Auth: sessão por cookie, papel manager+. `organization_id` sai do JWT — nunca
- * do body nem da URL. As regras vivem em `lib/pipelines/pipeline-editing.ts`
+ * do body nem da URL. O PATCH também aceita Bearer `dsk_...` (`lib/api/auth-dual.ts`)
+ * com o escopo PRÓPRIO `config:write` e papel admin no token (renomear funil é
+ * configuração); o DELETE segue só com sessão. No token a org sai da linha dele e
+ * `lerFunis` e cada update filtram `organization_id` à mão. As regras vivem em `lib/pipelines/pipeline-editing.ts`
  * (puras, testadas); aqui só há transporte e a ORDEM das escritas, que é o que o
  * índice único de padrão cobra.
  */
@@ -20,6 +23,7 @@ import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
 import { z } from "zod";
 
+import { resolveAuthDual, tetoDeEscritaDoToken } from "@/lib/api/auth-dual";
 import { fail, ok } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
@@ -93,10 +97,19 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
   if (supportDenied) return supportDenied;
 
   const requestId = randomUUID();
-  const authz = await requireRole("manager", { requestId, resource: "crm_pipelines" });
+  const authz = await resolveAuthDual(req, {
+    requestId,
+    resource: "crm_pipelines",
+    role: "manager",
+    scope: "config:write",
+    tokenRole: "admin",
+  });
   if (!authz.ok) return authz.response;
-  const t = (texto: string) => traduzir(texto, authz.user.idioma);
-  const orgId = authz.org.orgId;
+  const t = (texto: string) => traduzir(texto, authz.idioma ?? "pt-BR");
+  const orgId = authz.organizationId;
+
+  const teto = await tetoDeEscritaDoToken(authz, "crm_pipelines", requestId);
+  if (teto) return teto;
 
   const { id: pipelineId } = await ctx.params;
 
@@ -116,7 +129,7 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
   }
   const pedido = parsed.data;
 
-  const supabase = await createClient();
+  const supabase = authz.supabase;
 
   let funis: FunilEditavel[];
   try {
@@ -298,7 +311,8 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
       // que o DELETE emite: quem audita quer saber quem trouxe o funil de volta,
       // e `pipeline.updated` esconderia isso entre os renames.
       action: tiraDoArquivo ? "pipeline.unarchived" : "pipeline.updated",
-      actorUserId: authz.user.id,
+      actorUserId: authz.actor.type === "user" ? authz.actor.id : null,
+      actorApiTokenId: authz.apiTokenId ?? null,
       organizationId: orgId,
       resourceType: "crm_pipeline",
       resourceId: pipelineId,

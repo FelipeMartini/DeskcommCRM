@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
@@ -5,7 +6,7 @@ import { z } from "zod";
 import { ok, fail } from "@/lib/api/wrappers";
 import { checkRateLimit } from "@/lib/ai/dispatcher/rate-limit";
 import { SemChaveDeEmbeddingError } from "@/lib/ai/embed";
-import { requireRole } from "@/lib/auth/require-role";
+import { resolveAuthDual, tetoDeEscritaDoToken } from "@/lib/api/auth-dual";
 import { requireSupportWrite } from "@/lib/impersonate/support";
 import {
   KNOWLEDGE_SEARCH_AUTHOR_KINDS,
@@ -14,8 +15,6 @@ import {
   resolverAcervoDoAgente,
 } from "@/lib/ai/knowledge/busca";
 import { traduzir } from "@/lib/i18n/dicionario";
-import { createClient } from "@/lib/supabase/server";
-
 export const dynamic = "force-dynamic";
 
 /**
@@ -27,8 +26,11 @@ export const dynamic = "force-dynamic";
  * humano sobre o MESMO acervo — que é exatamente o defeito que a casa já corrigiu
  * uma vez (limiares 0,40 / 0,72 / 0,72 unificados na migração 0097).
  *
- * `organization_id` sai da sessão autenticada (`requireRole`), NUNCA do corpo —
- * mesma regra documentada em `lib/ai/knowledge/busca.ts`.
+ * `organization_id` sai da sessão autenticada OU da linha do token (`resolveAuthDual`),
+ * NUNCA do corpo — mesma regra documentada em `lib/ai/knowledge/busca.ts`. Com
+ * Bearer `dsk_...` o escopo é o PRÓPRIO `config:read` e o papel do token é admin,
+ * como o resto do acervo (`sources/route.ts`); é o que deixa quem configura o
+ * acervo por código PROVAR que o material foi indexado, sem navegador.
  *
  * Devolve `motivo` junto de um `trechos` possivelmente vazio, porque "a base não
  * tem essa informação" e "a base tem algo perto, mas não o bastante" são situações
@@ -72,15 +74,27 @@ export async function POST(req: NextRequest): Promise<Response> {
   // Sem esta guarda, o modo support_readonly seria ignorado por um handler que
   // escreve — quem está acompanhando em leitura veria linhas novas nascendo
   // métrica da própria instalação. `requireSupportWrite` (retorno não-nulo é a
-  // recusa) cuida do MODO DE ACOMPANHAMENTO; o `requireRole` abaixo cuida do
+  // recusa) cuida do MODO DE ACOMPANHAMENTO; o `resolveAuthDual` abaixo cuida do
   // PAPEL. Um não substitui o outro.
   const support = await requireSupportWrite();
   if (support) return support;
 
   // Papel mínimo do inbox: um atendente lê conversa e lê acervo.
-  const authz = await requireRole("agent", { requestId, resource: "ai_knowledge" });
+  const authz = await resolveAuthDual(req, {
+    requestId,
+    resource: "ai_knowledge",
+    role: "agent",
+    scope: "config:read",
+    tokenRole: "admin",
+  });
   if (!authz.ok) return authz.response;
-  const t = (texto: string) => traduzir(texto, authz.user.idioma);
+  const t = (texto: string) => traduzir(texto, authz.idioma ?? "pt-BR");
+
+  // O token passa pelo teto comum de escrita: `PUBLIC_PATHS` tira esta rota do
+  // proxy, e cada pergunta gasta um embedding pago. O teto próprio abaixo (por
+  // pessoa e por organização) segue valendo para os dois modos.
+  const teto = await tetoDeEscritaDoToken(authz, "ai_knowledge_busca", requestId);
+  if (teto) return teto;
 
   let bruto: unknown;
   try {
@@ -97,9 +111,13 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
   const { pergunta } = parsed.data;
 
-  const organizationId = authz.org.orgId;
+  const organizationId = authz.organizationId;
+  // Quem pergunta: a pessoa (sessão) ou a linha do token. `userId` só vai ao banco
+  // quando é pessoa (FK em auth.users), e o balde de teto usa o id que houver.
+  const quemPergunta = authz.actor.type === "user" ? authz.actor.id : (authz.apiTokenId ?? authz.actor.id);
+  const userId = authz.actor.type === "user" ? authz.actor.id : null;
   const porUsuario = await checkRateLimit(
-    `acervo-busca:${authz.user.id}`,
+    `acervo-busca:${quemPergunta}`,
     TETO_POR_USUARIO,
     JANELA_SEGUNDOS,
   );
@@ -119,7 +137,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     });
   }
 
-  const supabase = await createClient();
+  const supabase = authz.supabase;
   const agentId = parsed.data.agentId ?? null;
   const quantidade = numero(parsed.data.quantidade, QUANTIDADE_PADRAO, 1, QUANTIDADE_MAXIMA);
 
@@ -196,7 +214,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       threshold: limiar,
       fontes: knowledgeSourceIds,
       agentId: agentId ?? null,
-      userId: authz.user.id,
+      userId,
     });
 
     return ok(
@@ -249,7 +267,7 @@ export async function POST(req: NextRequest): Promise<Response> {
  * o texto, decisão da 0086).
  */
 async function registrarBuscaHumana(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: SupabaseClient,
   p: {
     organizationId: string;
     hits: number;
@@ -257,7 +275,7 @@ async function registrarBuscaHumana(
     threshold: number;
     fontes: string[];
     agentId: string | null;
-    userId: string;
+    userId: string | null;
   },
 ): Promise<void> {
   try {

@@ -13,12 +13,16 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  * compartilhadas com o agente de IA — BRIEFING §3, Decisão 4.
  *
  * Auth: sessão por cookie, papel manager+. `organization_id` sai do JWT — nunca
- * do body nem da URL.
+ * do body nem da URL. O PATCH também aceita Bearer `dsk_...` (`lib/api/auth-dual.ts`;
+ * escopo PRÓPRIO `config:write`, papel admin no token): renomear etapa é
+ * configuração do funil. A org sai da linha do token e `atualizarEtapa` filtra por
+ * ela. O DELETE segue só com sessão.
  */
 import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
 import { z } from "zod";
 
+import { resolveAuthDual, tetoDeEscritaDoToken } from "@/lib/api/auth-dual";
 import { respostaDeRecusa } from "@/lib/api/recusa";
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
@@ -74,9 +78,18 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
   if (supportDenied) return supportDenied;
 
   const requestId = randomUUID();
-  const authz = await requireRole("manager", { requestId, resource: "crm_stages" });
+  const authz = await resolveAuthDual(req, {
+    requestId,
+    resource: "crm_stages",
+    role: "manager",
+    scope: "config:write",
+    tokenRole: "admin",
+  });
   if (!authz.ok) return authz.response;
-  const t = (texto: string) => traduzir(texto, authz.user.idioma);
+  const t = (texto: string) => traduzir(texto, authz.idioma ?? "pt-BR");
+
+  const teto = await tetoDeEscritaDoToken(authz, "crm_stages", requestId);
+  if (teto) return teto;
 
   const { id: pipelineId, stageId } = await ctx.params;
 
@@ -95,13 +108,13 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
     });
   }
 
-  const supabase = await createClient();
+  const supabase = authz.supabase;
   try {
     const { funil } = await atualizarEtapa(
       {
         supabase,
-        organizationId: authz.org.orgId,
-        actor: { type: "user", id: authz.user.id, role: authz.org.role },
+        organizationId: authz.organizationId,
+        actor: authz.actor,
         requestId,
       },
       { pipelineId, stageId, pedido: parsed.data },

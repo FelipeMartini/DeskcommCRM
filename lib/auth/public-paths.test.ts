@@ -95,4 +95,56 @@ describe("isPublicPath", () => {
   it("e não libera nenhum sub-path dela de carona", () => {
     expect(isPublicPath("/account-suspended/qualquer")).toBe(false);
   });
+  /**
+   * CONFIGURAÇÃO DO AGENTE POR TOKEN — conhecimento, memória, funil e follow-ups.
+   * Cada rota chama `resolveAuthDual` por dentro; sem a entrada aqui o proxy
+   * devolve 401 ao Bearer antes do handler. Os irmãos literais de cada diretório
+   * NÃO aceitam Bearer e não podem ficar "públicos" de carona.
+   */
+  describe("configuração do agente por Bearer", () => {
+    const ORG = "11111111-1111-4111-8111-111111111111";
+    const OUTRO = "22222222-2222-4222-8222-222222222222";
+
+    it.each([
+      "/api/v1/ai/knowledge/sources",
+      "/api/v1/ai/knowledge/busca",
+      "/api/v1/ai/memory",
+      "/api/v1/ai/memory/entries",
+      "/api/v1/pipelines",
+      `/api/v1/pipelines/${ORG}`,
+      `/api/v1/pipelines/${ORG}/config`,
+      `/api/v1/pipelines/${ORG}/stages`,
+      `/api/v1/pipelines/${ORG}/stages/${OUTRO}`,
+      `/api/v1/pipelines/${ORG}/agent-mapping`,
+      `/api/v1/ai/followup-flows/${ORG}`,
+      `/api/v1/ai/followup-flows/${ORG}/publish`,
+    ])("libera %s", (caminho) => {
+      expect(isPublicPath(caminho)).toBe(true);
+    });
+
+    it.each([
+      // irmãos literais que não têm Bearer
+      "/api/v1/pipelines/default",
+      `/api/v1/pipelines/${ORG}/board`,
+      `/api/v1/pipelines/${ORG}/forecast`,
+      "/api/v1/ai/knowledge/chave",
+      "/api/v1/ai/knowledge/provedor",
+      "/api/v1/ai/knowledge/reindex-all",
+      "/api/v1/ai/knowledge/sources/upload",
+      `/api/v1/ai/knowledge/sources/${ORG}`,
+      "/api/v1/ai/memory/versions",
+      // sub-paths do follow-up que seguem só com a tela
+      `/api/v1/ai/followup-flows/${ORG}/duplicate`,
+      `/api/v1/ai/followup-flows/${ORG}/rollback`,
+      // segmento que não tem forma de UUID
+      "/api/v1/pipelines/abc",
+      "/api/v1/pipelines/abc/config",
+      `/api/v1/pipelines/${ORG}/stages/abc`,
+      // âncora de fim: nada passa de carona
+      `/api/v1/pipelines/${ORG}/config/x`,
+      "/api/v1/ai/memory/entries/x",
+    ])("NÃO libera %s", (caminho) => {
+      expect(isPublicPath(caminho)).toBe(false);
+    });
+  });
 });
