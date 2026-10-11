@@ -24,7 +24,7 @@
  * cabeçalho que ele montou). Nenhuma rede, nenhuma chave real: valores sintéticos.
  */
 import { MockLanguageModelV3 } from "ai/test";
-import { generateText, type LanguageModel } from "ai";
+import { APICallError, generateText, RetryError, type LanguageModel } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/crypto/aes_gcm", () => ({
@@ -42,6 +42,7 @@ import {
   ponteDaOrganizacao,
   type VariaveisDaPonte,
 } from "@/lib/ai/claude-ponte";
+import { ClaudePonteOcupadaError } from "@/lib/ai/claude-ponte-fila";
 import {
   LlmNotConfiguredError,
   llmEdgeConfigFromEnv,
@@ -268,6 +269,40 @@ describe("fetchContidoDaPonte e opcoesDaPonte — a chamada só fala com a orige
     );
     opcoesDaPonte(CHAVE_DA_PONTE, PONTE, contido);
     expect(contido).toHaveBeenCalledWith(PONTE);
+  });
+
+  it("⭐ o fetch das opções atende UMA chamada por vez (a ponte só aguenta uma)", async () => {
+    const liberar: Array<() => void> = [];
+    let emVoo = 0;
+    let maximoEmVoo = 0;
+    const interno = vi.fn(
+      () =>
+        new Promise<Response>((res) => {
+          emVoo += 1;
+          maximoEmVoo = Math.max(maximoEmVoo, emVoo);
+          liberar.push(() => {
+            emVoo -= 1;
+            res(new Response("{}", { status: 200 }));
+          });
+        }),
+    );
+    const o = opcoesDaPonte(
+      CHAVE_DA_PONTE,
+      PONTE,
+      () => interno as unknown as typeof fetch,
+    );
+
+    const todas = [1, 2, 3].map(() => o.fetch(`${PONTE}/v1/messages`));
+    const vez = () => new Promise((r) => setTimeout(r, 0));
+    await vez();
+    expect(interno).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 3; i += 1) {
+      liberar[i]!();
+      await vez();
+    }
+    await Promise.all(todas);
+    expect(interno).toHaveBeenCalledTimes(3);
+    expect(maximoEmVoo).toBe(1);
   });
 });
 
@@ -615,6 +650,85 @@ describe("normalizarErro — o erro da configuração da ponte tem código próp
     expect(n.error_code).toBe("claude_ponte_invalida");
     expect(n.http_status).toBeNull();
     expect(n.error_message).not.toContain("valor-sintetico");
+  });
+
+  const chamadaFalha = (statusCode: number, message: string) =>
+    new APICallError({
+      message,
+      url: `${PONTE}/v1/messages`,
+      requestBodyValues: {},
+      statusCode,
+      isRetryable: true,
+    });
+  const aposAsTentativas = (ultimo: unknown) =>
+    new RetryError({
+      message: "Failed after 3 attempts. Last error: tentativas esgotadas",
+      reason: "maxRetriesExceeded",
+      errors: [ultimo, ultimo, ultimo],
+    });
+
+  it.each([
+    [529, "provedor_indisponivel"],
+    [503, "provedor_indisponivel"],
+    [429, "limite_ou_saldo"],
+    [401, "credencial_recusada"],
+  ])(
+    "⭐ o status %i que o SDK esconde dentro do RetryError chega à classificação (%s)",
+    (statusCode, codigo) => {
+      // O SDK repete 429/5xx e, esgotadas as tentativas, lança um RetryError SEM `statusCode`:
+      // o `APICallError` está em `lastError`. Antes, tudo isto virava `erro_desconhecido`.
+      const n = normalizarErro(aposAsTentativas(chamadaFalha(statusCode, "sem pista no texto")));
+      expect(n.error_code).toBe(codigo);
+      expect(n.http_status).toBe(statusCode);
+    },
+  );
+
+  it("o status vem do ÚLTIMO erro, e a `cause` também é seguida", () => {
+    const n = normalizarErro(
+      new RetryError({
+        message: "Failed after 2 attempts",
+        reason: "maxRetriesExceeded",
+        errors: [chamadaFalha(429, "a"), chamadaFalha(529, "b")],
+      }),
+    );
+    expect(n.http_status).toBe(529);
+    const embrulho = new Error("embrulho", { cause: chamadaFalha(503, "interno") });
+    expect(normalizarErro(embrulho).http_status).toBe(503);
+  });
+
+  it("erro com ciclo na cadeia não trava e não inventa status", () => {
+    const a = new Error("a") as Error & { cause?: unknown };
+    const b = new Error("b") as Error & { cause?: unknown };
+    a.cause = b;
+    b.cause = a;
+    expect(normalizarErro(a).http_status).toBeNull();
+  });
+
+  it("⭐ a fila cheia (ClaudePonteOcupadaError) é provedor_indisponivel/529, não erro desconhecido", () => {
+    const n = normalizarErro(new ClaudePonteOcupadaError(120_000));
+    expect(n.error_code).toBe("provedor_indisponivel");
+    expect(n.http_status).toBe(529);
+    expect(n.error_message).toContain("claude_ponte_ocupada");
+    // O SDK pode embrulhar; o código não pode depender de quem embrulhou.
+    const embrulhado = normalizarErro(aposAsTentativas(new ClaudePonteOcupadaError(120_000)));
+    expect(embrulhado.error_code).toBe("provedor_indisponivel");
+    expect(embrulhado.http_status).toBe(529);
+  });
+
+  it("o SDK real NÃO repete a fila cheia: o erro sai na primeira tentativa, sem 'tentativas esgotadas'", async () => {
+    let chamadas = 0;
+    const erro = await generateText({
+      model: new MockLanguageModelV3({
+        doGenerate: async () => {
+          chamadas += 1;
+          throw new ClaudePonteOcupadaError(120_000);
+        },
+      }),
+      prompt: "oi",
+      maxRetries: 2,
+    }).catch((e: unknown) => e);
+    expect(chamadas).toBe(1);
+    expect(normalizarErro(erro).error_code).toBe("provedor_indisponivel");
   });
 });
 

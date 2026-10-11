@@ -28,10 +28,11 @@
  *
  * ═══ Quem pode usar: a lista, e a lista vazia é ninguém ═══
  *
- * Em modo assinatura, nenhum tráfego de cliente pode passar pela ponte. Por isso
- * a lista é de ids de organização e vazia significa NINGUÉM; `*` (todas as
- * organizações sem credencial própria) é uma escolha explícita do operador, e só
- * cabe quando a ponte atende em modo de API paga, com teto.
+ * A lista é de ids de organização e vazia significa NINGUÉM; `*` (todas as
+ * organizações sem credencial própria) é uma escolha explícita do operador. Qual
+ * modo a ponte usa (assinatura de uma pessoa ou API paga, com teto) e se isso cabe
+ * nos termos de quem fornece a assinatura é decisão de quem opera a ponte, não
+ * deste código: ele só garante que a chamada espere a vez (`claude-ponte-fila.ts`).
  *
  * ═══ O que NUNCA acontece ═══
  *
@@ -45,6 +46,8 @@
  * usado pelo motor do worker (`edge/`) e pelo app, e os testes que simulam
  * `@/lib/env` não precisam conhecê-lo.
  */
+
+import { comFilaDaPonte } from "./claude-ponte-fila";
 
 /**
  * A chave da fábrica da ponte no registry do motor. Não é um provedor: é um DESTINO do provedor
@@ -248,9 +251,12 @@ export function opcoesDaPonte(
   contido?: (origem: string) => typeof fetch,
 ): { apiKey: string; baseURL: string; fetch: typeof fetch } {
   const endereco = lerEnderecoDaPonte(baseURL);
+  const interno = contido ? contido(endereco.origem) : fetchContidoDaPonte(endereco.origem);
   return {
     apiKey,
     baseURL: endereco.baseURL,
-    fetch: contido ? contido(endereco.origem) : fetchContidoDaPonte(endereco.origem),
+    // A fila fica POR FORA da contenção: ela decide QUANDO a chamada sai, a contenção decide PARA
+    // ONDE. A ponte atende uma chamada por vez; ver `claude-ponte-fila.ts`.
+    fetch: comFilaDaPonte(interno),
   };
 }
