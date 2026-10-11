@@ -469,6 +469,14 @@ const schema = z.object({
   IMPERSONATE_COOKIE_SECRET: z.string().optional().default(""),
 
   /**
+   * Origens que podem pôr o CRM dentro de um quadro (`iframe`), separadas por vírgula ou espaço.
+   * Vazio = ninguém: toda resposta segue com `X-Frame-Options: DENY`. Só entra origem `https` exata
+   * (sem curinga, porta ou caminho); o que não casa é descartado. Regra e limites em
+   * `lib/security/origens-que-podem-embutir.ts`.
+   */
+  EMBED_FRAME_ANCESTORS: z.string().optional().default(""),
+
+  /**
    * Retenção do histórico que o cron `data-retention` poda (issue #261).
    *
    * As DUAS entram como `z.string()` e nunca como `z.coerce.number()`, pelo

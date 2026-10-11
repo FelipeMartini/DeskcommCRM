@@ -5,6 +5,10 @@ import { env } from "@/lib/env";
 import { fetchDoServidor } from "@/lib/supabase/fetch-do-servidor";
 import { urlDoSupabaseNoServidor } from "@/lib/supabase/url-do-servidor";
 import { isPublicPath } from "@/lib/auth/public-paths";
+import {
+  cabecalhoQuadroPermitido,
+  origensQuePodemEmbutir,
+} from "@/lib/security/origens-que-podem-embutir";
 import { CABECALHO_SEM_CSS, PARAMETRO_SEM_CSS } from "@/lib/branding/sem-css-personalizado";
 import {
   verifyImpersonateCookieEdge,
@@ -23,6 +27,15 @@ export async function proxy(request: NextRequest) {
     request.nextUrl.searchParams.has(PARAMETRO_SEM_CSS) ? "1" : "0",
   );
   const response = NextResponse.next({ request: { headers: request.headers } });
+
+  // Exceção de quadro, só para as origens que o operador nomeou em EMBED_FRAME_ANCESTORS (vazio =
+  // nenhuma: o `X-Frame-Options: DENY` do `next.config.ts` segue valendo para todo o resto). O
+  // `frame-ancestors` do CSP tem precedência sobre o XFO no navegador. Regra em
+  // `lib/security/origens-que-podem-embutir.ts`.
+  const quadroPermitido = cabecalhoQuadroPermitido(
+    origensQuePodemEmbutir(env.EMBED_FRAME_ANCESTORS),
+  );
+  if (quadroPermitido) response.headers.set("Content-Security-Policy", quadroPermitido);
 
   // Inject X-Request-Id for downstream correlation (audit log, error wrappers).
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
