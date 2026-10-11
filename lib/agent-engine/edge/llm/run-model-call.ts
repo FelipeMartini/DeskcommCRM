@@ -60,6 +60,7 @@ import { costCents } from './pricing';
 import { chaveDeOrcamentoDaInstalacao } from '../../../instalacao/comportamento';
 import { cobrancaLigadaComMemo } from '../../../instalacao/modulos';
 import { ClaudePonteInvalidaError, FABRICA_DA_PONTE } from '@/lib/ai/claude-ponte';
+import { ClaudePonteOcupadaError } from '@/lib/ai/claude-ponte-fila';
 import { createDefaultRegistry, type ProviderRegistry } from './providers';
 import { buildStablePrefix } from './stable-prefix';
 import {
@@ -1218,6 +1219,37 @@ function fabricaDe(cfg: { provider: string; ponte?: unknown }): string | typeof 
 }
 
 /**
+ * O erro e o que ele embrulha (`lastError` do `RetryError` do AI SDK, depois `cause`), do mais
+ * externo ao mais interno. Teto de 4 níveis e guarda contra ciclo: erro vem de fora.
+ */
+function cadeiaDoErro(err: unknown): unknown[] {
+  const cadeia: unknown[] = [];
+  let atual: unknown = err;
+  while (cadeia.length < 4 && atual !== null && atual !== undefined && !cadeia.includes(atual)) {
+    cadeia.push(atual);
+    if (typeof atual !== 'object') break;
+    const { lastError, cause } = atual as { lastError?: unknown; cause?: unknown };
+    atual = lastError ?? cause;
+  }
+  return cadeia;
+}
+
+/**
+ * O status HTTP do erro, olhando também por dentro do `RetryError` do SDK. Quando o provedor
+ * responde 503/529/429 a chamada é repetida e, esgotadas as tentativas, o SDK lança um
+ * `RetryError` (`AI_RetryError`) que NÃO tem `statusCode` — o `APICallError` está em `lastError`.
+ * Sem olhar lá, todo 5xx repetido virava `erro_desconhecido`, sem status.
+ */
+function statusDoErro(err: unknown): number | null {
+  for (const e of cadeiaDoErro(err)) {
+    const { statusCode, status } = (e ?? {}) as { statusCode?: unknown; status?: unknown };
+    if (typeof statusCode === 'number') return statusCode;
+    if (typeof status === 'number') return status;
+  }
+  return null;
+}
+
+/**
  * Exportada para o diagnóstico da instalação usar a MESMA régua. Sem isto,
  * "por que o funcionário não responde" teria uma classificação própria, e as
  * duas telas dariam nomes diferentes ao mesmo erro do provedor.
@@ -1230,10 +1262,7 @@ export function normalizarErro(err: unknown): {
   const bloqueio = identificarConteudoBloqueado(err);
   if (bloqueio) return { error_code: 'conteudo_bloqueado', error_message: bloqueio.message, http_status: bloqueio.statusCode ?? null };
   const bruto = err instanceof Error ? err.message : String(err);
-  const status =
-    (err as { statusCode?: number; status?: number })?.statusCode ??
-    (err as { statusCode?: number; status?: number })?.status ??
-    null;
+  const status = statusDoErro(err);
 
   // O único erro deste seam que NÃO vem do provedor: a recusa é NOSSA, e é
   // deliberada. Casada pela CLASSE e não por regex, porque aqui não há três
@@ -1261,6 +1290,17 @@ export function normalizarErro(err: unknown): {
       error_code: 'claude_ponte_invalida',
       error_message: redigirMensagemDoProvedor(bruto),
       http_status: null,
+    };
+  }
+
+  // A quarta, também nossa: a fila da ponte nesta instalação não liberou a vaga a tempo. Nenhum
+  // byte saiu. É o mesmo que um 529 do provedor ocupado (refazer mais tarde), e o job é
+  // reagendado pela fila do worker. Procurada na cadeia porque o SDK pode embrulhar o erro.
+  if (cadeiaDoErro(err).some((e) => e instanceof ClaudePonteOcupadaError)) {
+    return {
+      error_code: 'provedor_indisponivel',
+      error_message: redigirMensagemDoProvedor(bruto),
+      http_status: 529,
     };
   }
 
