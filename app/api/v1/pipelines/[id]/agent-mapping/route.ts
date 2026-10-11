@@ -8,10 +8,12 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  * escrita; as regras vivem em `lib/leads/agent-mapping.ts` (puras, testadas) e
  * aqui só há transporte.
  *
- * Auth: sessão por cookie, papel manager+ (é configuração do funil, não leitura
- * de card). `organization_id` sai do JWT — nunca do body. O client é o do
- * usuário, então a RLS vale; o filtro explícito de `organization_id` é a
- * convenção do repo e a rede que sobra se a policy mudar.
+ * Auth: sessão de navegador (papel manager+, é configuração do funil, não leitura
+ * de card) OU Bearer `dsk_...` (`lib/api/auth-dual.ts`; escopo PRÓPRIO
+ * `config:read`/`config:write`, papel admin no token). `organization_id` sai do JWT
+ * ou da linha do token — nunca do body. Na sessão o client é o do usuário e a RLS
+ * vale; no token o client é o admin e a RLS NÃO vale: o filtro explícito de
+ * `organization_id` abaixo é a única cerca, e `lerFunil` e cada update o aplicam.
  *
  * ⚠️ O PUT É TOTAL E IDEMPOTENTE. O corpo descreve o estado desejado dos SETE
  * passos — `null` explícito é "não mover", não "não mexi nisso". Um delta
@@ -22,16 +24,16 @@ import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
 import { z } from "zod";
 
+import { resolveAuthDual, tetoDeEscritaDoToken } from "@/lib/api/auth-dual";
 import { fail, ok } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
-import { requireRole } from "@/lib/auth/require-role";
 import { LEAD_STAGES, type LeadStage } from "@/lib/agent-engine/agent/lead-state";
 import {
   diffParaUpdates,
   validarMapeamento,
   type EtapaDoMapa,
 } from "@/lib/leads/agent-mapping";
-import { createClient } from "@/lib/supabase/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
@@ -101,7 +103,7 @@ type EtapaComAutoria = EtapaDoMapa & {
 };
 
 async function lerFunil(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: SupabaseClient,
   orgId: string,
   pipelineId: string,
 ): Promise<{ etapas: EtapaComAutoria[] } | null> {
@@ -165,17 +167,26 @@ function corpo(etapas: EtapaComAutoria[]) {
   };
 }
 
-export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
+export async function GET(req: NextRequest, ctx: RouteCtx): Promise<Response> {
   const requestId = randomUUID();
-  const authz = await requireRole("manager", { requestId, resource: "pipeline_agent_mapping" });
+  const authz = await resolveAuthDual(req, {
+    requestId,
+    resource: "pipeline_agent_mapping",
+    role: "manager",
+    scope: "config:read",
+    tokenRole: "admin",
+  });
   if (!authz.ok) return authz.response;
-  const t = (texto: string) => traduzir(texto, authz.user.idioma);
+  const t = (texto: string) => traduzir(texto, authz.idioma ?? "pt-BR");
+
+  const teto = await tetoDeEscritaDoToken(authz, "pipeline_agent_mapping", requestId);
+  if (teto) return teto;
 
   const { id: pipelineId } = await ctx.params;
-  const supabase = await createClient();
+  const supabase = authz.supabase;
 
   try {
-    const funil = await lerFunil(supabase, authz.org.orgId, pipelineId);
+    const funil = await lerFunil(supabase, authz.organizationId, pipelineId);
     if (!funil) return fail("not_found", t("Funil não encontrado."), 404, { requestId });
     return ok(corpo(funil.etapas), { requestId });
   } catch (err) {
@@ -188,10 +199,19 @@ export async function PUT(req: NextRequest, ctx: RouteCtx): Promise<Response> {
   if (supportDenied) return supportDenied;
 
   const requestId = randomUUID();
-  const authz = await requireRole("manager", { requestId, resource: "pipeline_agent_mapping" });
+  const authz = await resolveAuthDual(req, {
+    requestId,
+    resource: "pipeline_agent_mapping",
+    role: "manager",
+    scope: "config:write",
+    tokenRole: "admin",
+  });
   if (!authz.ok) return authz.response;
-  const t = (texto: string) => traduzir(texto, authz.user.idioma);
-  const orgId = authz.org.orgId;
+  const t = (texto: string) => traduzir(texto, authz.idioma ?? "pt-BR");
+  const orgId = authz.organizationId;
+
+  const teto = await tetoDeEscritaDoToken(authz, "pipeline_agent_mapping", requestId);
+  if (teto) return teto;
 
   const { id: pipelineId } = await ctx.params;
 
@@ -212,7 +232,7 @@ export async function PUT(req: NextRequest, ctx: RouteCtx): Promise<Response> {
     );
   }
 
-  const supabase = await createClient();
+  const supabase = authz.supabase;
 
   let funil: Awaited<ReturnType<typeof lerFunil>>;
   try {
@@ -280,7 +300,8 @@ export async function PUT(req: NextRequest, ctx: RouteCtx): Promise<Response> {
   if (updates.length > 0) {
     void audit({
       action: "pipeline.agent_mapping_updated",
-      actorUserId: authz.user.id,
+      actorUserId: authz.actor.type === "user" ? authz.actor.id : null,
+      actorApiTokenId: authz.apiTokenId ?? null,
       organizationId: orgId,
       resourceType: "crm_pipeline",
       resourceId: pipelineId,

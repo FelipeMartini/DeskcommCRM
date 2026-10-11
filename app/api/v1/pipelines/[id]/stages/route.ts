@@ -21,6 +21,7 @@ import { randomUUID } from "node:crypto";
 import { type NextRequest } from "next/server";
 import { z } from "zod";
 
+import { resolveAuthDual, tetoDeEscritaDoToken } from "@/lib/api/auth-dual";
 import { respostaDeRecusa } from "@/lib/api/recusa";
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
@@ -59,15 +60,29 @@ const bodySchema = z
  * Ganho e perda entram: quem escolhe etapa para FILTRAR público quer poder
  * dizer "quem está em Perdido". Quem escolhe etapa de NASCIMENTO é recusado
  * antes, pela regra de que card não nasce fechado.
+ *
+ * Aceita sessão OU Bearer `dsk_...` (`lib/api/auth-dual.ts`; escopo PRÓPRIO
+ * `config:read`, papel admin no token): quem configura o funil por código lê as
+ * etapas por aqui. A org sai da linha do token e o filtro abaixo a aplica à mão.
+ * O POST (criar etapa) segue só com sessão.
  */
-export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
+export async function GET(req: NextRequest, ctx: RouteCtx): Promise<Response> {
   const requestId = randomUUID();
-  const authz = await requireRole("manager", { requestId, resource: "pipeline_stages" });
+  const authz = await resolveAuthDual(req, {
+    requestId,
+    resource: "pipeline_stages",
+    role: "manager",
+    scope: "config:read",
+    tokenRole: "admin",
+  });
   if (!authz.ok) return authz.response;
-  const t = (texto: string) => traduzir(texto, authz.user.idioma);
+  const t = (texto: string) => traduzir(texto, authz.idioma ?? "pt-BR");
   const { id } = await ctx.params;
 
-  const supabase = await createClient();
+  const teto = await tetoDeEscritaDoToken(authz, "pipeline_stages", requestId);
+  if (teto) return teto;
+
+  const supabase = authz.supabase;
   const { data, error } = await supabase
     .from("crm_stages")
     // A janela de esfriando entra na leitura como as demais colunas de
@@ -75,7 +90,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
     // tempo cada uma leva — e sem ela aqui, o POST de criação seria a única
     // superfície que escreve um dado que nenhuma leitura devolve.
     .select("id, name, position, is_won, is_lost, expected_duration_hours")
-    .eq("organization_id", authz.org.orgId)
+    .eq("organization_id", authz.organizationId)
     .eq("pipeline_id", id)
     .eq("is_archived", false)
     .order("position", { ascending: true });

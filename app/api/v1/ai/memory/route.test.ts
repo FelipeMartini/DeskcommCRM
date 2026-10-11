@@ -17,6 +17,9 @@ import type { AuthUser } from "@/lib/auth/types";
 
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
+// `resolveAuthDual` abre o client da sessão (cookies) quando não há Bearer: sem esta dublê a
+// rota estoura fora de um request real. O handler grava pelo client admin, mockado acima.
+vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn(async () => ({})) }));
 vi.mock("@/lib/audit", () => ({ audit: vi.fn(async () => undefined) }));
 
 const ORG_ID = "22222222-2222-4222-8222-222222222222";

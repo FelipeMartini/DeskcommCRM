@@ -10,13 +10,19 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  *
  * 422 validation_failed com details.errors (mesmo shape de PublishValidationError)
  * se draft_graph ausente ou reprovado na validação estrutural/semântica.
+ *
+ * Auth: sessão de navegador OU Bearer `dsk_...` (`lib/api/auth-dual.ts`). Publicar
+ * põe o fluxo no ar, então o token precisa do escopo PRÓPRIO `config:write` E de
+ * papel admin (`tokenRole`), como publicar a versão do agente (#2052). A org sai da
+ * linha do token e a rota a filtra à mão. A validação de publicação é a MESMA nos
+ * dois modos: não há atalho para quem entra por token.
  */
 import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 import { ok, fail } from "@/lib/api/wrappers";
+import { resolveAuthDual, tetoDeEscritaDoToken } from "@/lib/api/auth-dual";
 import { audit } from "@/lib/audit";
-import { requireRole } from "@/lib/auth/require-role";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { carregaEtapasCitadas } from "@/lib/followup/etapas-citadas";
 import type { FollowupFlowSurface } from "@/lib/followup/api-schemas";
@@ -37,7 +43,7 @@ const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
-export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
+export async function POST(req: NextRequest, ctx: RouteCtx): Promise<Response> {
   const supportDenied = await requireSupportWrite();
   if (supportDenied) return supportDenied;
 
@@ -47,10 +53,22 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
     return fail("invalid_request", "id inválido.", 400, { requestId });
   }
 
-  const authz = await requireRole("manager", { requestId, resource: "followup_flows" });
+  const authz = await resolveAuthDual(req, {
+    requestId,
+    resource: "followup_flows",
+    role: "manager",
+    scope: "config:write",
+    tokenRole: "admin",
+  });
   if (!authz.ok) return authz.response;
-  const t = (texto: string) => traduzir(texto, authz.user.idioma);
-  const { user, org: activeOrg } = authz;
+  const t = (texto: string) => traduzir(texto, authz.idioma ?? "pt-BR");
+  const activeOrg = { orgId: authz.organizationId };
+  // `created_by` referencia auth.users: token grava `null`, e a autoria fica no
+  // audit (`actor_api_token_id`).
+  const autorId = authz.actor.type === "user" ? authz.actor.id : null;
+
+  const teto = await tetoDeEscritaDoToken(authz, "followup_flows", requestId);
+  if (teto) return teto;
 
   const admin = createAdminClient();
   const { data: pointer, error: fetchErr } = await admin
@@ -235,7 +253,7 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
     orgId: activeOrg.orgId,
     pointerId: id,
     graph,
-    createdBy: user.id,
+    createdBy: autorId,
   });
   if (!result.ok) {
     if (result.code === "pointer_not_found") {
@@ -258,7 +276,8 @@ export async function POST(_req: NextRequest, ctx: RouteCtx): Promise<Response> 
 
   void audit({
     action: "followup_flow.published",
-    actorUserId: user.id,
+    actorUserId: autorId,
+    actorApiTokenId: authz.apiTokenId ?? null,
     organizationId: activeOrg.orgId,
     resourceType: "followup_flow_pointer",
     resourceId: id,

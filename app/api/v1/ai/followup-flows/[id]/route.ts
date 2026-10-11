@@ -7,12 +7,19 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  *   semântica de publish (reachability, coverage) roda em /publish.
  * DELETE /api/v1/ai/followup-flows/:id — apaga o pointer (manager+). Enrollment
  *   e versões saem no cascade / na ordem abaixo; não dá para desfazer.
+ *
+ * GET e PATCH aceitam sessão OU Bearer `dsk_...` (`lib/api/auth-dual.ts`): quem
+ * configura follow-up por código preenche o grafo e o gatilho do rascunho. O
+ * escopo é o PRÓPRIO `config:read`/`config:write` com papel admin no token, como
+ * publicar (`./publish`); a org sai da linha do token e toda consulta a filtra à
+ * mão (o client do token é o admin). O DELETE segue só com sessão.
  */
 import { rascunhoDoFluxo } from "@/lib/followup/rascunho";
 import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 
 import { ok, fail } from "@/lib/api/wrappers";
+import { resolveAuthDual, tetoDeEscritaDoToken } from "@/lib/api/auth-dual";
 import { audit } from "@/lib/audit";
 import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
@@ -28,19 +35,28 @@ const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
-export async function GET(_req: NextRequest, ctx: RouteCtx): Promise<Response> {
+export async function GET(req: NextRequest, ctx: RouteCtx): Promise<Response> {
   const requestId = randomUUID();
   const { id } = await ctx.params;
   if (!UUID_RX.test(id)) {
     return fail("invalid_request", "id inválido.", 400, { requestId });
   }
 
-  const authz = await requireRole("viewer", { requestId, resource: "followup_flows" });
+  const authz = await resolveAuthDual(req, {
+    requestId,
+    resource: "followup_flows",
+    role: "viewer",
+    scope: "config:read",
+    tokenRole: "admin",
+  });
   if (!authz.ok) return authz.response;
-  const t = (texto: string) => traduzir(texto, authz.user.idioma);
-  const { org: activeOrg } = authz;
+  const t = (texto: string) => traduzir(texto, authz.idioma ?? "pt-BR");
+  const activeOrg = { orgId: authz.organizationId };
 
-  const supabase = await createClient();
+  const teto = await tetoDeEscritaDoToken(authz, "followup_flows", requestId);
+  if (teto) return teto;
+
+  const supabase = authz.supabase;
   const { data, error } = await supabase
     .from("followup_flow_pointers")
     .select(DETAIL_COLUMNS)
@@ -93,10 +109,19 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
     return fail("invalid_request", "id inválido.", 400, { requestId });
   }
 
-  const authz = await requireRole("manager", { requestId, resource: "followup_flows" });
+  const authz = await resolveAuthDual(req, {
+    requestId,
+    resource: "followup_flows",
+    role: "manager",
+    scope: "config:write",
+    tokenRole: "admin",
+  });
   if (!authz.ok) return authz.response;
-  const t = (texto: string) => traduzir(texto, authz.user.idioma);
-  const { user, org: activeOrg } = authz;
+  const t = (texto: string) => traduzir(texto, authz.idioma ?? "pt-BR");
+  const activeOrg = { orgId: authz.organizationId };
+
+  const teto = await tetoDeEscritaDoToken(authz, "followup_flows", requestId);
+  if (teto) return teto;
 
   let raw: unknown;
   try {
@@ -113,7 +138,7 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
     });
   }
 
-  const supabase = await createClient();
+  const supabase = authz.supabase;
   const { data: existing, error: fetchErr } = await supabase
     .from("followup_flow_pointers")
     .select("id")
@@ -168,7 +193,8 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
 
   void audit({
     action: "followup_flow.updated",
-    actorUserId: user.id,
+    actorUserId: authz.actor.type === "user" ? authz.actor.id : null,
+    actorApiTokenId: authz.apiTokenId ?? null,
     organizationId: activeOrg.orgId,
     resourceType: "followup_flow_pointer",
     resourceId: id,

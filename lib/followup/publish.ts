@@ -22,7 +22,7 @@ export type PublishFlowResult = PublishFlowOk | PublishFlowFail;
 
 export async function publishFollowupFlowVersion(
   admin: SupabaseClient,
-  params: { orgId: string; pointerId: string; graph: FlowGraph; createdBy: string },
+  params: { orgId: string; pointerId: string; graph: FlowGraph; createdBy: string | null },
 ): Promise<PublishFlowResult> {
   const { data, error } = await admin.rpc("fn_publish_followup_flow_version", {
     p_org: params.orgId,
