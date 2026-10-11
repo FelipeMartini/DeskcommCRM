@@ -18,6 +18,7 @@
  * Fonte injetável de propósito, como `listClassifierModels` recebe as chaves de
  * plataforma: é o que permite testar sem mexer no `process.env` do processo.
  */
+import { ponteAtendeAOrganizacao } from "@/lib/ai/claude-ponte";
 import { IDS_DE_PROVEDOR } from "@/lib/ai/pontos/provedores";
 import { lerTransporteDeWhatsapp, type TransporteDeWhatsapp } from "@/lib/channels/transporte";
 
@@ -65,10 +66,46 @@ function preenchida(source: FonteDeAmbiente, nome: string | undefined): boolean 
   return (source[nome] ?? "").trim() !== "";
 }
 
-export function lerAmbiente(source: FonteDeAmbiente = process.env): AmbienteDaInstalacao {
+/**
+ * A claude-ponte cobre este provedor, para esta organização?
+ *
+ * Só o `anthropic` tem ponte, e só para a organização que a lista `CLAUDE_PONTE_ORGS` atende com
+ * as três variáveis em ordem (`lib/ai/claude-ponte.ts`). É pergunta de EXISTÊNCIA para os portões
+ * de salvar e publicar agente: a chave da ponte nunca sai daqui, e quem a USA é o motor.
+ *
+ * Fora disto (sem as variáveis, organização fora da lista, outro provedor) a resposta é `false`
+ * sem olhar mais nada: a instalação que não usa a ponte se comporta exatamente como antes.
+ */
+export function ponteCobreOProvedor(
+  provider: string,
+  organizationId: string,
+  source: FonteDeAmbiente = process.env,
+): boolean {
+  if (provider !== "anthropic") return false;
+  return ponteAtendeAOrganizacao(
+    {
+      CLAUDE_PONTE_BASE_URL: source.CLAUDE_PONTE_BASE_URL,
+      CLAUDE_PONTE_API_KEY: source.CLAUDE_PONTE_API_KEY,
+      CLAUDE_PONTE_ORGS: source.CLAUDE_PONTE_ORGS,
+    },
+    organizationId,
+  );
+}
+
+/**
+ * `organizationId` é opcional de propósito: sem ele a leitura é a de sempre (só as chaves do
+ * `.env`). Com ele, o `anthropic` também conta como presente quando a claude-ponte atende ESSA
+ * organização — que é como a instalação "tem chave" para ela sem ter `ANTHROPIC_API_KEY`.
+ */
+export function lerAmbiente(
+  source: FonteDeAmbiente = process.env,
+  organizationId?: string,
+): AmbienteDaInstalacao {
   const chavesDeProvedor: Record<string, boolean> = {};
   for (const id of IDS_DE_PROVEDOR) {
-    chavesDeProvedor[id] = preenchida(source, VARIAVEL_DA_CHAVE[id]);
+    chavesDeProvedor[id] =
+      preenchida(source, VARIAVEL_DA_CHAVE[id]) ||
+      (organizationId !== undefined && ponteCobreOProvedor(id, organizationId, source));
   }
 
   return {
