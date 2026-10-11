@@ -67,6 +67,10 @@ describe("costCents — cada tarifa isolada, por modelo", () => {
     ["gpt-4o-mini", 15, 60, 7.5, 15, 15],
     ["gpt-4o", 250, 1000, 125, 250, 250],
     ["gpt-4o-2024-05-13", 500, 1500, 500, 500, 500],
+    // Linha 6 (conferida em 11/10/2026): leitura de cache a 0.05× só no gpt-6.1-sol.
+    ["gpt-6-astra", 1000, 5000, 100, 1250, 1250],
+    ["gpt-6.1-sol", 200, 1000, 10, 250, 250],
+    ["gpt-6-luna", 10, 50, 1, 12.5, 12.5],
     ["gpt-5.6-terra", 200, 1200, 20, 250, 250],
     ["gpt-5.6-sol", 400, 2000, 40, 500, 500],
     ["gpt-5.6-luna", 20, 120, 2, 25, 25],
@@ -122,6 +126,12 @@ describe("costCents — id que a tabela não conhece volta NULL", () => {
     ["claude-sonnet-50"],
     ["claude-opus-4-9"],
     ["claude-opus-48"],
+    // Vizinhos da linha 6: o gpt-6-sol ficou fora do catálogo (o 6.1 o sucede) e
+    // não herda o preço de ninguém; nem o gpt-6-luna empresta o seu a um id parecido.
+    ["gpt-6-sol"],
+    ["gpt-6"],
+    ["gpt-6.1-luna"],
+    ["gpt-6-luna-mini"],
     // Mesmo com o recorte do prefixo tolerado, modelo que não casa em NENHUM
     // formato continua NULL — o recorte não inventa preço (armadilha 3).
     ["anthropic/claude-sonnet-50"],
@@ -146,6 +156,7 @@ describe("costCents — id com prefixo provider/ (formato OpenRouter)", () => {
     ["anthropic/claude-sonnet-4-6", 300, 1500, 30, 375, 600],
     ["anthropic/claude-haiku-4-5", 100, 500, 10, 125, 200],
     ["anthropic/claude-opus-5", 500, 2500, 50, 625, 1000],
+    ["openai/gpt-6-luna", 10, 50, 1, 12.5, 12.5],
     ["google/gemini-3.5-flash-lite", 30, 250, 3, 30, 30],
   ])("%s custa como o id sem prefixo", (model, cIn, cOut, cLeitura, cGrav5m, cGrav1h) => {
     expect(entrada(model)).toBeCloseTo(cIn, 6);
