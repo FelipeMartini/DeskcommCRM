@@ -1,5 +1,5 @@
 "use client";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useSyncExternalStore } from "react";
 import { useSearchParams } from "next/navigation";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { TopBar } from "@/components/shell/TopBar";
@@ -10,6 +10,7 @@ import { useInboundMessageAlerts } from "@/hooks/notifications/useInboundMessage
 import { useInboundCallAlerts } from "@/hooks/calls/useInboundCallAlerts";
 import { useCrmAlerts } from "@/hooks/notifications/useCrmAlerts";
 import { useNotifyOpenFromServiceWorker } from "@/lib/notifications/notify_open";
+import { estaEmbutido, paginaEstaEmQuadro } from "@/lib/ui/modo-embutido";
 import { estiloDaReserva, useOcupacaoDoRodape } from "@/lib/ui/rodape-ocupado";
 
 interface AppShellProps {
@@ -26,6 +27,9 @@ interface AppShellProps {
   children: ReactNode;
 }
 
+/** O quadro em que a página vive não muda durante a vida dela: nada a assinar. */
+const semAssinatura = () => () => {};
+
 export function AppShell({ sidebarCollapsed, podeAtender, children }: AppShellProps) {
   useInboundMessageAlerts();
   useInboundCallAlerts();
@@ -33,17 +37,14 @@ export function AppShell({ sidebarCollapsed, podeAtender, children }: AppShellPr
   useNotifyOpenFromServiceWorker();
 
   const searchParams = useSearchParams();
-  const [isEmbedded, setIsEmbedded] = useState(false);
-
-  useEffect(() => {
-    const isFrame = typeof window !== "undefined" && window.self !== window.top;
-    const isParam = searchParams?.get("embedded") === "true";
-    const hasCookie =
-      typeof document !== "undefined" && document.cookie.includes("deskcomm_embedded=1");
-    if (isFrame || isParam || hasCookie) {
-      setIsEmbedded(true);
-    }
-  }, [searchParams]);
+  // Embutido = esta aba está num quadro, ou esta visita veio com `?embedded=true`.
+  // Nenhuma lembrança de visita anterior (cookie) entra: ela escondia a barra
+  // lateral em todo acesso direto por 7 dias depois de um uso embutido. A regra
+  // e o porquê estão em `lib/ui/modo-embutido.ts`. O quadro lê-se como valor do
+  // navegador: no servidor e na hidratação vale `false` (a barra desenhada), e o
+  // cliente corrige logo em seguida, sem estado nem efeito para manter.
+  const emQuadro = useSyncExternalStore(semAssinatura, paginaEstaEmQuadro, () => false);
+  const isEmbedded = estaEmbutido({ emQuadro, parametro: searchParams?.get("embedded") });
 
   // O SINAL DE PRESENÇA (issue #996) sai daqui porque presença é "esta aba
   // está aberta" — não "a pessoa está na tela Equipe". Quem atende passa o dia

@@ -116,16 +116,9 @@ export async function GET(request: NextRequest) {
     destinoUrl.searchParams.set("embedded", "true");
   }
 
-  const response = NextResponse.redirect(destinoUrl);
-
-  if (embedded) {
-    response.cookies.set("deskcomm_embedded", "1", {
-      path: "/",
-      sameSite: "none",
-      secure: true,
-      maxAge: 60 * 60 * 24 * 7,
-    });
-  }
-
-  return response;
+  // O modo embutido NÃO é lembrado em cookie: quem decide é a aba de agora (quadro
+  // ou `?embedded=true`, em `lib/ui/modo-embutido.ts`). O cookie de 7 dias que
+  // existiu aqui escondia a barra lateral em todo acesso direto depois de um uso
+  // embutido; navegadores que ainda o guardam o ignoram e ele expira sozinho.
+  return NextResponse.redirect(destinoUrl);
 }
