@@ -1041,6 +1041,10 @@ export const AUDIT_ACTIONS = [
   // (#2098): gravada pela tela de Conversões, em `organizations.settings.conversions`.
   "conversions.meta_identity_updated",
 
+  // O operador baixou o histórico de UMA conversa em PDF (issue #1982): o gesto
+  // auditável é a saída de dados — QUANTAS linhas saíram, não o que elas dizem
+  // (o corpo da mensagem não vai para log nem para metadata, LGPD).
+  "conversation.exported",
   // ── Cobrança do revendedor — rotas do dono (spec 2026-09-29, PR 2) ───────
   // Plano criado/editado e arquivado; plano atribuído ou trocado numa empresa
   // (`metadata.quando`: atribuido | imediato); prazo dado e isenção
@@ -1066,6 +1070,11 @@ export const AUDIT_ACTIONS = [
   "cobranca.org_reativada",
   "cobranca.rodada",
   "cobranca.regua_salva",
+  // #2609, a conferência da releitura: o preço da assinatura NO PROVEDOR
+  // divergiu do preço do PLANO gravado (metadata com os DOIS números, o plano e
+  // a assinatura). Detecção, não correção — o preço de quem já assinou é
+  // decisão de quem administra, e o audit é o lugar de vê-la.
+  "cobranca.preco_divergente",
   // O servidor MCP externo registrado pela instalação (#2147): gravado (ou
   // apagado, com `registrado: false` no metadata) em
   // `organizations.settings.mcp_externo`. É mutação de TENANT — o endereço que

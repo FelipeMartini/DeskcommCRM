@@ -46675,6 +46675,212 @@ grant  execute on function public.fn_expurgar_checkpoints_superados(int,int) to 
 
 notify pgrst, 'reload schema';
 
+-- ---- Assumir interrompe o turno autônomo (migration 0594) ----
+-- manifest: Tomada humana invalida os turnos autônomos da conversa, sem vencer lembretes ou aprovações.
+-- A identidade do atendimento não muda: só o lease do trabalho que perdeu comando.
+-- Status terminal não volta a pending quando a conversa é devolvida ao automático.
+create or replace function public.fn_interromper_turnos_ao_assumir()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  -- Distribuir ao responsável não é assumir; handoff é decisão do próprio turno.
+  if new.reason not in ('claim', 'transfer') or new.to_user_id is null then return new; end if;
+  -- O fato de atribuição deve corresponder ao dono real, na MESMA organização.
+  if not exists (select 1 from public.conversations c
+    where c.organization_id = new.organization_id and c.id = new.conversation_id
+      and c.assigned_to_user_id = new.to_user_id) then return new; end if;
+  -- O fluxo tem escrita interna própria: a sessão humana não pode cancelar seu
+  -- job. Guarda um fato terminal para o worker descartar sob a sua autoridade.
+  -- Não usa created_at >= locked_at: now() é o início da transação da tomada,
+  -- que pode ter começado ANTES da aquisição do lease que está sendo revogado.
+  insert into public.event_log (organization_id, event_type, entity_kind, entity_id, payload, status)
+    select new.organization_id, 'conversation.autonomous_turn_revoked', 'job', j.id,
+      jsonb_build_object('conversation_id', new.conversation_id, 'assignment_event_id', new.id), 'done'
+    from public.job_queue j
+    where j.organization_id = new.organization_id and j.kind = 'followup_turn' and j.status = 'running'
+      and j.payload->'service_boundary'->>'conversation_id' = new.conversation_id::text
+      and j.payload->'service_boundary'->>'organization_id' = new.organization_id::text
+      and j.contact_id = (select c.contact_id from public.conversations c
+        where c.organization_id = new.organization_id and c.id = new.conversation_id);
+  update public.job_queue j
+     set status = 'failed', locked_by = null, locked_at = null,
+         last_error = 'conversation_command_taken'
+   where j.organization_id = new.organization_id
+     and j.payload->'service_boundary'->>'conversation_id' = new.conversation_id::text
+     and j.payload->'service_boundary'->>'organization_id' = new.organization_id::text
+     and j.contact_id = (select c.contact_id from public.conversations c
+       where c.organization_id = new.organization_id and c.id = new.conversation_id)
+     and j.kind in ('inbound_turn', 'case_reply_turn')
+     and j.status in ('pending', 'running');
+  -- O worker encerra só o turno de follow-up revogado, não a inscrição nem sua política.
+  -- transactional_delivery, approved_reply e operator_turn não têm este dono.
+  return new;
+end;
+$$;
+revoke execute on function public.fn_interromper_turnos_ao_assumir() from public, anon, authenticated, service_role;
+-- Função de trigger: não há RPC/EXECUTE concedido ao caller.
+drop trigger if exists trg_interromper_turnos_ao_assumir on public.conversation_assignment_events;
+create trigger trg_interromper_turnos_ao_assumir
+  after insert on public.conversation_assignment_events
+  for each row execute function public.fn_interromper_turnos_ao_assumir();
+
+-- A mesma revogação alcança o envio inline (sem agent-worker/AsyncLocalStorage).
+create or replace function public.fn_followup_claim_current(p_org uuid,p_job uuid,p_worker text,p_acquired_at timestamptz)
+returns boolean language sql stable security definer set search_path=public as $$
+ select exists(select 1 from public.job_queue j where j.organization_id=p_org and j.id=p_job
+  and j.kind='followup_turn' and j.status='running' and j.locked_by=p_worker and j.locked_at=p_acquired_at
+  and not exists(select 1 from public.event_log r where r.organization_id=p_org
+    and r.event_type='conversation.autonomous_turn_revoked' and r.entity_kind='job' and r.entity_id=j.id
+    and r.status='done' and r.payload->>'conversation_id'=j.payload->'service_boundary'->>'conversation_id'));
+$$;
+revoke all on function public.fn_followup_claim_current(uuid,uuid,text,timestamptz) from public,anon,authenticated;
+grant execute on function public.fn_followup_claim_current(uuid,uuid,text,timestamptz) to service_role;
+
+-- Pausa permite retomada: descarte é trilha do turno, não cancelamento da inscrição.
+create or replace function public.fn_followup_turno_descartado(p_org uuid, p_job uuid)
+returns boolean
+language sql
+security invoker
+set search_path = ''
+as $$
+  with gravado as (
+    insert into public.followup_enrollment_events
+      (organization_id, enrollment_id, node_id, event_type, payload, idempotency_key)
+    select p_org, e.id, e.current_node_id, 'turn_discarded',
+           jsonb_build_object('job_id', j.id, 'motivo', case when exists (
+             select 1 from public.event_log r where r.organization_id=p_org
+               and r.event_type='conversation.autonomous_turn_revoked' and r.entity_kind='job'
+               and r.entity_id=j.id and r.status='done'
+           ) then 'conversation_command_taken' else 'org_nao_operante' end),
+           coalesce(j.payload->>'source_step_key', j.id::text) || ':descartado'
+      from public.job_queue j
+      join public.followup_enrollments e
+        on e.organization_id = p_org
+       and e.id::text = j.payload->>'followup_enrollment_id'
+       and e.current_node_id = j.payload->>'node_id'
+       and e.status in ('active', 'waiting_reply', 'dormente', 'paused_handoff', 'paused_manual')
+     where j.id = p_job
+       and j.organization_id = p_org
+       and j.kind = 'followup_turn'
+       and j.payload->>'purpose' = 'send_message'
+    on conflict (enrollment_id, idempotency_key) where idempotency_key is not null do nothing
+    returning 1
+  )
+  select exists (select 1 from gravado);
+$$;
+
+revoke execute on function public.fn_followup_turno_descartado(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.fn_followup_turno_descartado(uuid, uuid) to service_role;
+
+-- Reserva a autoridade nova no emissor público; fn_log_event delega a ele.
+CREATE OR REPLACE FUNCTION public.emit_event(p_event_type text, p_entity_kind text, p_entity_id uuid, p_payload jsonb DEFAULT '{}'::jsonb, p_metadata jsonb DEFAULT '{}'::jsonb, p_organization_id uuid DEFAULT NULL::uuid)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_org_id uuid;
+  v_event_id uuid;
+  v_contact uuid;
+  v_origin jsonb;
+begin
+  -- message.received nasce somente do INSERT inbound interno. Um chamador
+  -- público não pode reapresentar uma mensagem existente como evento novo.
+  -- `ai.case_opened`/`ai.case_closed` entram pela mesma razão (0279): o caso é
+  -- do motor, e um evento de caso forjado por login move o funil e acorda o
+  -- agente em nome de uma decisão que ninguém tomou.
+  -- `contact.birthday` entra pela 0551: só o cron (`contact-birthdays`, sem
+  -- sessão) o emite, e a partir desta migration ele alcança a origem e manda
+  -- WhatsApp de verdade — forjado por login, seria envio em nome de um
+  -- aniversário que ninguém fez.
+  -- Revogação do turno é fato da tomada nativa, nunca um pedido do login.
+  if auth.uid() is not null and p_event_type in (
+    'message.received','appointment.outcome_confirmed',
+    'ai.case_opened','ai.case_closed','contact.birthday',
+    'conversation.autonomous_turn_revoked'
+  ) then
+    raise exception 'reserved_message_received' using errcode='42501';
+  end if;
+  -- Desfecho e responsável do negócio só nascem do gatilho de `crm_leads`
+  -- (`fn_emit_event_on_lead_change`), quando a linha muda de fato. Nenhum
+  -- emissor do app os pede por RPC; os consumidores produzem efeito real
+  -- (push, webhook de saída, conversão de anúncio).
+  if auth.uid() is not null
+     and p_event_type in ('lead.won','lead.lost','lead.reopened','lead.assigned')
+     and coalesce(current_setting('deskcomm.desfecho_pelo_negocio', true), '') <> 'on' then
+    raise exception 'reserved_message_received' using errcode='42501';
+  end if;
+  -- Estes campos autorizam efeitos operacionais; não são payload público.
+  if auth.uid() is not null and (
+    coalesce(p_payload,'{}'::jsonb) ?| array['service_origin','service_boundary']
+    or coalesce(p_metadata,'{}'::jsonb) ?| array['service_origin','service_boundary']
+  ) then raise exception 'reserved_service_origin' using errcode='42501'; end if;
+  v_org_id := coalesce(p_organization_id, (public.fn_support_context()->>'organization_id')::uuid);
+  if v_org_id is null then
+    select organization_id into v_org_id
+      from public.user_organizations
+      where user_id = auth.uid() and revoked_at is null
+      limit 1;
+  end if;
+  if v_org_id is null then
+    raise exception 'emit_event: organization_id obrigatorio';
+  end if;
+
+  if auth.uid() is not null
+     and not public.fn_role_at_least(v_org_id, 'viewer') then
+    raise exception 'caller_not_authorized_for_org'
+      using hint = 'emit_event: caller must be an active member of the organization';
+  end if;
+
+  if not public.fn_support_write_allowed(v_org_id) then raise exception 'support_readonly' using errcode='42501'; end if;
+
+  -- A ORIGEM E RESERVADA AO SERVIDOR — ENTAO O SERVIDOR TEM DE ESCREVE-LA.
+  --
+  -- O bloco acima recusa `service_origin` vindo de chamador autenticado (42501,
+  -- e com razao: e o campo que AUTORIZA efeito operacional, nao payload
+  -- publico). So que ninguem o escrevia no lugar dele. Efeito medido: quem move
+  -- o negocio pela IA carimba a origem no servidor (`agent-stage-sync`,
+  -- `appointment-stage-move`, `handoff-stage-move`) e o follow-up nasce; quem
+  -- move PELO QUADRO — o operador, pela rota HTTP autenticada — emitia um
+  -- evento SEM origem, `fn_service_event_origin` caia no `service_stale` final
+  -- (40001), `serviceForEvent` engolia como `stale_origin` e o follow-up nunca
+  -- nascia. Sem erro em lugar nenhum: o gatilho de etapa era inalcancavel pelo
+  -- caminho que o produto oferece na tela.
+  --
+  -- O retrato e tirado AQUI, no instante da emissao, que e exatamente a
+  -- semantica de procedencia que a 0223 quer: "quando este evento nasceu, o
+  -- atendimento estava assim". A resolucao do contato vem da mesma tabela de
+  -- `fn_service_event_contact` — se ela nao souber resolver o tipo, nao ha o que
+  -- carimbar e o evento segue sem origem, como antes.
+  if not (coalesce(p_payload,'{}'::jsonb) ? 'service_origin')
+     and not (coalesce(p_metadata,'{}'::jsonb) ? 'service_origin') then
+    select f.contact_id into v_contact
+      from public.fn_service_event_contact(v_org_id, p_event_type, p_entity_kind, p_entity_id) f;
+    if v_contact is not null
+       and exists(select 1 from public.contacts
+                   where organization_id=v_org_id and id=v_contact
+                     and not is_anonymized and is_merged_into is null) then
+      v_origin := jsonb_build_object('kind','command',
+        'observed', public.fn_service_observe_command(v_org_id, v_contact));
+    end if;
+  end if;
+
+  insert into public.event_log
+    (organization_id, event_type, entity_kind, entity_id, payload, metadata)
+  values
+    (v_org_id, p_event_type, p_entity_kind, p_entity_id,
+     coalesce(p_payload, '{}'::jsonb)
+       || case when v_origin is null then '{}'::jsonb else jsonb_build_object('service_origin', v_origin) end,
+     coalesce(p_metadata, '{}'::jsonb)
+       || jsonb_build_object('emitted_at', extract(epoch from now())))
+  returning id into v_event_id;
+
+  return v_event_id;
+end $function$;
+revoke execute on function public.emit_event(text, text, uuid, jsonb, jsonb, uuid) from public, anon;
+grant  execute on function public.emit_event(text, text, uuid, jsonb, jsonb, uuid) to authenticated, service_role;
+
+
 -- ---- a tela de uso de IA agrega no banco, não em JS sobre uma amostra (migration 0586) ----
 -- Entra ANTES da VARREDURA anon (que proíbe create function depois dela). Por
 -- ser invoker, a varredura nem a alcançaria: os revokes abaixo são a proteção.
@@ -49347,6 +49553,65 @@ $f$;
 revoke execute on function public.fn_arquivos_da_organizacao(uuid, text, text, integer) from public, anon, authenticated;
 grant execute on function public.fn_arquivos_da_organizacao(uuid, text, text, integer) to service_role;
 
+-- manifest: Centraliza a revogação do turno na mesma organização, job e conversa, preservando leases e políticas de follow-up.
+-- Forward-fix: 0594 já foi aplicada; não altera sua história.
+create or replace function public.fn_autonomous_turn_revoked(p_org uuid, p_job uuid)
+returns boolean language sql stable security invoker set search_path = '' as $$
+  select exists (
+    select 1 from public.job_queue j
+    join public.event_log r on r.organization_id = j.organization_id and r.entity_id = j.id
+    where j.organization_id = p_org and j.id = p_job
+      and r.event_type = 'conversation.autonomous_turn_revoked'
+      and r.entity_kind = 'job' and r.status = 'done'
+      and r.payload->>'conversation_id' = j.payload->'service_boundary'->>'conversation_id'
+  );
+$$;
+revoke all on function public.fn_autonomous_turn_revoked(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.fn_autonomous_turn_revoked(uuid, uuid) to service_role;
+
+-- Chamado pelo worker e pelo envio inline: mantém o lease com precisão de µs.
+create or replace function public.fn_followup_claim_current(p_org uuid,p_job uuid,p_worker text,p_acquired_at timestamptz)
+returns boolean language sql stable security definer set search_path=public as $$
+ select exists(select 1 from public.job_queue j where j.organization_id=p_org and j.id=p_job
+  and j.kind='followup_turn' and j.status='running' and j.locked_by=p_worker and j.locked_at=p_acquired_at
+  and not public.fn_autonomous_turn_revoked(p_org, j.id));
+$$;
+revoke all on function public.fn_followup_claim_current(uuid,uuid,text,timestamptz) from public,anon,authenticated;
+grant execute on function public.fn_followup_claim_current(uuid,uuid,text,timestamptz) to service_role;
+
+-- Pausa permite retomada: descarte é trilha do turno, não cancelamento da inscrição.
+create or replace function public.fn_followup_turno_descartado(p_org uuid, p_job uuid)
+returns boolean
+language sql
+security invoker
+set search_path = ''
+as $$
+  with gravado as (
+    insert into public.followup_enrollment_events
+      (organization_id, enrollment_id, node_id, event_type, payload, idempotency_key)
+    select p_org, e.id, e.current_node_id, 'turn_discarded',
+           jsonb_build_object('job_id', j.id, 'motivo', case when public.fn_autonomous_turn_revoked(p_org, j.id) then 'conversation_command_taken' else 'org_nao_operante' end),
+           coalesce(j.payload->>'source_step_key', j.id::text) || ':descartado'
+      from public.job_queue j
+      join public.followup_enrollments e
+        on e.organization_id = p_org
+       and e.id::text = j.payload->>'followup_enrollment_id'
+       and e.current_node_id = j.payload->>'node_id'
+       and e.status in ('active', 'waiting_reply', 'dormente', 'paused_handoff', 'paused_manual')
+     where j.id = p_job
+       and j.organization_id = p_org
+       and j.kind = 'followup_turn'
+       and j.payload->>'purpose' = 'send_message'
+    on conflict (enrollment_id, idempotency_key) where idempotency_key is not null do nothing
+    returning 1
+  )
+  select exists (select 1 from gravado);
+$$;
+
+revoke execute on function public.fn_followup_turno_descartado(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.fn_followup_turno_descartado(uuid, uuid) to service_role;
+
+
 -- ---- a cascata de LGPD deixa de nomear a comanda (migration 0620) ----
 create or replace function public.fn_lgpd_cascade_redact_contact(p_organization_id uuid, p_contact_id uuid, p_request_id uuid) returns jsonb
     language plpgsql security definer
@@ -50294,6 +50559,69 @@ create trigger trg_crm_lead_nasce_na_carteira
 notify pgrst, 'reload schema';
 
 
+-- ---- remetente dos lembretes (migration 0625) ----
+-- manifest: remetente opcional por tipo de agendamento e avisos deduplicados de canal
+-- Sem backfill: nulo preserva o automático; nunca se adivinha um número legado.
+alter table public.calendar_event_types add column if not exists reminder_channel_session_id uuid;
+-- Substitui também a FK da prévia deste PR em uma reaplicação.
+-- A exclusão limpa só o canal: organization_id permanece obrigatório.
+do $$ begin
+  alter table public.calendar_event_types
+    drop constraint if exists calendar_event_types_reminder_channel_org_fkey;
+  alter table public.calendar_event_types add constraint calendar_event_types_reminder_channel_org_fkey
+    foreign key (organization_id, reminder_channel_session_id)
+    references public.channel_sessions(organization_id, id)
+    on delete set null (reminder_channel_session_id) deferrable initially deferred;
+end $$;
+comment on column public.calendar_event_types.reminder_channel_session_id is
+  'Remetente explícito dos lembretes. Nulo: conversa da reserva ou único canal elegível. Nunca troca de número se o indicado estiver indisponível.';
+
+-- Auto-cura antes do índice em uma reaplicação após deploy parcial.
+with repetidos as (
+ select id, row_number() over(partition by organization_id, ref_id order by created_at, id) as n
+ from public.agent_inbox_items where ref_kind='agenda_reminder_sender' and status='open'
+) update public.agent_inbox_items set status='resolved', resolved_at=now()
+where id in(select id from repetidos where n>1);
+create unique index if not exists agent_inbox_reminder_sender_open_unique
+  on public.agent_inbox_items(organization_id, ref_id)
+  where ref_kind='agenda_reminder_sender' and status='open';
+
+-- O cron fecha também o que já não entra na varredura: cancelado, vencido,
+-- apagado ou com lembretes desligados. Só service_role pode fazer a limpeza global.
+create or replace function public.fn_resolver_avisos_de_lembrete_expirados()
+returns integer language plpgsql security definer set search_path=pg_catalog,public as $$
+declare n integer;
+begin
+ update public.agent_inbox_items i set status='resolved', resolved_at=now()
+ where i.ref_kind='agenda_reminder_sender' and i.status='open' and not exists(
+   select 1 from public.calendar_appointments a
+   join public.calendar_event_types t on t.id=a.event_type_id and t.organization_id=a.organization_id
+   where a.id=i.ref_id and a.organization_id=i.organization_id
+     and a.status='confirmed' and a.starts_at>now() and t.reminder_enabled
+ );
+ get diagnostics n=row_count;
+ return n;
+end $$;
+revoke execute on function public.fn_resolver_avisos_de_lembrete_expirados() from public, anon, authenticated;
+grant execute on function public.fn_resolver_avisos_de_lembrete_expirados() to service_role;
+
+
+-- A referência nova participa da anonimização sem substituir o catálogo LGPD.
+create or replace function public.fn_anonimizar_aviso_de_remetente()
+returns trigger language plpgsql security definer set search_path=pg_catalog,public as $$
+begin
+ update public.agent_inbox_items set status='resolved',resolved_at=now(),body='Contato anonimizado.',ref_id=null
+ where organization_id=new.organization_id and ref_kind='agenda_reminder_sender'
+   and ref_id in(select id from public.calendar_appointments
+     where organization_id=new.organization_id and contact_id=new.id);
+ return new;
+end $$;
+revoke execute on function public.fn_anonimizar_aviso_de_remetente() from public, anon, authenticated, service_role;
+drop trigger if exists trg_anonimizar_aviso_de_remetente on public.contacts;
+create trigger trg_anonimizar_aviso_de_remetente after update of is_anonymized on public.contacts
+ for each row when(new.is_anonymized and not old.is_anonymized)
+ execute function public.fn_anonimizar_aviso_de_remetente();
+notify pgrst,'reload schema';
 
 -- ---- pausa agendada de conexões com retomada automática (migration 0626) ----
 -- Espelho exato da migration 20261009223404_0626_agenda_de_pausa_de_canais.sql.
@@ -50588,6 +50916,221 @@ create trigger trg_lgpd_secoes_de_modulo
   for each row
   when (new.is_anonymized and not old.is_anonymized)
   execute function public.fn_lgpd_redigir_secoes_de_modulo();
+
+-- ---- A id da sessão de pagamento no provedor, para a troca expirá-la (migration 0641, issue #2609) ----
+-- ANTES do bloco da VARREDURA anon. Conteúdo IDÊNTICO ao da migration — quem aplica a cadeia
+-- e quem aplica o baseline ficam com a mesma coluna (`apendice-do-baseline-nao-diverge`).
+
+-- manifest: **A sessão de pagamento fica guardada para expirar na troca de plano (#2609).** Hoje a troca é recusada enquanto há link de pagamento em aberto (o `checkout_em_aberto` da 0583/#2368), e a empresa espera o link expirar ou ser pago; aqui a recusa vira ação: `cobranca_assinaturas.checkout_sessao_id` guarda a id da sessão criada NO PROVEDOR para o link (Stripe `cs_…` na resposta do `POST /checkout/sessions`, Asaas `pay_…` da cobrança cujo `invoiceUrl` virou o link), escrita pela rota do Assinar junto com `checkout_url`/`checkout_expira_em` e zerada com eles (reserva da fase 1, `limparCheckout` da releitura e a própria troca). Com a id na mão, `troca.ts` expira a sessão NO PROVEDOR antes da escrita — fora de transação, como todo chamado ao provedor —, limpa o link local e a troca vale na hora; se o provedor não confirmar, nada muda e vale a recusa de sempre (sem a id, linha anterior à 0641, a recusa continua intacta). Coluna opcional `text`, idempotente (`add column if not exists`), sem backfill: nula é exatamente o comportamento de hoje. Mesmo bloco entra como apêndice no `supabase/baseline.sql` (é o que o kit self-host aplica), ANTES do bloco da VARREDURA anon; nenhuma linha nova no MANIFEST.md — a descrição mora aqui.
+-- 0641: a id da sessão de pagamento no provedor, guardada para a troca de plano expirá-la (#2609)
+--
+-- ─── O defeito ───────────────────────────────────────────────────────────────
+--
+-- A empresa muda de plano no teste grátis enquanto o link de pagamento está em
+-- aberto: a troca é RECUSADA (409 `checkout_em_aberto`) até o link expirar ou ser
+-- pago. A guarda é correta — deixar o link vivo com o preço do plano antigo é uma
+-- cobrança errada —, mas obriga a empresa a esperar até 24 h por uma decisão que
+-- o provedor executa em uma chamada.
+--
+-- O que faltava era a PONTA: a rota do Assinar grava o link (`checkout_url`) e o
+-- prazo (`checkout_expira_em`), mas não guarda QUAL sessão o provedor criou —
+-- logo, não há o que expirar lá. Sem essa id só há dois caminhos, e os dois são
+-- ruins: recusar (o defeito) ou limpar o link só no nosso banco (o link antigo
+-- continua valendo no provedor, e cobra o plano velho).
+--
+-- ─── A peça ──────────────────────────────────────────────────────────────────
+--
+-- Uma coluna opcional em `cobranca_assinaturas`, no mesmo trio do link:
+--
+--   checkout_url        o link que a empresa clica
+--   checkout_expira_em  até quando ele vale (e a reserva da fase 1)
+--   checkout_sessao_id  A ID DA SESSÃO NO PROVEDOR — quem expira o link lá fora
+--
+-- Escrita pela rota do Assinar na fase 3, junto com o link (`inicio.sessaoId`,
+-- devolvida por `iniciarAssinatura` dos DOIS adaptadores); zerada na reserva da
+-- fase 1 (uma sessão nova substitui a velha) e em toda limpeza do link
+-- (`limparCheckout` da releitura e a própria troca). Os três ou estão juntos, ou
+-- são nulos — a coluna não vive link sem sessão.
+--
+-- Sem backfill de propósito: linha antiga com link em aberto e sessão nula é o
+-- comportamento de HOJE, e a recusa `checkout_em_aberto` continua valendo para
+-- ela. Inventar id (lendo a URL, por exemplo) daria a garantia sem a garantia.
+--
+-- Idempotente (`add column if not exists` + comentário, que tolera re-aplicação)
+-- e com `notify pgrst`, para o PostgREST recarregar o schema. O MESMO bloco entra
+-- no `supabase/baseline.sql`, ANTES do bloco da VARREDURA anon (0116) — é o que
+-- o kit self-host aplica, install E update.
+
+alter table public.cobranca_assinaturas
+  add column if not exists checkout_sessao_id text;
+
+comment on column public.cobranca_assinaturas.checkout_sessao_id is
+  'A id da sessão de pagamento criada no PROVEDOR para o link em aberto (Stripe cs_…, Asaas pay_…) — issue #2609. Nasce com checkout_url/checkout_expira_em na fase 3 do Assinar e é zerada com eles: é ela que a troca de plano expira no provedor antes de mudar o plano, para a troca valer na hora sem deixar um link vivo com o preço antigo. Nula = nada em aberto, ou linha anterior à 0641 (aí a troca com link em aberto segue recusada como sempre).';
+
+notify pgrst, 'reload schema';
+
+-- ============================================================================
+-- 0644 — as cópias de skill editadas antes do #1960 voltam a apontar o
+-- catálogo (issue #1974). Bloco IDÊNTICO, linha a linha, ao da migration
+-- `20261011210004_0644_copias_antigas_de_skill_reconstroem_o_vinculo_com_o_catalogo.sql`
+-- (`tests/unit/copias-antigas-de-skill-reconstruem-o-vinculo.test.ts` prende os
+-- dois à mesma letra). Não cria função, então entra aqui em cima da VARREDURA
+-- anon por ordem de apêndice, não por necessidade. Instalação nova roda sobre
+-- `skill_versions` vazia (no-op); instalação que atualiza cura as cópias da
+-- janela do defeito. Reaplicável: a segunda passada não acha candidata nenhuma.
+-- ============================================================================
+do $$
+declare
+  v_alteradas integer;
+begin
+  execute 'alter table public.skill_versions disable trigger trg_skill_versions_immutable';
+
+  with portadores as (
+    select v.id,
+           (select anterior.forked_from_version_id
+              from public.skill_versions anterior
+             where anterior.organization_id = v.organization_id
+               and anterior.name = v.name
+               and anterior.forked_from_version_id is not null
+               and (anterior.created_at, anterior.id) < (v.created_at, v.id)
+               and exists (
+                 select 1
+                   from public.skill_versions origem
+                  where origem.id = anterior.forked_from_version_id
+                    and origem.organization_id is null -- origem tem de ser versão de PLATAFORMA
+               )
+             order by anterior.created_at desc, anterior.id desc
+             limit 1) as origem
+      from public.skill_versions v
+     where v.organization_id is not null      -- só cópia de organização; o catálogo nunca é cópia
+       and v.forked_from_version_id is null   -- vínculo já gravado nunca é reescrito
+       and v.created_at >= '2026-09-23T03:50:24Z'::timestamptz  -- #1484: o editor (PUT) que gravava o nulo nasce aqui; antes, nulo = import .zip
+       and v.created_at <  '2026-09-30T00:04:41Z'::timestamptz  -- #1960: depois o PUT herda sozinho
+  )
+  update public.skill_versions v
+     set forked_from_version_id = portadores.origem
+    from portadores
+   where v.id = portadores.id
+     and portadores.origem is not null;
+
+  get diagnostics v_alteradas = row_count;
+  raise notice '0644: % versao(oes) de copia com o vinculo com o catalogo reconstruido', v_alteradas;
+
+  execute 'alter table public.skill_versions enable trigger trg_skill_versions_immutable';
+end $$;
+
+-- ---- o comando da conversa lê o bit do contato (migration 0645, issue #2739) ----
+-- A trava do contato que o campo calculado `comando_da_conversa` lia POR LINHA
+-- (duas subconsultas a `contacts` por conversa) passa a viver na própria
+-- conversa, num bit mantido por gatilho; a função só lê a linha. O prazo do
+-- silêncio continua avaliado NA CONSULTA, com `now()` de verdade — nunca
+-- congelado na escrita (o defeito que derrubou o #1921).
+
+alter table public.conversations
+  add column if not exists contato_trava_humano boolean not null default false;
+
+comment on column public.conversations.contato_trava_humano is
+  'contacts.force_human OR contacts.is_blocked, mantido pelo gatilho (issue #2739). O campo calculado comando_da_conversa lê ESTE bit em vez de resolver o contato por linha.';
+
+-- Backfill do que já existe. Só as linhas divergentes são tocadas: o update.sh
+-- reaplica este apêndice a cada atualização, e reescrever a tabela inteira toda
+-- vez seria custo sem mudança.
+update public.conversations c
+   set contato_trava_humano = (ct.force_human or ct.is_blocked)
+  from public.contacts ct
+ where ct.id = c.contact_id
+   and ct.organization_id = c.organization_id
+   and c.contato_trava_humano is distinct from (ct.force_human or ct.is_blocked);
+
+-- Os dois gatilhos que mantêm o bit. Definers porque escrevem sob RLS (o
+-- atendente atualiza contato com o client de sessão; a ingestão, com o de
+-- serviço), e as quatro origens de EXECUTE são revogadas como manda a doutrina
+-- de definer nova em public — gatilho não passa por checagem de EXECUTE ao
+-- disparar, então ninguém precisa dela.
+create or replace function public.fn_conversa_calcula_trava_do_contato()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+begin
+  new.contato_trava_humano := coalesce(
+    (select (ct.force_human or ct.is_blocked)
+       from public.contacts ct
+      where ct.id = new.contact_id and ct.organization_id = new.organization_id),
+    false);
+  return new;
+end;
+$fn$;
+
+revoke execute on function public.fn_conversa_calcula_trava_do_contato()
+  from public, anon, authenticated, service_role;
+
+drop trigger if exists trg_conversa_calcula_trava_do_contato on public.conversations;
+create trigger trg_conversa_calcula_trava_do_contato
+  before insert or update of contact_id on public.conversations
+  for each row execute function public.fn_conversa_calcula_trava_do_contato();
+
+create or replace function public.fn_contato_atualiza_trava_nas_conversas()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $fn$
+begin
+  update public.conversations
+     set contato_trava_humano = (new.force_human or new.is_blocked)
+   where contact_id = new.id
+     and organization_id = new.organization_id;
+  return new;
+end;
+$fn$;
+
+revoke execute on function public.fn_contato_atualiza_trava_nas_conversas()
+  from public, anon, authenticated, service_role;
+
+drop trigger if exists trg_contato_atualiza_trava_nas_conversas on public.contacts;
+create trigger trg_contato_atualiza_trava_nas_conversas
+  after update of force_human, is_blocked on public.contacts
+  for each row execute function public.fn_contato_atualiza_trava_nas_conversas();
+
+-- O índice do gatilho do contato: o unique de 1:1 começa por organization_id,
+-- então não atende `where contact_id = ...`.
+create index if not exists conversations_contact_id_idx
+  on public.conversations (contact_id);
+
+-- O campo calculado: mesma assinatura, mesmo definer, parâmetro sem nome — o
+-- corpo é que deixa de resolver o contato por linha.
+drop function if exists public.comando_da_conversa(public.conversations);
+
+create function public.comando_da_conversa(public.conversations)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $comando$
+  select public.fn_comando_da_conversa(
+    $1.status,
+    $1.assigned_to_user_id,
+    $1.bot_silenced_until,
+    -- O bit consolida `force_human OR is_blocked`; entra no primeiro parâmetro
+    -- de trava e o segundo vai `false` — o OR da regra é comutativo, e o
+    -- resultado é o mesmo do wrapper antigo, sem a subconsulta por linha.
+    $1.contato_trava_humano,
+    false,
+    now(),
+    coalesce($1.is_group, false)
+  );
+$comando$;
+
+comment on function public.comando_da_conversa(public.conversations)
+  is 'Campo calculado exposto pelo PostgREST: ?select=comando_da_conversa e ?comando_da_conversa=in.(...). A trava do contato vem da COLUNA contato_trava_humano (issue #2739), não de subconsulta por linha; o prazo do silêncio é avaliado NA CONSULTA com now() de verdade. SECURITY DEFINER e parâmetro SEM NOME desde a 0404 (issue #1571). A regra em si é fn_comando_da_conversa.';
+
+revoke execute on function public.comando_da_conversa(public.conversations) from public, anon;
+grant execute on function public.comando_da_conversa(public.conversations) to authenticated, service_role;
+
+notify pgrst, 'reload schema';
 
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
 --
@@ -52967,3 +53510,85 @@ alter table public.platform_branding
 
 comment on column public.platform_branding.accent_dark_hex is
   'Segunda semente da marca (#2482), só para o tema ESCURO: o bloco [data-theme=dark] deriva dela pela mesma derivarMarca, com os mesmos pisos de contraste. NULL = os dois temas derivam de accent_hex, como sempre. --color-brand continua sendo accent_hex (e-mail e logo nao tem tema). Lida/escrita so server-side (service_role), como o resto da tabela.';
+
+-- ---- dias da semana da prospecção por conexão (migration 0642) ----
+-- A prospecção ganha os dias próprios em channel_knobs.prospeccao_dias
+-- (smallint[], 0=domingo … 6=sábado); as horas continuam as da janela de
+-- disparo. Default todos os dias (regressão zero); o backfill congela seg–sáb
+-- para quem tinha allow_sunday = false, e roda UMA vez: só quando a coluna
+-- nasce. O update.sh reaplica este apêndice em toda atualização, e um backfill
+-- solto reescreveria a escolha do operador a cada uma (quem marcou todos os
+-- dias com o domingo da resposta desligado voltava para seg–sáb).
+-- Coluna, backfill e troca da constraint num bloco DO: o update.sh roda sem
+-- ON_ERROR_STOP, e drop/add soltos podiam deixar a tabela sem a guarda.
+do $dias$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'channel_knobs'
+      and column_name = 'prospeccao_dias'
+  ) then
+    alter table public.channel_knobs
+      add column prospeccao_dias smallint[] not null default '{0,1,2,3,4,5,6}';
+    update public.channel_knobs
+      set prospeccao_dias = '{1,2,3,4,5,6}'
+      where allow_sunday is false;
+  end if;
+  alter table public.channel_knobs
+    drop constraint if exists channel_knobs_prospeccao_dias_validos;
+  alter table public.channel_knobs
+    add constraint channel_knobs_prospeccao_dias_validos
+    check (
+      prospeccao_dias <@ '{0,1,2,3,4,5,6}'::smallint[]
+      and cardinality(prospeccao_dias) between 1 and 7
+    );
+end $dias$;
+
+comment on column public.channel_knobs.prospeccao_dias is
+  'Dias da semana em que a PROSPECÇÃO pode abordar (0=domingo … 6=sábado). Só a prospecção lê isto; resposta, disparo em massa e retomada seguem allow_sunday. Default = todos os dias (comportamento anterior).';
+
+-- ---- catálogo: GPT-6 Luna, GPT-6.1 Sol e GPT-6 Astra (migration 0646) ----
+-- O dump --schema-only não traz seed pós-snapshot. Sem este apêndice, clones
+-- novos (install.sh) e clones atualizando (update.sh reaplica baseline.sql)
+-- ficam sem a geração 6 da OpenAI em Provedores de IA e no seletor do agente.
+-- As DUAS tabelas com os MESMOS números (invariante catálogo×preço). Não mexe
+-- no padrão (segue gpt-5.6-terra). Racional e fonte dos preços no cabeçalho
+-- da migration.
+insert into public.ai_models
+  (provider, model_id, display_name, description, context_window,
+   input_price_per_million_cents, output_price_per_million_cents, supports_tools)
+values
+  ('openai', 'gpt-6-luna', 'GPT-6 Luna',
+   'O mais barato da linha 6, para atendimento de alto volume e classificação.',
+   1050000, 10, 50, true),
+  ('openai', 'gpt-6.1-sol', 'GPT-6.1 Sol',
+   'Equilíbrio de custo e capacidade da linha 6.',
+   1050000, 200, 1000, true),
+  ('openai', 'gpt-6-astra', 'GPT-6 Astra',
+   'O mais capaz da OpenAI; custo alto.',
+   1050000, 1000, 5000, true)
+on conflict (provider, model_id) do update set
+  display_name = excluded.display_name,
+  description = excluded.description,
+  context_window = excluded.context_window,
+  input_price_per_million_cents = excluded.input_price_per_million_cents,
+  output_price_per_million_cents = excluded.output_price_per_million_cents,
+  supports_tools = excluded.supports_tools,
+  deprecated_at = null;
+
+-- ---------------------------------------------------------------------------
+-- 2. contabilidade de custo — a MESMA lista, mesmos números (senão o gasto é
+--    somado com preço de outro modelo, ou não é somado e some do orçamento).
+-- ---------------------------------------------------------------------------
+insert into public.ai_pricing
+  (model, prompt_cents_per_million_tokens, completion_cents_per_million_tokens, notes)
+values
+  ('gpt-6-luna',     10,   50, 'catálogo 0646 — acima de 272k tokens de entrada, 20/75'),
+  ('gpt-6.1-sol',   200, 1000, 'catálogo 0646 — acima de 272k tokens de entrada, 400/1500'),
+  ('gpt-6-astra',  1000, 5000, 'catálogo 0646 — acima de 272k tokens de entrada, 2000/7500')
+on conflict (model) do update set
+  prompt_cents_per_million_tokens = excluded.prompt_cents_per_million_tokens,
+  completion_cents_per_million_tokens = excluded.completion_cents_per_million_tokens,
+  notes = excluded.notes,
+  superseded_at = null;

@@ -37,6 +37,14 @@ import type { Idioma } from "./idiomas";
 type Traducoes = Record<string, Partial<Record<Exclude<Idioma, "pt-BR">, string>>>;
 
 export const DICIONARIO: Traducoes = {
+  "Canal para enviar os lembretes": { es: "Canal para enviar los recordatorios" },
+  "Automático — conversa da reserva ou único canal disponível": { es: "Automático — conversación de la reserva o único canal disponible" },
+  "Canal configurado indisponível — escolha outro": { es: "Canal configurado no disponible — elige otro" },
+  "O canal escolhido vale para todas as reservas deste tipo, inclusive as criadas manualmente. Se ele não puder enviar, a equipe recebe um aviso; o sistema não troca de número sozinho.": { es: "El canal elegido se aplica a todas las reservas de este tipo, incluidas las creadas manualmente. Si no puede enviar, el equipo recibe un aviso; el sistema no cambia de número por su cuenta." },
+  "Não foi possível carregar os canais. A escolha guardada será preservada; tente novamente.": { es: "No se pudieron cargar los canales. Se conservará la elección guardada; inténtalo de nuevo." },
+  "Canal sem nome": { es: "Canal sin nombre" },
+  "Não foi possível consultar o canal do lembrete.": { es: "No se pudo consultar el canal del recordatorio." },
+  "Escolha um canal de mensagem não arquivado desta organização.": { es: "Elige un canal de mensajes no archivado de esta organización." },
   "Conectar a assinatura do ChatGPT": { es: "Conectar la suscripción de ChatGPT" },
   "Cada empresa conecta a própria conta do ChatGPT. Abra o link e entre com a conta que tem a assinatura. No fim, o navegador vai para http://127.0.0.1:1455/auth/callback, que pode não abrir — é esperado. Copie esse endereço inteiro, da barra do navegador, e cole aqui.": {
     es: "Cada empresa conecta su propia cuenta de ChatGPT. Abre el enlace e inicia sesión con la cuenta que tiene la suscripción. Al final, el navegador irá a http://127.0.0.1:1455/auth/callback, que quizá no se abra — es normal. Copia la dirección completa de la barra del navegador y pégala aquí.",
@@ -1229,6 +1237,7 @@ export const DICIONARIO: Traducoes = {
   "Abrir negócio": { es: "Abrir negocio" },
   "Abrir acompanhamento": { es: "Abrir seguimiento" },
   "Revisar conexão": { es: "Revisar conexión" },
+  "Configurar canal do lembrete": { es: "Configurar canal del recordatorio" },
   "Revisar agente": { es: "Revisar agente" },
   "Testar ou revisar resposta": { es: "Probar o revisar respuesta" },
   "Abrir base de conhecimento": { es: "Abrir base de conocimiento" },
@@ -6092,6 +6101,20 @@ export const DICIONARIO: Traducoes = {
   "Ligado por padrão: quem escreve no domingo espera resposta no domingo. Desligue se você faz prospecção ativa e prefere não incomodar no fim de semana.": {
     es: "Activado por defecto: quien escribe un domingo espera respuesta el domingo. Desactívalo si haces prospección activa y prefieres no molestar el fin de semana.",
   },
+  "Disparos em massa e mensagens que retomam conversa parada só saem nesta janela. A prospecção usa estas horas nos dias próprios abaixo. Fora da janela, o envio fica agendado para a próxima abertura — você vê o motivo na conversa.": {
+    es: "Los envíos masivos y los mensajes que retoman una conversación detenida solo salen dentro de esta ventana. La prospección usa estas horas en sus propios días de abajo. Fuera de la ventana, el envío queda programado para la próxima apertura — ves el motivo en la conversación.",
+  },
+  "Dias da prospecção": { es: "Días de prospección" },
+  "Prospecção no dia {dia}": { es: "Prospección el día {dia}" },
+  "A primeira abordagem da prospecção só sai nestes dias, dentro da janela de disparo acima. Responder a quem escreveu segue a regra própria — desligar o domingo aqui não cala a resposta de domingo.": {
+    es: "El primer acercamiento de la prospección solo sale en estos días, dentro de la ventana de envíos de arriba. Responder a quien escribió sigue su propia regla — apagar el domingo aquí no silencia la respuesta del domingo.",
+  },
+  "Marque pelo menos um dia: sem dia marcado a prospecção não aborda ninguém.": {
+    es: "Marca al menos un día: sin día marcado, la prospección no contacta a nadie.",
+  },
+  "Ligado por padrão: quem escreve no domingo espera resposta no domingo. Desligar cala a resposta e os disparos em massa no domingo — a prospecção segue os dias próprios acima.": {
+    es: "Activado por defecto: quien escribe el domingo espera respuesta el domingo. Apagarlo silencia la respuesta y los envíos masivos del domingo — la prospección sigue sus propios días de arriba.",
+  },
   "Ritmo entre envios (segundos)": { es: "Ritmo entre envíos (segundos)" },
   "Intervalo mínimo entre envios em segundos": {
     es: "Intervalo mínimo entre envíos en segundos",
@@ -6510,6 +6533,7 @@ export const DICIONARIO: Traducoes = {
   "La Paz (Bolívia)": { es: "La Paz (Bolivia)" },
   "Lima (Peru)": { es: "Lima (Perú)" },
   "Bogotá (Colômbia)": { es: "Bogotá (Colombia)" },
+  "Quito e Guayaquil (Equador)": { es: "Quito y Guayaquil (Ecuador)" },
   "Cidade do México (México)": { es: "Ciudad de México (México)" },
   "São Paulo (Brasil)": { es: "São Paulo (Brasil)" },
   "Manaus (Brasil)": { es: "Manaus (Brasil)" },
@@ -8979,6 +9003,7 @@ export const DICIONARIO: Traducoes = {
   "Criar funil": { es: "Crear embudo" },
   "Criar meu primeiro funil": { es: "Crear mi primer embudo" },
   "Novo funil": { es: "Nuevo embudo" },
+  "Trocar de funil": { es: "Cambiar de embudo" },
   "Subir": { es: "Subir" },
   "na lista": { es: "en la lista" },
   "Descer": { es: "Bajar" },
@@ -12937,6 +12962,7 @@ export const DICIONARIO: Traducoes = {
   "nas listas e nos filtros:": { es: "en las listas y en los filtros:" },
   "Sem cor": { es: "Sin color" },
   "Prévia:": { es: "Vista previa:" },
+  "Confira a etiqueta e a cor.": { es: "Revise la etiqueta y el color." },
   "Cor da etiqueta atualizada.": { es: "Color de la etiqueta actualizado." },
   Amarelo: { es: "Amarillo" },
   Âmbar: { es: "Ámbar" },
@@ -14957,6 +14983,21 @@ export const DICIONARIO: Traducoes = {
   "Excluir tira essas empresas da lista. Em outra busca, elas podem aparecer de novo como novas.": { es: "Eliminar quita estas empresas de la lista. En otra búsqueda pueden aparecer de nuevo como nuevas." },
   "Empresas desmarcadas excluídas.": { es: "Empresas desmarcadas eliminadas." },
   "Esta campanha já criou o contato e o negócio dessas empresas ao iniciar. Desmarcar só impede o envio: elas continuam no funil.": { es: "Esta campaña ya creó el contacto y el negocio de estas empresas al iniciar. Desmarcar solo impide el envío: siguen en el embudo." },
+  // Exportação da conversa em PDF (#2229)
+  "Celular": { es: "Móvil" },
+  "Mensagem apagada pelo autor.": { es: "Mensaje eliminado por el autor." },
+  "(editada)": { es: "(editada)" },
+  "Histórico da conversa": { es: "Historial de la conversación" },
+  "Aberta em": { es: "Abierta el" },
+  "Exportado por": { es: "Exportado por" },
+  "Atenção: esta conversa ultrapassa o limite de mensagens por arquivo — só as mais recentes entram neste histórico.": { es: "Atención: esta conversación supera el límite de mensajes por archivo; solo las más recientes entran en este historial." },
+  "recebida": { es: "recibida" },
+  "enviada": { es: "enviada" },
+  "Não foi possível gerar o PDF desta conversa.": { es: "No se pudo generar el PDF de esta conversación." },
+  "{quem} em {quando}": { es: "{quem} el {quando}" },
+  "página {atual} de {total}": { es: "página {atual} de {total}" },
+  "Muitas exportações seguidas. Tente em um minuto.": { es: "Demasiadas exportaciones seguidas. Inténtelo en un minuto." },
+  "Erro ao ler o contato.": { es: "Error al leer el contacto." },
   // ─── RELATÓRIOS: A ABA "POR ETIQUETA" (#1891) ───
   "Por etiqueta": { es: "Por etiqueta" },
   "Abertas": { es: "Abiertas" },
@@ -15353,6 +15394,9 @@ export const DICIONARIO: Traducoes = {
   "A pausa começa (hora local)": { es: "La pausa empieza (hora local)" },
   "A pausa termina (hora local)": { es: "La pausa termina (hora local)" },
   "Fuso da organização": { es: "Zona horaria de la organización" },
+  "Sem o fuso da organização não dá para agendar: a janela seria gravada com a hora errada.": {
+    es: "Sin la zona horaria de la organización no se puede agendar: la ventana se grabaría con la hora equivocada.",
+  },
   "Para todas as conexões": { es: "Para todas las conexiones" },
   "Janelas agendadas": { es: "Ventanas programadas" },
   "Cancelar janela": { es: "Cancelar ventana" },
@@ -15367,6 +15411,16 @@ export const DICIONARIO: Traducoes = {
     es: "Ventana cancelada. Lo que ya pausó sigue pausado.",
   },
   "Não foi possível cancelar a janela.": { es: "No se pudo cancelar la ventana." },
+  // #2498 — busca dentro do seletor de etiquetas do Inbox.
+  "Buscar etiqueta": { es: "Buscar etiquetas" },
+  "Nenhuma etiqueta com esse texto": { es: "Ninguna etiqueta con ese texto" },
+  // #2498 — destino opcional da ação add_tag, no editor de automações.
+  "Destino da etiqueta": { es: "Destino de la etiqueta" },
+  "Card (comportamento atual)": { es: "Card (comportamiento actual)" },
+  "Contato do lead": { es: "Contacto del lead" },
+  "Sem contato vinculado, a etiqueta não é aplicada.": {
+    es: "Sin contacto vinculado, la etiqueta no se aplica.",
+  },
 };
 
 /**
