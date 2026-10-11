@@ -12,6 +12,7 @@ import {
 } from "@/lib/schemas/settings";
 import { loadAuthUser, resolveActiveOrg } from "@/lib/auth/server";
 import { podeAdministrarEmpresa } from "@/lib/auth/pode-administrar-empresa";
+import { aplicarConfigDoFunil, resumoDaConfig } from "@/lib/pipelines/aplicar-config";
 
 export type UpdatePipelineConfigResult =
   | { ok: true }
@@ -42,42 +43,10 @@ export async function updatePipelineConfig(
   const hdrs = await headers();
   const requestId = hdrs.get("x-request-id");
 
-  const { data: row, error: readErr } = await supabase
-    .from("crm_pipelines")
-    .select("vocabulary, settings, organization_id")
-    .eq("id", pipelineId)
-    .maybeSingle();
-  if (readErr) return { ok: false, error: readErr.message };
-  if (!row) return { ok: false, error: "not_found" };
-  if (row.organization_id !== activeOrg.orgId) {
-    return { ok: false, error: "forbidden_tenant" };
-  }
-
-  const nextVocabulary = parsed.data.vocabulary
-    ? { ...((row.vocabulary as Record<string, unknown> | null) ?? {}), ...parsed.data.vocabulary }
-    : ((row.vocabulary as Record<string, unknown> | null) ?? {});
-
-  const currentSettings = (row.settings as Record<string, unknown> | null) ?? {};
-  const nextSettings: Record<string, unknown> = { ...currentSettings };
-  if (parsed.data.fields !== undefined) nextSettings.fields = parsed.data.fields;
-  if (parsed.data.lost_reasons !== undefined) nextSettings.lost_reasons = parsed.data.lost_reasons;
-  if (parsed.data.won_reasons !== undefined) nextSettings.won_reasons = parsed.data.won_reasons;
-  if (parsed.data.won_reason_required !== undefined) {
-    nextSettings.won_reason_required = parsed.data.won_reason_required;
-  }
-  if (parsed.data.comanda_no_ganho !== undefined) {
-    nextSettings.comanda_no_ganho = parsed.data.comanda_no_ganho;
-  }
-  if (parsed.data.reabertura !== undefined) nextSettings.reabertura = parsed.data.reabertura;
-  if (parsed.data.reabertura_campos !== undefined) {
-    nextSettings.reabertura_campos = parsed.data.reabertura_campos;
-  }
-
-  const { error } = await supabase
-    .from("crm_pipelines")
-    .update({ vocabulary: nextVocabulary, settings: nextSettings })
-    .eq("id", pipelineId);
-  if (error) return { ok: false, error: error.message };
+  // A mesclagem e a escrita vivem em `lib/pipelines/aplicar-config.ts`: a rota
+  // `PATCH /api/v1/pipelines/[id]/config` (Bearer `dsk_…`) grava pelo MESMO caminho.
+  const resultado = await aplicarConfigDoFunil(supabase, activeOrg.orgId, pipelineId, parsed.data);
+  if (!resultado.ok) return { ok: false, error: resultado.error };
 
   await audit({
     action: "pipeline.config_updated",
@@ -86,14 +55,7 @@ export async function updatePipelineConfig(
     resourceType: "pipeline",
     resourceId: pipelineId,
     requestId,
-    metadata: {
-      vocabulary_changed: !!parsed.data.vocabulary,
-      fields_count: parsed.data.fields?.length ?? null,
-      lost_reasons_count: parsed.data.lost_reasons?.length ?? null,
-      won_reasons_count: parsed.data.won_reasons?.length ?? null,
-      won_reason_required: parsed.data.won_reason_required ?? null,
-      reabertura: parsed.data.reabertura ?? null,
-    },
+    metadata: resumoDaConfig(parsed.data),
   });
 
   revalidatePath("/app/settings/tenant/pipelines");
