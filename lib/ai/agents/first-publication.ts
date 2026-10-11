@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { capacidadesPadraoDoOnboarding } from "./capacidades-padrao";
 import { escolherModeloDoProvedor } from "./escolher-modelo";
 import { chaveDePlataforma } from "@/lib/ai/runtime/agent";
+import { ponteCobreOProvedor } from "@/lib/instalacao/ambiente";
 import { publishAgentVersion } from "./publish";
 interface AgenteDoOnboarding {
   id: string;
@@ -252,7 +253,7 @@ export async function publishFirstVersion(
   // nenhum modelo utilizável é defeito de instalação que se resolve antes da
   // chave, e inverter isso mudaria a causa que a tela recebe para quem tem os
   // dois problemas — sem necessidade nenhuma para a #1007.
-  if (!credentialId && !chaveDePlataforma(provider)) {
+  if (!credentialId && !chaveDePlataforma(provider) && !ponteCobreOProvedor(provider, orgId)) {
     return {
       published: false,
       reason: "sem_chave",

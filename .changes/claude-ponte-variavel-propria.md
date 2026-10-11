@@ -1,0 +1,9 @@
+---
+impacto: capacidade_nova
+secao: adicionado
+titulo: A instalação pode atender organizações escolhidas por um proxy compatível com a API de Mensagens (claude-ponte), por variáveis próprias que não tocam no caminho da Anthropic
+---
+
+Quem opera o servidor ganha três variáveis no `.env` da instalação, **só da ponte**: `CLAUDE_PONTE_BASE_URL` (a raiz do proxy, por exemplo `http://nome-do-conteiner:8080`), `CLAUDE_PONTE_API_KEY` (a chave que o proxy exige, que não é uma chave da Anthropic) e `CLAUDE_PONTE_ORGS` (os ids das organizações atendidas, separados por vírgula; vazia = ninguém; `*` = todas as que não têm credencial própria). Vazias, nada muda: o produto se comporta exatamente como antes.
+
+A regra: a credencial **própria** de uma organização para a Anthropic (ativa e validada) **sempre vence** e continua indo a `api.anthropic.com` com a chave dela. O proxy só atende a organização que **não** tem credencial própria executável **e** está na lista. A chave da organização nunca vai ao proxy e a chave do proxy nunca vai à Anthropic: são fábricas diferentes no registro de provedores, e a da Anthropic não lê endereço de variável nenhuma. A chamada não segue redirect e só fala com a origem configurada. Variáveis postas e inválidas, para uma organização da lista, recusam a chamada antes de qualquer byte sair (`claude_ponte_invalida`); para quem está fora da lista nada disso é avaliado. Uma organização atendida pela ponte também consegue **salvar e publicar** um agente `anthropic` escolhendo "a chave desta instalação", sem `ANTHROPIC_API_KEY` no `.env`: a tela, a rota de versões e a publicação passam a contar a ponte como chave da instalação **só para aquela organização** (outra organização, outro provedor ou variável inválida seguem recusados como antes). Para ligar ou desligar, edite o `.env` e recrie `app` e `worker`. Sem migration; nada precisa ser feito ao atualizar.
