@@ -75,6 +75,11 @@ unset $(git rev-parse --local-env-vars)
 export GIT_CEILING_DIRECTORIES="$TMP"
 export GIT_AUTHOR_NAME="Teste" GIT_AUTHOR_EMAIL="teste@exemplo.invalid"
 export GIT_COMMITTER_NAME="Teste" GIT_COMMITTER_EMAIL="teste@exemplo.invalid"
+# O gate lê o número do PR de quem roda em GITHUB_REF (refs/pull/N/merge) e o tira da lista de
+# abertos. Os cenários abaixo usam números fixos de PR (#7, #8, #9…), e o CI herda o GITHUB_REF
+# REAL: o PR de número 8 fazia o #8 do cenário 18 sumir como "o seu" e o caso reprovava por
+# coincidência de número. O teste não pode depender do número do PR que o roda.
+unset GITHUB_REF
 
 # ── gh FALSO, para TODOS os casos: sem rede e sem depender do gh de quem roda ──────────
 # Ele HONRA o contrato da chamada real — se ignorasse os argumentos, trocar `--state open`
