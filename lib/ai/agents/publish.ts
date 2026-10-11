@@ -6,6 +6,7 @@
  * with a stable error code, and unknown errors to 500.
  */
 import { chaveDePlataforma } from "@/lib/ai/runtime/agent";
+import { ponteCobreOProvedor } from "@/lib/instalacao/ambiente";
 import { audit } from "@/lib/audit";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PUBLISH_ERROR_CODES, type PublishErrorCode } from "./validation";
@@ -60,7 +61,12 @@ export async function publishAgentVersion(
   if (readError || !version)
     return { ok: false, code: "version_not_found", message: "version_not_found" };
   const platform = version.credential_id === null;
-  if (platform && !chaveDePlataforma(version.provider))
+  // "Chave da instalação" = a do `.env` OU a claude-ponte, quando ela atende esta organização.
+  if (
+    platform &&
+    !chaveDePlataforma(version.provider) &&
+    !ponteCobreOProvedor(version.provider, params.orgId)
+  )
     return { ok: false, code: "credential_missing", message: "credential_missing" };
   const { data, error } = await admin.rpc("fn_publish_ai_agent_version", {
     p_org_id: params.orgId,

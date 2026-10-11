@@ -41,8 +41,8 @@ const CREDENTIAL_COLUMNS =
  * segunda lista de nomes de variável divergiria no dia em que um provedor novo
  * entrasse.
  */
-function provedoresDaInstalacao(): string[] {
-  const a = lerAmbiente();
+function provedoresDaInstalacao(organizationId: string): string[] {
+  const a = lerAmbiente(process.env, organizationId);
   return Object.entries(a.chavesDeProvedor)
     .filter(([, tem]) => tem)
     .map(([id]) => id);
@@ -230,7 +230,7 @@ export default async function AgentEditorPage({ params }: { params: Promise<{ id
         draftObsoleto={draftObsoleto}
         versions={versions}
         credentials={credentials}
-        provedoresDaInstalacao={provedoresDaInstalacao()}
+        provedoresDaInstalacao={provedoresDaInstalacao(activeOrg.orgId)}
         provedoresOferecidos={await idsDosProvedoresOferecidos(createAdminClient())}
         channelSessions={channelSessions}
         funis={funis}

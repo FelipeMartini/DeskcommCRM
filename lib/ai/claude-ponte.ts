@@ -182,6 +182,31 @@ export function ponteDaOrganizacao(
 }
 
 /**
+ * A pergunta de EXISTÊNCIA, para quem decide se um agente pode ser SALVO ou PUBLICADO
+ * ("esta instalação tem chave para este provedor?"): a ponte atende esta organização, com as
+ * variáveis em ordem?
+ *
+ * Existe porque esses portões conferiam só `ANTHROPIC_API_KEY`, e a ponte é justamente a
+ * instalação atender sem essa variável. Sem esta pergunta, a tela recusava "a chave desta
+ * instalação" para uma organização que o motor sabe atender.
+ *
+ * Nunca lança e nunca devolve a chave: variável malformada, lista com typo ou `*` misturado dão
+ * `false` (a mesma recusa de antes: "esta instalação não tem chave"), e o motivo exato continua
+ * aparecendo onde o turno falha (`claude_ponte_invalida:<motivo>`, em Execuções).
+ */
+export function ponteAtendeAOrganizacao(
+  variaveis: VariaveisDaPonte | undefined,
+  organizationId: string,
+): boolean {
+  try {
+    return ponteDaOrganizacao(variaveis, organizationId) !== null;
+  } catch (erro) {
+    if (erro instanceof ClaudePonteInvalidaError) return false;
+    throw erro;
+  }
+}
+
+/**
  * `fetch` que só fala com a origem da ponte e não segue redirect.
  *
  * O SDK monta toda URL a partir do `baseURL`, então o desvio de host não

@@ -132,8 +132,12 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
     // instalação". Se ela não existir para este provedor, a versão seria
     // publicada para morrer em toda mensagem — e o dono só descobriria com o
     // primeiro cliente. O schema valida FORMA; quem conhece o ambiente do
-    // servidor é esta rota.
-    if (v.credential_id === null && lerAmbiente().chavesDeProvedor[v.provider] !== true) {
+    // servidor é esta rota. Para o `anthropic`, "a chave da instalação" também é a
+    // claude-ponte, quando ela atende ESTA organização (`CLAUDE_PONTE_ORGS`).
+    if (
+      v.credential_id === null &&
+      lerAmbiente(process.env, organizationId).chavesDeProvedor[v.provider] !== true
+    ) {
       return fail(
         "credential_required",
         `Esta instalação não tem chave de ${v.provider} no ambiente. Cadastre uma chave em IA › Credenciais ou escolha outra empresa de inteligência artificial.`,
