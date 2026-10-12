@@ -198,6 +198,8 @@ export const AUDIT_ACTIONS = [
   "ai.credential_revalidated",
   "ai.knowledge_reindex_all",
   "ai.knowledge_provider_changed",
+  // A organização ligou ou desligou a claude-ponte na tela de Credenciais (`ponte_ativa`).
+  "ai.claude_bridge_toggled",
   "ai_agent.created",
   "ai_agent.updated",
   "ai_agent.archived",

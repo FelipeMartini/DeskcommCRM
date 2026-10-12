@@ -19,6 +19,7 @@ import { audit } from "@/lib/audit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { codigoDoEscopo, mensagemDoEscopo, validarEscopoDaVersao } from "@/lib/ai/agents/escopo";
 import { versionCreateSchema } from "@/lib/ai/agents/validation";
+import { ponteLigadaDaOrganizacao } from "@/lib/ai/claude-ponte-ativa";
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 import { traduzir } from "@/lib/i18n/dicionario";
 
@@ -134,9 +135,14 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
     // primeiro cliente. O schema valida FORMA; quem conhece o ambiente do
     // servidor é esta rota. Para o `anthropic`, "a chave da instalação" também é a
     // claude-ponte, quando ela atende ESTA organização (`CLAUDE_PONTE_ORGS`).
+    // E a organização pode ter DESLIGADO a ponte na tela (`ponte_ativa`): então ela não conta como chave.
     if (
       v.credential_id === null &&
-      lerAmbiente(process.env, organizationId).chavesDeProvedor[v.provider] !== true
+      lerAmbiente(
+        process.env,
+        organizationId,
+        v.provider === "anthropic" ? await ponteLigadaDaOrganizacao(admin, organizationId) : true,
+      ).chavesDeProvedor[v.provider] !== true
     ) {
       return fail(
         "credential_required",

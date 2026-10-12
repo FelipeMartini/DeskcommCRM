@@ -247,6 +247,9 @@ const llmSettingsSchema = z
     default_model: z.string().min(1).nullable().catch(null),
     params: z.record(z.string(), z.unknown()).catch({}),
     enabled_models: z.array(z.string()).catch([]),
+    // O interruptor da claude-ponte da organização (`lib/ai/claude-ponte-ativa.ts`). O PADRÃO É
+    // LIGADA: só o `false` booleano desliga, e um valor torto vale o padrão (preferência, não cerca).
+    ponte_ativa: z.boolean().catch(true),
   })
   .passthrough()
   .catch({
@@ -254,6 +257,7 @@ const llmSettingsSchema = z
     default_model: null,
     params: {},
     enabled_models: [],
+    ponte_ativa: true,
   });
 
 /**
@@ -474,10 +478,16 @@ export async function resolveOrgLlmConfig(
       tag: byteaToBuffer(cred.api_key_tag),
     });
     origemDaChave = 'credencial_da_organizacao';
-  } else if (provider === 'anthropic' && (ponte = ponteDaOrganizacao(cfg.ponte, organizationId)) !== null) {
+  } else if (
+    provider === 'anthropic' &&
+    settings.ponte_ativa &&
+    (ponte = ponteDaOrganizacao(cfg.ponte, organizationId)) !== null
+  ) {
     // A credencial PRÓPRIA já teve a vez no degrau de cima e não existe. Aqui a
-    // organização é da lista da instalação: a chave é a da PONTE, o endereço é o
-    // da ponte, e a chave real da instalação (se houver) não participa.
+    // organização é da lista da instalação E não desligou a ponte na tela (padrão: ligada):
+    // a chave é a da PONTE, o endereço é o da ponte, e a chave real da instalação (se houver)
+    // não participa. Desligada, o degrau é pulado SEM avaliar as variáveis: quem a desligou não
+    // leva erro de `.env` mal posto, e cai na chave da instalação ou na falta de chave.
     apiKey = ponte.apiKey;
     origemDaChave = 'chave_da_instalacao';
   } else if (provider === 'anthropic' && cfg.anthropicApiKey) {

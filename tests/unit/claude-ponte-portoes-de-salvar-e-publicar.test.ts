@@ -18,7 +18,11 @@
  *      organização e continua recusando (`credential_missing`) quando não atende;
  *   4. a rota de versões e as duas páginas do formulário PASSAM a organização (sem ela, o
  *      conserto some em silêncio — e nenhum teste de comportamento notaria, porque o
- *      `lerAmbiente()` sem argumento continua válido).
+ *      `lerAmbiente()` sem argumento continua válido);
+ *   5. o INTERRUPTOR da organização (`settings.llm.ponte_ativa`, ordem do dono em 11/10/2026): a
+ *      ponte desligada na tela NÃO conta como "chave da instalação" — o portão recusa em vez de
+ *      deixar publicar um agente que o motor vai recusar a cada mensagem — e os mesmos lugares
+ *      que perguntam pela chave passam o interruptor.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -95,6 +99,12 @@ describe("ponteCobreOProvedor — só o anthropic tem ponte", () => {
   it("não cobre a organização fora da lista", () => {
     expect(ponteCobreOProvedor("anthropic", OUTRA_ORG, LIGADA)).toBe(false);
   });
+
+  it("⭐ o interruptor desligado tira a cobertura; ligado (o padrão) é a de sempre", () => {
+    expect(ponteCobreOProvedor("anthropic", ORG, LIGADA, false)).toBe(false);
+    expect(ponteCobreOProvedor("anthropic", ORG, LIGADA, true)).toBe(true);
+    expect(ponteCobreOProvedor("anthropic", ORG, LIGADA)).toBe(true);
+  });
 });
 
 describe("lerAmbiente(fonte, organização) — a chave da instalação conta a ponte", () => {
@@ -145,15 +155,37 @@ describe("lerAmbiente(fonte, organização) — a chave da instalação conta a 
   it("a leitura sem organização ignora a ponte (quem não passa a organização não ganha nada)", () => {
     expect(lerAmbiente(LIGADA).chavesDeProvedor.anthropic).toBe(false);
   });
+
+  it("⭐ com o interruptor desligado a ponte não conta; a chave da instalação continua contando", () => {
+    expect(lerAmbiente(LIGADA, ORG, false).chavesDeProvedor.anthropic).toBe(false);
+    expect(lerAmbiente(LIGADA, ORG, true).chavesDeProvedor.anthropic).toBe(true);
+    const comChave = { ...LIGADA, ANTHROPIC_API_KEY: "sk-ant-sintetica" };
+    expect(lerAmbiente(comChave, ORG, false).chavesDeProvedor.anthropic).toBe(true);
+  });
 });
 
-/** Um `admin` mínimo: lê a versão e responde ao RPC com o que o teste mandar. */
-function adminDaVersao(version: Record<string, unknown>, rpcDeErro: string) {
+/**
+ * Um `admin` mínimo: lê a versão e as configurações da organização (o interruptor da ponte mora em
+ * `organizations.settings.llm`) e responde ao RPC com o que o teste mandar.
+ */
+function adminDaVersao(
+  version: Record<string, unknown>,
+  rpcDeErro: string,
+  llmDaOrganizacao: Record<string, unknown> = {},
+) {
   const rpc = vi.fn(async () => ({ data: null, error: { message: rpcDeErro } }));
-  const builder: Record<string, unknown> = {};
-  for (const m of ["select", "eq"]) builder[m] = () => builder;
-  builder.maybeSingle = async () => ({ data: version, error: null });
-  const admin = { from: () => builder, rpc };
+  const admin = {
+    from: (tabela: string) => {
+      const builder: Record<string, unknown> = {};
+      for (const m of ["select", "eq"]) builder[m] = () => builder;
+      builder.maybeSingle = async () =>
+        tabela === "organizations"
+          ? { data: { settings: { llm: llmDaOrganizacao } }, error: null }
+          : { data: version, error: null };
+      return builder;
+    },
+    rpc,
+  };
   return { admin: admin as unknown as Parameters<typeof publishAgentVersion>[0], rpc };
 }
 
@@ -196,6 +228,31 @@ describe("publishAgentVersion — credential_id nulo precisa de uma chave de ins
     expect(rpc2).not.toHaveBeenCalled();
   });
 
+  it("⭐ recusa quando a organização DESLIGOU a ponte na tela, mesmo ela sendo atendida", async () => {
+    vi.stubEnv("CLAUDE_PONTE_BASE_URL", PONTE);
+    vi.stubEnv("CLAUDE_PONTE_API_KEY", CHAVE_SINTETICA);
+    vi.stubEnv("CLAUDE_PONTE_ORGS", ORG);
+    const { admin, rpc } = adminDaVersao(versao, "nao-deveria-chegar", { ponte_ativa: false });
+    const r = await publishAgentVersion(admin, params);
+    expect(r).toMatchObject({ ok: false, code: "credential_missing" });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("interruptor ligado explicitamente, ou com valor torto, vale o padrão: chega ao RPC", async () => {
+    vi.stubEnv("CLAUDE_PONTE_BASE_URL", PONTE);
+    vi.stubEnv("CLAUDE_PONTE_API_KEY", CHAVE_SINTETICA);
+    vi.stubEnv("CLAUDE_PONTE_ORGS", ORG);
+    for (const llm of [{ ponte_ativa: true }, { ponte_ativa: "false" }, { ponte_ativa: 0 }]) {
+      const { admin, rpc } = adminDaVersao(versao, "parou-no-rpc", llm);
+      const r = await publishAgentVersion(admin, params);
+      expect(r, JSON.stringify(llm)).toMatchObject({
+        code: "internal_error",
+        message: "parou-no-rpc",
+      });
+      expect(rpc).toHaveBeenCalledTimes(1);
+    }
+  });
+
   it("versão com credencial própria nunca consulta a instalação", async () => {
     const { admin, rpc } = adminDaVersao(
       { ...versao, credential_id: "credencial-1" },
@@ -212,16 +269,18 @@ describe("quem pergunta 'a instalação tem chave?' passa a organização", () =
 
   it("a rota de versões confere a chave com a organização do chamador", () => {
     const fonte = ler("app/api/v1/ai/agents/[id]/versions/route.ts");
-    expect(fonte).toMatch(/lerAmbiente\(process\.env,\s*organizationId\)\.chavesDeProvedor/);
+    expect(fonte).toMatch(/lerAmbiente\(\s*process\.env,\s*organizationId,/);
     expect(fonte).not.toMatch(/lerAmbiente\(\)\.chavesDeProvedor/);
+    // E passa o interruptor da organização: sem ele a ponte desligada na tela ainda deixaria salvar.
+    expect(fonte).toMatch(/ponteLigadaDaOrganizacao\(admin,\s*organizationId\)/);
   });
 
   it.each(["app/app/ai/agents/[id]/page.tsx", "app/app/ai/agents/new/page.tsx"])(
     "%s monta a lista de provedores da instalação para a organização ativa",
     (arquivo) => {
       const fonte = ler(arquivo);
-      expect(fonte).toMatch(/lerAmbiente\(process\.env,\s*organizationId\)/);
-      expect(fonte).toMatch(/provedoresDaInstalacao\(activeOrg\.orgId\)/);
+      expect(fonte).toMatch(/lerAmbiente\(process\.env,\s*organizationId,\s*ponteLigada\)/);
+      expect(fonte).toMatch(/provedoresDaInstalacao\(\s*activeOrg\.orgId,/);
       expect(fonte).not.toMatch(/lerAmbiente\(\)/);
     },
   );

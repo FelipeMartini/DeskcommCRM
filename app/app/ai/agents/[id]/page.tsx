@@ -18,6 +18,7 @@ import { AgentEditorClient } from "./_client";
 import type { FunilDaResposta } from "@/hooks/pipelines/usePipelines";
 import { coberturaDoFunil, type EtapaDoMapa } from "@/lib/leads/agent-mapping";
 import type { CoberturaPorFunil } from "./_components/FunisDoAgente";
+import { ponteLigadaDaOrganizacao } from "@/lib/ai/claude-ponte-ativa";
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 import { escolherVersoesDaTela } from "@/lib/ai/agents/versoes-da-tela";
 import { fusoUtilizavel } from "@/lib/tempo/fusos";
@@ -41,8 +42,8 @@ const CREDENTIAL_COLUMNS =
  * segunda lista de nomes de variável divergiria no dia em que um provedor novo
  * entrasse.
  */
-function provedoresDaInstalacao(organizationId: string): string[] {
-  const a = lerAmbiente(process.env, organizationId);
+function provedoresDaInstalacao(organizationId: string, ponteLigada: boolean): string[] {
+  const a = lerAmbiente(process.env, organizationId, ponteLigada);
   return Object.entries(a.chavesDeProvedor)
     .filter(([, tem]) => tem)
     .map(([id]) => id);
@@ -230,7 +231,10 @@ export default async function AgentEditorPage({ params }: { params: Promise<{ id
         draftObsoleto={draftObsoleto}
         versions={versions}
         credentials={credentials}
-        provedoresDaInstalacao={provedoresDaInstalacao(activeOrg.orgId)}
+        provedoresDaInstalacao={provedoresDaInstalacao(
+          activeOrg.orgId,
+          await ponteLigadaDaOrganizacao(createAdminClient(), activeOrg.orgId),
+        )}
         provedoresOferecidos={await idsDosProvedoresOferecidos(createAdminClient())}
         channelSessions={channelSessions}
         funis={funis}
