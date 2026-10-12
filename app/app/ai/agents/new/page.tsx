@@ -8,6 +8,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { idsDosProvedoresOferecidos } from "@/lib/ai/pontos/provedores-oferecidos";
 import type { CredentialRow } from "@/hooks/ai/useCredentials";
 
+import { ponteLigadaNasConfiguracoes } from "@/lib/ai/claude-ponte-ativa";
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 import { fusoUtilizavel } from "@/lib/tempo/fusos";
 
@@ -26,8 +27,8 @@ const CREDENTIAL_COLUMNS =
  * segunda lista de nomes de variável divergiria no dia em que um provedor novo
  * entrasse.
  */
-function provedoresDaInstalacao(organizationId: string): string[] {
-  const a = lerAmbiente(process.env, organizationId);
+function provedoresDaInstalacao(organizationId: string, ponteLigada: boolean): string[] {
+  const a = lerAmbiente(process.env, organizationId, ponteLigada);
   return Object.entries(a.chavesDeProvedor)
     .filter(([, tem]) => tem)
     .map(([id]) => id);
@@ -64,7 +65,7 @@ export default async function NewAgentPage() {
       <AgentForm
         mode="create"
         credentials={credentials}
-        provedoresDaInstalacao={provedoresDaInstalacao(activeOrg.orgId)}
+        provedoresDaInstalacao={provedoresDaInstalacao(activeOrg.orgId, ponteLigadaNasConfiguracoes(llmDaOrg))}
         provedoresOferecidos={await idsDosProvedoresOferecidos(createAdminClient())}
         provedorPadrao={llmDaOrg?.provider}
         channelSessions={channelSessions}

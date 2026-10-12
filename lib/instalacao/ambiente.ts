@@ -80,8 +80,13 @@ export function ponteCobreOProvedor(
   provider: string,
   organizationId: string,
   source: FonteDeAmbiente = process.env,
+  ponteLigada = true,
 ): boolean {
   if (provider !== "anthropic") return false;
+  // A organização desligou a ponte na tela (`lib/ai/claude-ponte-ativa.ts`): para ela a instalação
+  // não "tem chave" por esse caminho, e os portões de salvar e publicar dizem a verdade em vez de
+  // deixar publicar um agente que o motor vai recusar a cada mensagem.
+  if (!ponteLigada) return false;
   return ponteAtendeAOrganizacao(
     {
       CLAUDE_PONTE_BASE_URL: source.CLAUDE_PONTE_BASE_URL,
@@ -100,12 +105,13 @@ export function ponteCobreOProvedor(
 export function lerAmbiente(
   source: FonteDeAmbiente = process.env,
   organizationId?: string,
+  ponteLigada = true,
 ): AmbienteDaInstalacao {
   const chavesDeProvedor: Record<string, boolean> = {};
   for (const id of IDS_DE_PROVEDOR) {
     chavesDeProvedor[id] =
       preenchida(source, VARIAVEL_DA_CHAVE[id]) ||
-      (organizationId !== undefined && ponteCobreOProvedor(id, organizationId, source));
+      (organizationId !== undefined && ponteCobreOProvedor(id, organizationId, source, ponteLigada));
   }
 
   return {

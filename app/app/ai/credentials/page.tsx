@@ -20,7 +20,8 @@ import {
 import { camadasEfetivas } from "@/lib/agent-engine/guardrails/camadas-da-org";
 import { DEFAULT_CLASSIFIER_MODEL } from "@/lib/ai/gateway";
 import { resolverModeloDoPonto } from "@/lib/ai/gateway-binding";
-import { lerAmbiente } from "@/lib/instalacao/ambiente";
+import { ponteLigadaDaOrganizacao } from "@/lib/ai/claude-ponte-ativa";
+import { lerAmbiente, ponteCobreOProvedor } from "@/lib/instalacao/ambiente";
 import { logger } from "@/lib/logger";
 import { criarSessaoPkce, gerarNonceSiwc, CLIENTE_DINAMICO_SIWC } from "@/lib/ai/pontos/pkce-da-assinatura";
 import { lerLoginCodex } from "@/lib/ai/credenciais/login-codex";
@@ -31,6 +32,7 @@ import { PROVEDOR_POR_ASSINATURA, PROVEDORES } from "@/lib/ai/pontos/provedores"
 import { moduloLigado } from "@/lib/instalacao/modulos";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { tagDeIdioma } from "@/lib/i18n/datas";
+import { CartaoDaPonte } from "@/components/ai/CartaoDaPonte";
 import { CredentialsList } from "./_components/CredentialsList";
 import { PainelDeLoginCodex } from "./_components/PainelDeLoginCodex";
 
@@ -210,7 +212,13 @@ export default async function CredentialsPage() {
 
   // A chave do `.env` também é "IA principal" — sem ela na conta, a lista
   // acusaria falta de IA a quem atende com a chave que veio na instalação.
-  const ambiente = lerAmbiente();
+  //
+  // A assinatura de IA (claude-ponte) também é "IA principal" quando a instalação a oferece a esta
+  // organização E ela não a desligou (`lib/ai/claude-ponte-ativa.ts`): sem contá-la, a lista acusaria
+  // falta de IA a quem atende pela assinatura, que é o padrão desde 11/10/2026.
+  const ponteDisponivel = ponteCobreOProvedor("anthropic", activeOrg.orgId);
+  const ponteAtiva = ponteDisponivel ? await ponteLigadaDaOrganizacao(supabase, activeOrg.orgId) : true;
+  const ambiente = lerAmbiente(process.env, activeOrg.orgId, ponteAtiva);
   const instalacaoTemIa =
     ambiente.gateway || Object.values(ambiente.chavesDeProvedor).some(Boolean);
 
@@ -232,6 +240,9 @@ export default async function CredentialsPage() {
           )}
         </p>
       </header>
+      {ponteDisponivel && (
+        <CartaoDaPonte ativa={ponteAtiva} podeEditar={canWrite} />
+      )}
       {moduloLoginCodex && sessaoPkce && (
         <PainelDeLoginCodex
           url={sessaoPkce.url}

@@ -23,7 +23,7 @@ const ORG = "11111111-1111-4111-8111-111111111111";
 const OUTRA_ORG = "22222222-2222-4222-8222-222222222222";
 const PONTE = "http://claude-ponte:8080";
 
-function banco() {
+function banco(llmDaOrganizacao: Record<string, unknown> = {}) {
   const inseridas: Array<Record<string, unknown>> = [];
   const admin = {
     from(tabela: string) {
@@ -31,7 +31,10 @@ function banco() {
       const resultado = () => {
         switch (tabela) {
           case "organizations":
-            return { data: { settings: { llm: { provider: "anthropic" } } }, error: null };
+            return {
+              data: { settings: { llm: { provider: "anthropic", ...llmDaOrganizacao } } },
+              error: null,
+            };
           case "ai_provider_credentials":
             return { data: null, error: null };
           case "ai_models":
@@ -121,6 +124,16 @@ describe("publishFirstVersion — a chave da instalação inclui a claude-ponte"
       credential_id: null,
     });
     expect(mocks.publish).toHaveBeenCalledTimes(1);
+  });
+
+  it("⭐ ponte atendendo a organização, mas DESLIGADA na tela: sem_chave, e nada é criado", async () => {
+    vi.stubEnv("CLAUDE_PONTE_BASE_URL", PONTE);
+    vi.stubEnv("CLAUDE_PONTE_API_KEY", "chave-sintetica-da-ponte");
+    vi.stubEnv("CLAUDE_PONTE_ORGS", ORG);
+    const { admin, inseridas } = banco({ ponte_ativa: false });
+    const r = await publishFirstVersion(admin, ORG, agente, "prompt", "usuario-1");
+    expect(r).toMatchObject({ published: false, reason: "sem_chave", provider: "anthropic" });
+    expect(inseridas).toHaveLength(0);
   });
 
   it("ponte com variável quebrada: sem_chave, e nada é criado", async () => {

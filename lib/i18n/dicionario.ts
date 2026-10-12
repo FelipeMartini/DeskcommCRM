@@ -15427,6 +15427,23 @@ export const DICIONARIO: Traducoes = {
   "Sem contato vinculado, a etiqueta não é aplicada.": {
     es: "Sin contacto vinculado, la etiqueta no se aplica.",
   },
+  "Assinatura de IA da instalação": { es: "Suscripción de IA de la instalación" },
+  "Esta instalação oferece a assinatura de IA de texto a esta organização. Ligada, os agentes e as tarefas de IA usam a assinatura em vez de uma chave de API. Uma chave própria, se existir, continua valendo antes dela.":
+    {
+      es: "Esta instalación ofrece la suscripción de IA de texto a esta organización. Activada, los agentes y las tareas de IA usan la suscripción en lugar de una clave de API. Una clave propia, si existe, sigue valiendo antes que ella.",
+    },
+  "Usar a assinatura de IA da instalação": { es: "Usar la suscripción de IA de la instalación" },
+  "Assinatura de IA ligada.": { es: "Suscripción de IA activada." },
+  "Assinatura de IA desligada.": { es: "Suscripción de IA desactivada." },
+  "Desligada: sem uma chave própria nem a chave da instalação, os agentes desta organização ficam sem IA até você ligar de novo.":
+    {
+      es: "Desactivada: sin una clave propia ni la clave de la instalación, los agentes de esta organización se quedan sin IA hasta que la actives de nuevo.",
+    },
+  "Só administradores mudam isto.": { es: "Solo los administradores cambian esto." },
+  "A assinatura de IA da instalação não atende esta organização.": {
+    es: "La suscripción de IA de la instalación no atiende a esta organización.",
+  },
+  "Não foi possível salvar a escolha.": { es: "No fue posible guardar la elección." },
 };
 
 /**

@@ -464,6 +464,84 @@ describe("resolveOrgLlmConfig — o degrau da ponte", () => {
     expect(out.apiKey).toBe("chave-openai-sintetica");
     expect("ponte" in out).toBe(false);
   });
+
+  // O INTERRUPTOR DA ORGANIZAÇÃO (`settings.llm.ponte_ativa`, ordem do dono em 11/10/2026): o padrão
+  // é LIGADA, e só o booleano `false` desliga. Cada caso que desliga tem o par que não desliga.
+  describe("o interruptor `ponte_ativa` da organização", () => {
+    const comInterruptor = (valor: unknown) => ({ ...SETTINGS_ANTHROPIC, ponte_ativa: valor });
+
+    it("⭐ `false`, sem credencial própria, com chave da instalação: usa a chave da instalação, sem ponte", async () => {
+      const out = await resolveOrgLlmConfig(
+        poolFake(comInterruptor(false), SEM_BYOK),
+        cfgComPonte,
+        ORG_NA_LISTA,
+      );
+      expect(out.apiKey).toBe(CHAVE_DA_INSTALACAO);
+      expect(out.origemDaChave).toBe("chave_da_instalacao");
+      expect("ponte" in out).toBe(false);
+    });
+
+    it("⭐ `false`, sem chave da instalação: LlmNotConfiguredError (desligar não inventa outra chave)", async () => {
+      await expect(
+        resolveOrgLlmConfig(
+          poolFake(comInterruptor(false), SEM_BYOK),
+          { ponte: PONTE_LIGADA },
+          ORG_NA_LISTA,
+        ),
+      ).rejects.toBeInstanceOf(LlmNotConfiguredError);
+    });
+
+    it("`false` com variáveis inválidas: o degrau é pulado SEM avaliá-las (quem desligou não leva erro de .env)", async () => {
+      const ruim: LlmEdgeConfig = {
+        anthropicApiKey: CHAVE_DA_INSTALACAO,
+        ponte: { ...PONTE_LIGADA, CLAUDE_PONTE_BASE_URL: COM_CREDENCIAL },
+      };
+      const out = await resolveOrgLlmConfig(
+        poolFake(comInterruptor(false), SEM_BYOK),
+        ruim,
+        ORG_NA_LISTA,
+      );
+      expect(out.apiKey).toBe(CHAVE_DA_INSTALACAO);
+    });
+
+    it("`false` com credencial própria: a chave dela segue valendo (desligar não mexe em credencial)", async () => {
+      const out = await resolveOrgLlmConfig(
+        poolFake(comInterruptor(false), COM_BYOK),
+        cfgComPonte,
+        ORG_NA_LISTA,
+      );
+      expect(out.apiKey).toBe(CHAVE_DA_ORG);
+      expect(out.origemDaChave).toBe("credencial_da_organizacao");
+    });
+
+    it.each([
+      ["ausente (o padrão)", undefined],
+      ["`true`", true],
+      ["texto `\"false\"`", "false"],
+      ["número `0`", 0],
+      ["`null`", null],
+      ["lista", [false]],
+      ["objeto", { ativa: false }],
+    ])("valor %s vale LIGADA: a organização da lista usa a ponte", async (_nome, valor) => {
+      const out = await resolveOrgLlmConfig(
+        poolFake(comInterruptor(valor), SEM_BYOK),
+        cfgComPonte,
+        ORG_NA_LISTA,
+      );
+      expect(out.apiKey).toBe(CHAVE_DA_PONTE);
+      expect(out.ponte).toEqual({ baseURL: `${PONTE}/v1`, origem: PONTE });
+    });
+
+    it("`false` só vale para a Anthropic: o openai segue com a própria chave, como sempre", async () => {
+      const out = await resolveOrgLlmConfig(
+        poolFake({ provider: "openai", default_model: "gpt-5.6-luna", ponte_ativa: false }, SEM_BYOK),
+        { openaiApiKey: "chave-openai-sintetica", ponte: PONTE_LIGADA },
+        ORG_NA_LISTA,
+      );
+      expect(out.provider).toBe("openai");
+      expect(out.apiKey).toBe("chave-openai-sintetica");
+    });
+  });
 });
 
 // ─── O seam inteiro: qual fábrica fala, com qual chave e qual endereço ──────
