@@ -12,7 +12,8 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
- * PUT /api/v1/ai/knowledge/provedor — OpenAI ou Google prepara a base (#1130, @vgamkt).
+ * PUT /api/v1/ai/knowledge/provedor — OpenAI, Google ou a busca por palavras prepara a base
+ * (#1130, @vgamkt; palavras: migration 0647).
  *
  * O que se trava aqui:
  *  * admin, organização da sessão;
@@ -34,7 +35,8 @@ vi.mock("@/lib/ai/embeddings/chave", () => ({
   familiaDaBase: vi.fn(),
   FamiliaDaBaseIlegivelError: class FamiliaDaBaseIlegivelError extends Error {},
   // Cópia da função pura: o módulo real puxa env e banco no import.
-  provedorDaBase: (c: { provedor: string }) => (c.provedor === "google" ? "google" : "openai"),
+  provedorDaBase: (c: { provedor: string }) =>
+    c.provedor === "google" ? "google" : c.provedor === "texto" ? "texto" : "openai",
 }));
 
 const ORG_ID = "22222222-2222-4222-8222-222222222222";
@@ -58,11 +60,11 @@ async function chamar(corpo: unknown): Promise<Response> {
 }
 
 /** Qual família tem chave: o resolvedor restrito a ela responde, ou não. */
-function chavesDisponiveis(...familias: Array<"openai" | "google">) {
+function chavesDisponiveis(...familias: Array<"openai" | "google" | "texto">) {
   vi.mocked(resolverChaveDeEmbedding).mockImplementation((async (
     _org: string,
     _ponto: string,
-    opcoes?: { familia?: "openai" | "google" | null },
+    opcoes?: { familia?: "openai" | "google" | "texto" | null },
   ) => {
     const f = opcoes?.familia;
     if (f) return familias.includes(f) ? { provedor: f } : null;
@@ -235,6 +237,61 @@ describe("PUT /api/v1/ai/knowledge/provedor", () => {
     expect(r.status).toBe(200);
     expect(((await r.json()) as { data: { fila: unknown } }).data.fila).toBeNull();
     expect(updates).toHaveLength(1);
+  });
+
+  // Migration 0647: a busca por palavras não usa chave, então nunca é recusada por falta dela.
+  it("para a busca por palavras: GRAVA a família texto, refaz a base e audita", async () => {
+    chavesDisponiveis("texto");
+    const r = await chamar({ provedor: "texto" });
+    expect(r.status).toBe(200);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.valores).toEqual({
+      settings: {
+        branding: { name: "Clínica X" },
+        base_de_conhecimento: { outro: 1, familia: "texto" },
+      },
+    });
+    expect(enfileirarTodosOsMateriais).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: ORG_ID, motivo: "troca_de_provedor" }),
+    );
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "ai.knowledge_provider_changed",
+        metadata: expect.objectContaining({ de: "openai", para: "texto" }),
+      }),
+    );
+  });
+
+  it("pedir as palavras quando elas já estão gravadas não grava nem refaz a base", async () => {
+    vi.mocked(familiaDaBase).mockResolvedValue({ familia: "texto", origem: "escolha" });
+    chavesDisponiveis("texto");
+    const r = await chamar({ provedor: "texto" });
+    expect(((await r.json()) as { data: { mudou: boolean } }).data.mudou).toBe(false);
+    expect(updates).toHaveLength(0);
+    expect(enfileirarTodosOsMateriais).not.toHaveBeenCalled();
+  });
+
+  // Sem nada gravado, "o que vale" saiu do último degrau da escada. Se o pedido não gravasse, o
+  // dia em que alguém cadastrasse uma chave a base mudaria de família sozinha.
+  it("sem família gravada e com as palavras valendo só pela escada: pedir as palavras GRAVA", async () => {
+    vi.mocked(familiaDaBase).mockResolvedValue(null);
+    chavesDisponiveis("texto");
+    const r = await chamar({ provedor: "texto" });
+    expect(((await r.json()) as { data: { mudou: boolean } }).data.mudou).toBe(true);
+    expect(updates[0]!.valores).toMatchObject({
+      settings: { base_de_conhecimento: { familia: "texto" } },
+    });
+    expect(enfileirarTodosOsMateriais).toHaveBeenCalledTimes(1);
+  });
+
+  it("de volta do Google para as palavras não exige chave nenhuma", async () => {
+    vi.mocked(familiaDaBase).mockResolvedValue({ familia: "google", origem: "escolha" });
+    chavesDisponiveis("texto");
+    const r = await chamar({ provedor: "texto" });
+    expect(r.status).toBe(200);
+    expect(updates[0]!.valores).toMatchObject({
+      settings: { base_de_conhecimento: { familia: "texto" } },
+    });
   });
 
   it("a família não pôde ser lida: 503, sem gravar, sem refazer a base", async () => {

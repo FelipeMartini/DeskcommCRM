@@ -1,6 +1,6 @@
 import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
- * PUT /api/v1/ai/knowledge/provedor — quem prepara a base: OpenAI ou Google.
+ * PUT /api/v1/ai/knowledge/provedor — quem prepara a base: OpenAI, Google ou a busca por palavras.
  *
  * Contribuição de @vgamkt (#1130): a base de conhecimento exigia uma chave da
  * OpenAI, e quem só tinha a do Google ficava sem base.
@@ -14,7 +14,11 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  *
  * A troca só vale se a família pedida TEM chave utilizável agora
  * (`resolverChaveDeEmbedding` restrito a ela); sem, 422 — gravar uma família
- * sem chave deixaria a base parada.
+ * sem chave deixaria a base parada. A busca por palavras ("texto", migration
+ * 0647) não usa chave nem tem custo, então nunca é recusada por isso; e, como
+ * ela também é o último degrau de quem não escolheu nada, pedi-la grava a
+ * escolha mesmo quando já é o que está valendo (senão cadastrar uma chave depois
+ * a trocaria sozinha).
  *
  * Trocar REFAZ A BASE: a busca só compara trechos do mesmo modelo, e o indexador
  * reembeda toda fonte cujo modelo mudou. A fila sai neste mesmo pedido
@@ -49,7 +53,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-const corpoSchema = z.object({ provedor: z.enum(["openai", "google"]) }).strict();
+const corpoSchema = z.object({ provedor: z.enum(["openai", "google", "texto"]) }).strict();
 
 export async function PUT(req: NextRequest): Promise<Response> {
   const supportDenied = await requireSupportWrite();
@@ -93,7 +97,12 @@ export async function PUT(req: NextRequest): Promise<Response> {
     ? null
     : await resolverChaveDeEmbedding(org.orgId, "embedding_indexar", { familia: null });
   const provedorAnterior = familia?.familia ?? (semFamilia ? provedorDaBase(semFamilia) : null);
-  if (provedorAnterior === provedor) {
+  // Com família gravada, pedir a mesma não é mutação. Sem ela, "o que vale" saiu da chave
+  // (ou do último degrau, a busca por palavras): pedir a busca por palavras tem de GRAVAR.
+  const jaValendo = familia
+    ? familia.familia === provedor
+    : provedorAnterior === provedor && provedor !== "texto";
+  if (jaValendo) {
     return ok({ provedor, mudou: false, fila: null }, { requestId });
   }
 

@@ -21,7 +21,8 @@ import { useT } from "@/hooks/i18n/useT";
  * Quando JÁ existe chave, o componente não some: ele diz qual está valendo. Sem
  * isso, "por que ele indexou com a chave errada?" não tem resposta na tela.
  *
- * E diz QUEM prepara a base — OpenAI ou Google (contribuição de @vgamkt, #1130) —
+ * E diz QUEM prepara a base — OpenAI ou Google (contribuição de @vgamkt, #1130) ou a
+ * busca por palavras, feita no próprio sistema, sem chave e sem custo (migration 0647) —
  * com a troca ali mesmo. A troca refaz a base inteira, então o aviso vem num
  * diálogo ANTES de trocar, nunca num toast depois.
  */
@@ -53,7 +54,11 @@ export type { EstadoDaChave };
 
 type ProvedorDaChave = "openai" | "openrouter" | "google";
 
-const NOME_DO_PROVEDOR: Record<ProvedorDaBase, string> = { openai: "OpenAI", google: "Google" };
+// Nomes próprios, que não se traduzem. A busca por palavras tem nome comum e passa por `t()`.
+const NOME_DO_PROVEDOR: Record<Exclude<ProvedorDaBase, "texto">, string> = {
+  openai: "OpenAI",
+  google: "Google",
+};
 
 const ONDE_PEGAR: Record<ProvedorDaChave, { url: string; texto: string; placeholder: string }> = {
   openai: {
@@ -80,7 +85,10 @@ export function ChaveDeConhecimento({ estado, onChaveCadastrada }: Props) {
   const [abrindo, setAbrindo] = useState(false);
   // A base já tem família e a chave dela sumiu: o cadastro começa nela.
   const semChave = estado.familia_sem_chave;
-  const [provedor, setProvedor] = useState<ProvedorDaChave>(semChave ?? "openai");
+  // (A busca por palavras não tem chave a cadastrar: nunca é a família que ficou sem ela.)
+  const [provedor, setProvedor] = useState<ProvedorDaChave>(
+    semChave === "google" ? "google" : "openai",
+  );
   const [rotulo, setRotulo] = useState("");
   const [chave, setChave] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -166,7 +174,7 @@ export function ChaveDeConhecimento({ estado, onChaveCadastrada }: Props) {
         {estado.provedor ? (
           <TrocaDeProvedor
             atual={estado.provedor}
-            destino={estado.pode_trocar_para}
+            destinos={estado.trocas_possiveis}
             onTrocado={onChaveCadastrada}
           />
         ) : null}
@@ -198,7 +206,7 @@ export function ChaveDeConhecimento({ estado, onChaveCadastrada }: Props) {
                   "O agente não consegue consultar o material até isso ser resolvido. Chaves de outro provedor não são usadas sozinhas: o material já preparado só é encontrado com o mesmo provedor. Cadastre a chave de novo ou troque o provedor, o que refaz a base.",
                 )
               : t(
-                  "O material é preparado pela OpenAI (text-embedding-3-small, também pela OpenRouter) ou pelo Google (gemini-embedding-001). Sem uma dessas chaves, você pode cadastrar o documento, mas ele fica esperando para ser preparado.",
+                  "O material é preparado pela busca por palavras (no próprio sistema, sem chave e sem custo), pela OpenAI (text-embedding-3-small, também pela OpenRouter) ou pelo Google (gemini-embedding-001). A busca por palavras já funciona sozinha; as chaves servem para a busca entender sinônimos.",
                 )}
           </p>
         </div>
@@ -206,7 +214,7 @@ export function ChaveDeConhecimento({ estado, onChaveCadastrada }: Props) {
       {semChave ? (
         <TrocaDeProvedor
           atual={semChave}
-          destino={estado.pode_trocar_para}
+          destinos={estado.trocas_possiveis}
           onTrocado={onChaveCadastrada}
         />
       ) : null}
@@ -335,28 +343,31 @@ export function ChaveDeConhecimento({ estado, onChaveCadastrada }: Props) {
  * "Quem prepara a base" + a troca. O diálogo é o aviso: trocar refaz a base
  * inteira, e até o indexador terminar o agente não acha o que ainda não foi
  * refeito. Quem não tem chave do outro lado recebe o caminho, não um botão
- * que devolveria erro.
+ * que devolveria erro — e a busca por palavras, que não pede chave, está sempre
+ * entre as saídas.
  */
 function TrocaDeProvedor({
   atual,
-  destino,
+  destinos,
   onTrocado,
 }: {
   atual: ProvedorDaBase;
-  destino: ProvedorDaBase | null;
+  destinos: ProvedorDaBase[];
   onTrocado: () => void;
 }) {
   const t = useT();
   const [aberto, setAberto] = useState(false);
+  // Fica gravado depois de fechar: o diálogo ainda se desenha durante a animação de saída.
+  const [alvo, setAlvo] = useState<ProvedorDaBase | null>(null);
   const [trocando, setTrocando] = useState(false);
 
   async function trocar() {
-    if (!destino) return;
+    if (!alvo) return;
     setTrocando(true);
     try {
       const r = await apiClient.put<{ data: { fila: { total: number; emitidos: number } | null } }>(
         "/api/v1/ai/knowledge/provedor",
-        { provedor: destino },
+        { provedor: alvo },
       );
       const fila = r.data.fila;
       if (fila && fila.emitidos < fila.total) {
@@ -379,25 +390,53 @@ function TrocaDeProvedor({
     }
   }
 
+  function pedir(destino: ProvedorDaBase) {
+    setAlvo(destino);
+    setAberto(true);
+  }
+
   return (
     <span data-testid="conhecimento-provedor" className="flex w-full flex-wrap items-center gap-2">
       <span>
         {t("Quem prepara a base:")}{" "}
-        <span className="font-medium text-foreground">{NOME_DO_PROVEDOR[atual]}</span>.
+        <span className="font-medium text-foreground">
+          {atual === "texto" ? t("busca por palavras (sem chave)") : NOME_DO_PROVEDOR[atual]}
+        </span>
+        .
       </span>
-      {destino ? (
+      {destinos.map((destino) => (
         <Button
+          key={destino}
           size="sm"
           variant="outline"
           className="h-7 text-xs"
-          onClick={() => setAberto(true)}
-          data-testid="conhecimento-trocar-provedor"
+          onClick={() => pedir(destino)}
+          data-testid={
+            destino === "texto" ? "conhecimento-usar-busca-por-palavras" : "conhecimento-trocar-provedor"
+          }
         >
-          {destino === "google" ? t("Trocar para o Google") : t("Trocar para a OpenAI")}
+          {destino === "google"
+            ? t("Trocar para o Google")
+            : destino === "openai"
+              ? t("Trocar para a OpenAI")
+              : t("Usar a busca por palavras (sem chave)")}
         </Button>
-      ) : atual === "openai" ? (
+      ))}
+      {atual === "openai" && !destinos.includes("google") ? (
         <span>
           {t("Para usar o Google, cadastre a chave dele em")}{" "}
+          <Link
+            href="/app/ai/credentials"
+            className="font-medium text-foreground underline underline-offset-4"
+          >
+            {t("IA › Credenciais")}
+          </Link>
+          .
+        </span>
+      ) : null}
+      {atual === "texto" ? (
+        <span>
+          {t("Para a busca entender sinônimos, cadastre uma chave da OpenAI ou do Google em")}{" "}
           <Link
             href="/app/ai/credentials"
             className="font-medium text-foreground underline underline-offset-4"
@@ -411,14 +450,20 @@ function TrocaDeProvedor({
         <AlertDialogContent data-testid="conhecimento-trocar-provedor-dialogo">
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {destino === "google"
+              {alvo === "google"
                 ? t("Trocar para o Google refaz a base inteira")
-                : t("Trocar para a OpenAI refaz a base inteira")}
+                : alvo === "texto"
+                  ? t("Usar a busca por palavras refaz a base inteira")
+                  : t("Trocar para a OpenAI refaz a base inteira")}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {t(
-                "Todo o material é preparado de novo com o novo provedor. Enquanto isso acontece, o agente pode não encontrar o que ainda não foi refeito. O texto dos materiais passa a ser enviado ao novo provedor.",
-              )}
+              {alvo === "texto"
+                ? t(
+                    "Todo o material é preparado de novo no próprio sistema, sem chave e sem custo, e nenhum texto sai para provedor nenhum. A busca passa a achar pelas palavras da pergunta e não entende sinônimo sozinha. Enquanto isso acontece, o agente pode não encontrar o que ainda não foi refeito.",
+                  )
+                : t(
+                    "Todo o material é preparado de novo com o novo provedor. Enquanto isso acontece, o agente pode não encontrar o que ainda não foi refeito. O texto dos materiais passa a ser enviado ao novo provedor.",
+                  )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

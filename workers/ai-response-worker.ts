@@ -22,7 +22,11 @@ import { generateText, type LanguageModel } from "ai";
 
 import { gatewayConfig, gatewayHeaders } from "@/lib/ai/gateway";
 import { embedText } from "@/lib/ai/embed";
-import { MODELO_DE_EMBEDDING_DO_GOOGLE } from "@/lib/ai/embeddings/chave";
+import {
+  MODELO_DE_EMBEDDING_DO_GOOGLE,
+  ehBuscaPorTexto,
+  limiarDoModelo,
+} from "@/lib/ai/embeddings/chave";
 import { getBudgetStatus, type BudgetStatus } from "@/lib/ai/budget/check";
 import {
   AVISO_CORPO,
@@ -1059,8 +1063,24 @@ async function retrieveContext(input: RetrieveInput): Promise<RagHit[]> {
     return [];
   }
 
+  // A família "busca por palavras" (0647) não tem vetor: a pergunta vai como texto, e o
+  // limiar é o efetivo dela (a nota é cobertura de termos, não cosseno).
+  const porTexto = ehBuscaPorTexto(modelo);
+  const limiar = limiarDoModelo(modelo, RAG_THRESHOLD);
   const { data, error } =
-    fontes.length > 0
+    fontes.length > 0 && porTexto
+      ? await admin.rpc(
+          "fn_buscar_trechos_por_texto" as never,
+          {
+            p_organization_id: input.organizationId,
+            p_source_ids: fontes as unknown as string,
+            p_query: input.query,
+            p_k: RAG_TOP_K,
+            p_threshold: limiar,
+            p_embedding_model: modelo,
+          } as never,
+        )
+      : fontes.length > 0
       ? await admin.rpc(
           "fn_buscar_trechos_das_fontes" as never,
           {
@@ -1072,7 +1092,7 @@ async function retrieveContext(input: RetrieveInput): Promise<RagHit[]> {
             p_embedding_model: modelo,
           } as never,
         )
-      : modelo === MODELO_DE_EMBEDDING_DO_GOOGLE
+      : modelo === MODELO_DE_EMBEDDING_DO_GOOGLE || porTexto
         ? // Legado sem filtro de modelo e só com vetores OpenAI (ver search-knowledge.ts).
           { data: [], error: null }
         : await admin.rpc(

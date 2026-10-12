@@ -95,6 +95,7 @@ const CHAVE_OK: EstadoDaChave = {
   provedor: "openai",
   familia_sem_chave: null,
   pode_trocar_para: null,
+  trocas_possiveis: [],
   credenciais_embedding: [],
 };
 
@@ -383,7 +384,7 @@ describe("ChaveDeConhecimento — quem prepara a base", () => {
     const recarregar = vi.fn();
     render(
       <ChaveDeConhecimento
-        estado={{ ...CHAVE_OK, pode_trocar_para: "google" }}
+        estado={{ ...CHAVE_OK, pode_trocar_para: "google", trocas_possiveis: ["google"] }}
         onChaveCadastrada={recarregar}
       />,
     );
@@ -418,6 +419,7 @@ describe("ChaveDeConhecimento — quem prepara a base", () => {
           provedor: "google",
           familia_sem_chave: "google",
           pode_trocar_para: "openai",
+          trocas_possiveis: ["openai", "texto"],
         }}
         onChaveCadastrada={() => {}}
       />,
@@ -437,6 +439,78 @@ describe("ChaveDeConhecimento — quem prepara a base", () => {
     expect(screen.queryByTestId("conhecimento-trocar-provedor")).toBeNull();
     expect(screen.getByTestId("conhecimento-provedor")).toHaveTextContent(
       "Para usar o Google, cadastre a chave dele em",
+    );
+  });
+});
+
+// Migration 0647: a base também pode ser preparada por palavras, no próprio sistema, sem chave.
+describe("ChaveDeConhecimento — a busca por palavras (sem chave)", () => {
+  const SEM_CHAVE_NENHUMA: EstadoDaChave = {
+    ...CHAVE_OK,
+    origem: "busca_por_palavras",
+    explicacao: "Busca por palavras, feita no próprio sistema: não usa chave de IA e não tem custo.",
+    chave_em_uso: null,
+    provedor: "texto",
+    trocas_possiveis: ["openai"],
+  };
+
+  it("sem nenhuma chave a base está PRONTA, e a tela diz quem a prepara", () => {
+    render(<ChaveDeConhecimento estado={SEM_CHAVE_NENHUMA} onChaveCadastrada={() => {}} />);
+    expect(screen.getByTestId("conhecimento-chave-ok")).toBeInTheDocument();
+    expect(screen.queryByTestId("conhecimento-sem-chave")).toBeNull();
+    expect(screen.getByTestId("conhecimento-provedor")).toHaveTextContent(
+      "busca por palavras (sem chave)",
+    );
+    expect(screen.getByTestId("conhecimento-chave-ok")).toHaveTextContent("não tem custo");
+    // A saída para quem quer sinônimo: o caminho da chave, sem beco.
+    expect(screen.getByTestId("conhecimento-provedor")).toHaveTextContent(
+      "Para a busca entender sinônimos, cadastre uma chave da OpenAI ou do Google em",
+    );
+  });
+
+  it("usar a busca por palavras pede a confirmação e envia o provedor texto", async () => {
+    const spy = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({ data: { provedor: "texto", mudou: true, fila: { total: 1, emitidos: 1 } } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", spy);
+    render(
+      <ChaveDeConhecimento
+        estado={{ ...CHAVE_OK, trocas_possiveis: ["texto"] }}
+        onChaveCadastrada={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("conhecimento-usar-busca-por-palavras"));
+    const dialogo = await screen.findByTestId("conhecimento-trocar-provedor-dialogo");
+    expect(dialogo).toHaveTextContent("Usar a busca por palavras refaz a base inteira");
+    expect(dialogo).toHaveTextContent("nenhum texto sai para provedor nenhum");
+    expect(spy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("conhecimento-trocar-provedor-confirmar"));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(String(spy.mock.calls[0]![1]?.body))).toEqual({ provedor: "texto" });
+  });
+
+  it("com a família sem chave, a busca por palavras é uma das saídas", () => {
+    render(
+      <ChaveDeConhecimento
+        estado={{
+          ...CHAVE_OK,
+          pode_indexar: false,
+          chave_em_uso: null,
+          provedor: "google",
+          familia_sem_chave: "google",
+          trocas_possiveis: ["texto"],
+        }}
+        onChaveCadastrada={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("conhecimento-usar-busca-por-palavras")).toHaveTextContent(
+      "Usar a busca por palavras (sem chave)",
     );
   });
 });

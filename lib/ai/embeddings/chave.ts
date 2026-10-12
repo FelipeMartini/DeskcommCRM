@@ -39,8 +39,16 @@
  *  7. **Credencial Google da organização** — por último, pelo mesmo motivo da
  *     OpenRouter: quem só tem a chave do Google passa a ter base, e quem já
  *     indexava com a OpenAI não troca de fornecedor numa atualização.
- *  8. Nada. E "nada" é uma resposta legítima que o chamador precisa saber
- *     mostrar, não um erro para engolir.
+ *  8. **A busca por palavras** (família `texto`, sem chave e sem custo) — só quando a
+ *     base ainda NÃO tem família. Sem ela, quem não tinha crédito em nenhum provedor
+ *     ficava com o material "esperando para ser preparado" para sempre. Com ela, a base
+ *     funciona de saída: o trecho é gravado com vetor zero e a pergunta é respondida por
+ *     palavras, em português e sem acento (`fn_buscar_trechos_por_texto`, migration 0647).
+ *     Não entende sinônimo; quem escreve a pergunta de busca (o agente) põe os termos.
+ *     Quem já escolheu OpenAI ou Google e perdeu a chave NÃO cai aqui sozinho (ver
+ *     abaixo): para a busca por palavras, a troca é explícita.
+ *  9. Nada, para quem tem família e perdeu a chave dela. E "nada" é uma resposta
+ *     legítima que o chamador precisa saber mostrar, não um erro para engolir.
  *
  * ## A escada só percorre os degraus da FAMÍLIA da base
  *
@@ -59,6 +67,10 @@
  *     ativa mais recente) — o que a organização já tem gravado sem ter escolhido;
  *  3. nenhuma: as duas leituras DERAM CERTO e não há escolha nem base — só
  *     então a escada inteira vale. A primeira indexação fixa a família pelo item 2.
+ *
+ * `texto` é uma família como as outras: gravada pela troca da tela ou lida do marcador
+ * `texto/postgres-fts` da versão ativa. Com ela fixada a escada não roda — não há chave
+ * a procurar nem binding a obedecer.
  *
  * Leitura que FALHA não é "nenhuma": `familiaDaBase` lança
  * `FamiliaDaBaseIlegivelError`. Tratar o erro como "sem família" recriava o
@@ -99,18 +111,45 @@ export type PontoDeEmbedding = "embedding_indexar" | "embedding_consultar";
 /** Pin de contrato: o mesmo modelo dos dois lados, com a mesma dimensão. */
 export const MODELO_DE_EMBEDDING = "openai/text-embedding-3-small";
 export const MODELO_DE_EMBEDDING_DO_GOOGLE = "google/gemini-embedding-001";
+/**
+ * A terceira família: busca por PALAVRAS, feita no próprio Postgres
+ * (`fn_buscar_trechos_por_texto`, migration 0647). Não é um modelo de embedding —
+ * é o marcador que a versão de índice grava em `embedding_model` para a busca só
+ * comparar trechos preparados da mesma maneira. O vetor gravado é zero.
+ */
+export const MODELO_DE_EMBEDDING_DA_BUSCA_POR_TEXTO = "texto/postgres-fts";
 export const DIMENSOES_DO_EMBEDDING = 1536;
 
+/**
+ * A nota da busca por palavras é a COBERTURA da pergunta (0 a 1), não um cosseno:
+ * uma pergunta natural de oito palavras raramente passa de metade. O limiar do
+ * agente (0,40) foi calibrado para cosseno e cortaria respostas boas, então para
+ * esta família ele nunca passa deste teto.
+ */
+export const LIMIAR_MAXIMO_DA_BUSCA_POR_TEXTO = 0.25;
+
 /** Quem prepara a base, do ponto de vista de quem escolhe na tela. */
-export type ProvedorDaBase = "openai" | "google";
+export type ProvedorDaBase = "openai" | "google" | "texto";
 
 /** O modelo é função do provedor: OpenAI direta, gateway e OpenRouter dão o mesmo vetor. */
 export function modeloDeEmbedding(provedor: ChaveDeEmbedding["provedor"]): string {
+  if (provedor === "texto") return MODELO_DE_EMBEDDING_DA_BUSCA_POR_TEXTO;
   return provedor === "google" ? MODELO_DE_EMBEDDING_DO_GOOGLE : MODELO_DE_EMBEDDING;
 }
 
 export function provedorDaBase(chave: Pick<ChaveDeEmbedding, "provedor">): ProvedorDaBase {
+  if (chave.provedor === "texto") return "texto";
   return chave.provedor === "google" ? "google" : "openai";
+}
+
+/** O modelo que a pergunta usou é o da busca por palavras? Então não há vetor a comparar. */
+export function ehBuscaPorTexto(modelo: string): boolean {
+  return modelo === MODELO_DE_EMBEDDING_DA_BUSCA_POR_TEXTO;
+}
+
+/** O limiar que vale para o modelo: o da busca por palavras nunca passa do teto dela. */
+export function limiarDoModelo(modelo: string, limiar: number): number {
+  return ehBuscaPorTexto(modelo) ? Math.min(limiar, LIMIAR_MAXIMO_DA_BUSCA_POR_TEXTO) : limiar;
 }
 
 export interface FamiliaDaBase {
@@ -150,7 +189,9 @@ export async function familiaDaBase(organizationId: string): Promise<FamiliaDaBa
   if (erroDaOrg) throw new FamiliaDaBaseIlegivelError(organizationId, erroDaOrg.message);
   const gravada = (org as { settings?: { base_de_conhecimento?: { familia?: unknown } } } | null)
     ?.settings?.base_de_conhecimento?.familia;
-  if (gravada === "openai" || gravada === "google") return { familia: gravada, origem: "escolha" };
+  if (gravada === "openai" || gravada === "google" || gravada === "texto") {
+    return { familia: gravada, origem: "escolha" };
+  }
 
   const { data: versao, error: erroDaVersao } = await admin
     .from("ai_knowledge_versions")
@@ -165,24 +206,36 @@ export async function familiaDaBase(organizationId: string): Promise<FamiliaDaBa
   const modelo = (versao as { embedding_model?: unknown } | null)?.embedding_model;
   if (typeof modelo !== "string") return null;
   return {
-    familia: modelo === MODELO_DE_EMBEDDING_DO_GOOGLE ? "google" : "openai",
+    familia:
+      modelo === MODELO_DE_EMBEDDING_DA_BUSCA_POR_TEXTO
+        ? "texto"
+        : modelo === MODELO_DE_EMBEDDING_DO_GOOGLE
+          ? "google"
+          : "openai",
     origem: "indice",
   };
 }
 
-const NOME_DA_FAMILIA: Record<ProvedorDaBase, string> = { openai: "OpenAI", google: "Google" };
+const NOME_DA_FAMILIA: Record<ProvedorDaBase, string> = {
+  openai: "OpenAI",
+  google: "Google",
+  texto: "a busca por palavras",
+};
 
 export type OrigemDaChave =
   | "binding_do_ponto"
   | "credencial_da_organizacao"
   | "gateway_da_instalacao"
-  | "chave_da_instalacao";
+  | "chave_da_instalacao"
+  | "busca_por_palavras";
 
 export const EXPLICACAO_DA_ORIGEM: Record<OrigemDaChave, string> = {
   binding_do_ponto: "Escolhida por você no painel de Provedores.",
   credencial_da_organizacao: "Usando uma chave da organização cadastrada em Credenciais.",
   gateway_da_instalacao: "Usando o gateway de IA configurado nesta instalação.",
   chave_da_instalacao: "Usando a chave que veio na instalação.",
+  busca_por_palavras:
+    "Busca por palavras, feita no próprio sistema: não usa chave de IA e não tem custo.",
 };
 
 export interface ChaveDeEmbedding {
@@ -190,7 +243,7 @@ export interface ChaveDeEmbedding {
   apiKey: string | null;
   /** `null` = falar direto com a OpenAI, quando não houver gateway. */
   baseUrl: string | null;
-  provedor: "openai" | "openrouter" | "gateway" | "google";
+  provedor: "openai" | "openrouter" | "gateway" | "google" | "texto";
   /** Quando true, a chamada vai pelo gateway (o SDK lê a chave do process.env). */
   viaGateway: boolean;
   origem: OrigemDaChave;
@@ -224,6 +277,9 @@ export async function resolverChaveDeEmbedding(
     opcoes.familia !== undefined
       ? opcoes.familia
       : ((await familiaDaBase(organizationId))?.familia ?? null);
+
+  // A busca por palavras não tem chave nem binding: é a família que sempre pode ser servida.
+  if (familia === "texto") return chaveDaBuscaPorTexto(avisos);
 
   // 1 · A escolha explícita do painel — se for da família da base.
   const binding = await lerBindingDeEmbedding(ponto, organizationId);
@@ -340,7 +396,24 @@ export async function resolverChaveDeEmbedding(
     if (googleDaOrg) return daOrganizacao(googleDaOrg);
   }
 
-  return null;
+  // 8 · A busca por palavras — só quando a base ainda não tem família. Quem já escolheu
+  // (ou já indexou com) OpenAI ou Google e perdeu a chave continua sem ela: cair noutra
+  // família calado faria a pergunta sair com outro mapa e achar zero trechos. A troca é
+  // explícita (`PUT /api/v1/ai/knowledge/provedor`), e a tela a oferece.
+  return familia === null ? chaveDaBuscaPorTexto(avisos) : null;
+}
+
+/** A "chave" da busca por palavras: não há segredo nenhum, só a decisão de buscar no Postgres. */
+function chaveDaBuscaPorTexto(avisos: string[]): ChaveDeEmbedding {
+  return {
+    apiKey: null,
+    baseUrl: null,
+    provedor: "texto",
+    viaGateway: false,
+    origem: "busca_por_palavras",
+    rotulo: null,
+    avisos,
+  };
 }
 
 /**

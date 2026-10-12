@@ -31,8 +31,13 @@ export interface EstadoDaChave {
    * troca explícita, que refaz a base.
    */
   familia_sem_chave: ProvedorDaBase | null;
-  /** Para onde dá para trocar AGORA (há chave utilizável do outro lado); `null` = nenhum. */
+  /** Para onde dá para trocar AGORA entre os dois provedores com chave; `null` = nenhum. */
   pode_trocar_para: ProvedorDaBase | null;
+  /**
+   * Todas as famílias para as quais dá para trocar AGORA, menos a atual: a busca por palavras
+   * (sem chave, sem custo) está sempre aí; OpenAI e Google, só com chave utilizável.
+   */
+  trocas_possiveis: ProvedorDaBase[];
   credenciais_embedding: Array<{
     id: string;
     provider: "openai" | "openrouter" | "google";
@@ -81,6 +86,19 @@ export async function montarEstadoDaChave(
     (await resolverChaveDeEmbedding(organizationId, "embedding_indexar", { familia: outra }))
       ? outra
       : null;
+  // Com chave, a base prepara por vetor (melhor com sinônimo); sem chave, a busca por palavras
+  // atende. A família atual não é oferecida como troca; sem saber qual é (família ilegível), nada.
+  const trocasPossiveis: ProvedorDaBase[] = [];
+  if (!familiaIlegivel) {
+    for (const candidata of ["openai", "google"] as const) {
+      if (candidata === provedor) continue;
+      const chaveDela = await resolverChaveDeEmbedding(organizationId, "embedding_indexar", {
+        familia: candidata,
+      });
+      if (chaveDela) trocasPossiveis.push(candidata);
+    }
+    if (provedor !== "texto") trocasPossiveis.push("texto");
+  }
 
   return {
     pode_indexar: chave !== null,
@@ -94,6 +112,7 @@ export async function montarEstadoDaChave(
     provedor,
     familia_sem_chave: familia !== null && chave === null ? familia : null,
     pode_trocar_para: podeTrocarPara,
+    trocas_possiveis: trocasPossiveis,
     credenciais_embedding: credenciais,
   };
 }
