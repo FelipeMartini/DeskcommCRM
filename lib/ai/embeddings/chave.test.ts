@@ -67,6 +67,8 @@ vi.mock("@/lib/supabase/admin", () => ({
 import { embedText } from "@/lib/ai/embed";
 import {
   FamiliaDaBaseIlegivelError,
+  ehBuscaPorTexto,
+  limiarDoModelo,
   modeloDeEmbedding,
   resolverChaveDeEmbedding,
   temChaveDeEmbedding,
@@ -140,7 +142,14 @@ describe("resolverChaveDeEmbedding", () => {
       credential({ id: "cred-2", validated_at: null }),
     ];
 
-    expect(await resolverChaveDeEmbedding("org-1")).toBeNull();
+    // Sem NENHUMA chave utilizável e sem família gravada, a base não fica parada: a busca por
+    // palavras (migration 0647) atende, sem chave e sem custo.
+    expect(await resolverChaveDeEmbedding("org-1")).toMatchObject({
+      apiKey: null,
+      baseUrl: null,
+      provedor: "texto",
+      origem: "busca_por_palavras",
+    });
   });
 
   it("aceita a chave OpenRouter da instalação quando não há credencial da organização", async () => {
@@ -427,5 +436,147 @@ describe("a família da base não muda porque uma credencial apareceu ou sumiu",
     state.falhas.add("organizations");
 
     expect(await temChaveDeEmbedding("org-1")).toBe(true);
+  });
+});
+
+/**
+ * A terceira família (migration 0647): a base preparada por PALAVRAS, no próprio Postgres.
+ * Não usa chave, não custa e não depende do crédito de nenhum provedor — é o que mantém o
+ * agente consultando o material quando a organização só tem a assinatura de texto (a
+ * claude-ponte), que não gera embedding.
+ */
+describe("a base preparada por palavras (família texto)", () => {
+  const MARCADOR = "texto/postgres-fts";
+  const google = () =>
+    credential({ id: "cred-google", provider: "google", api_key_encrypted: "chave-ficticia-google" });
+  const openai = () =>
+    credential({
+      id: "cred-openai",
+      provider: "openai",
+      api_key_encrypted: "chave-ficticia-openai",
+      created_at: "2026-09-28T10:00:00Z",
+    });
+
+  function bancoQueRegistra(devolve: Array<Record<string, unknown>>) {
+    const chamadas: Array<{ fn: string; args: Record<string, unknown> }> = [];
+    return {
+      chamadas,
+      rpc: async (fn: string, args: Record<string, unknown>) => {
+        chamadas.push({ fn, args });
+        return { data: devolve, error: null };
+      },
+    };
+  }
+
+  it("o marcador é o nome do modelo gravado na versão do índice", () => {
+    expect(modeloDeEmbedding("texto")).toBe(MARCADOR);
+    expect(ehBuscaPorTexto(MARCADOR)).toBe(true);
+    expect(ehBuscaPorTexto("google/gemini-embedding-001")).toBe(false);
+    expect(ehBuscaPorTexto("openai/text-embedding-3-small")).toBe(false);
+  });
+
+  it("a escolha gravada vence as chaves: com Google e OpenAI cadastrados, continua por palavras", async () => {
+    state.credentials = [google(), openai()];
+    state.env.OPENAI_API_KEY = "chave-ficticia-env-openai";
+    state.organizations = [{ id: "org-1", settings: { base_de_conhecimento: { familia: "texto" } } }];
+
+    for (const ponto of ["embedding_indexar", "embedding_consultar"] as const) {
+      expect(await resolverChaveDeEmbedding("org-1", ponto)).toMatchObject({
+        provedor: "texto",
+        apiKey: null,
+        origem: "busca_por_palavras",
+      });
+    }
+  });
+
+  it("indexou por palavras e depois cadastrou uma chave: a família não muda sozinha", async () => {
+    state.versions = [
+      {
+        organization_id: "org-1",
+        is_active: true,
+        embedding_model: MARCADOR,
+        activated_at: "2026-09-28T09:00:00Z",
+      },
+    ];
+    state.credentials = [google(), openai()];
+
+    expect(await resolverChaveDeEmbedding("org-1", "embedding_indexar")).toMatchObject({
+      provedor: "texto",
+    });
+  });
+
+  it("sem nada gravado, a chave de um provedor vem ANTES das palavras (ninguém é rebaixado)", async () => {
+    state.credentials = [google()];
+    expect(await resolverChaveDeEmbedding("org-1")).toMatchObject({ provedor: "google" });
+  });
+
+  it("a família gravada como openai que perdeu a chave NÃO cai nas palavras em silêncio", async () => {
+    state.organizations = [{ id: "org-1", settings: { base_de_conhecimento: { familia: "openai" } } }];
+    expect(await resolverChaveDeEmbedding("org-1", "embedding_consultar")).toBeNull();
+    // Mas a tela pode perguntar pelas palavras: é a saída explícita que ela oferece.
+    expect(
+      await resolverChaveDeEmbedding("org-1", "embedding_indexar", { familia: "texto" }),
+    ).toMatchObject({ provedor: "texto" });
+  });
+
+  it("indexar por palavras não chama provedor nenhum: vetor zero e o marcador, sem rede", async () => {
+    state.organizations = [{ id: "org-1", settings: { base_de_conhecimento: { familia: "texto" } } }];
+    const r = await embedText("quanto custa a consulta?", {
+      organizationId: "org-1",
+      ponto: "embedding_indexar",
+    });
+    expect(r.model).toBe(MARCADOR);
+    expect(r.promptTokens).toBe(0);
+    expect(r.embedding).toHaveLength(1536);
+    expect(r.embedding.every((v) => v === 0)).toBe(true);
+  });
+
+  it("a pergunta vai como TEXTO para a função por palavras, e o limiar efetivo é o das palavras", async () => {
+    state.organizations = [{ id: "org-1", settings: { base_de_conhecimento: { familia: "texto" } } }];
+    const banco = bancoQueRegistra([
+      {
+        chunk_id: "chunk-1",
+        knowledge_source_id: "fonte-1",
+        source_name: "Perguntas e respostas",
+        content: "A tela do ar não aparece no app.",
+        // Nota de cobertura de termos: 0.3 reprovaria com o limiar 0.4 do cosseno.
+        similarity: 0.3,
+      },
+      {
+        chunk_id: "chunk-2",
+        knowledge_source_id: "fonte-1",
+        source_name: "Perguntas e respostas",
+        content: "Outro assunto, só uma palavra em comum.",
+        similarity: 0.1,
+      },
+    ]);
+
+    const resultado = await buscarConhecimento(banco as never, {
+      organizationId: "org-1",
+      knowledgeSourceIds: ["fonte-1"],
+      pergunta: "o ar condicionado liga pelo app?",
+      topK: 5,
+      limiar: 0.4,
+    });
+
+    expect(banco.chamadas).toHaveLength(1);
+    expect(banco.chamadas[0]!.fn).toBe("fn_buscar_trechos_por_texto");
+    expect(banco.chamadas[0]!.args).toMatchObject({
+      p_organization_id: "org-1",
+      p_source_ids: ["fonte-1"],
+      p_query: "o ar condicionado liga pelo app?",
+      p_embedding_model: MARCADOR,
+    });
+    // Nunca o vetor: a função vetorial não existe para esta família.
+    expect(banco.chamadas[0]!.args).not.toHaveProperty("p_embedding");
+    expect(resultado.trechos.map((t) => t.chunk_id)).toEqual(["chunk-1"]);
+    // O melhor candidato aparece mesmo reprovado — a tela de diagnóstico continua útil.
+    expect(resultado.melhorSimilaridade).toBeCloseTo(0.3, 5);
+  });
+
+  it("o limiar efetivo das palavras nunca SOBE acima do pedido: limiar menor que o teto vale", () => {
+    expect(limiarDoModelo(MARCADOR, 0.4)).toBe(0.25);
+    expect(limiarDoModelo(MARCADOR, 0.1)).toBe(0.1);
+    expect(limiarDoModelo("google/gemini-embedding-001", 0.4)).toBe(0.4);
   });
 });

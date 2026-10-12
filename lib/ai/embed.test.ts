@@ -186,6 +186,28 @@ describe("embedText", () => {
     expect(arg.providerOptions).toBeUndefined();
   });
 
+  // Migration 0647: a base por palavras não calcula vetor. Sem rede, sem chave, sem custo — e
+  // com a DIMENSÃO do contrato, porque a coluna é `vector(1536) NOT NULL`.
+  it("busca por palavras: vetor zero de 1536, marcador no modelo e nenhuma chamada ao SDK", async () => {
+    chaveMock = () => ({
+      apiKey: null,
+      baseUrl: null,
+      provedor: "texto",
+      viaGateway: false,
+      origem: "busca_por_palavras",
+      rotulo: null,
+      avisos: [],
+    });
+
+    const r = await embedText("oi", { organizationId: "org-1", ponto: "embedding_consultar" });
+
+    expect(embedSpy).not.toHaveBeenCalled();
+    expect(r.model).toBe("texto/postgres-fts");
+    expect(r.promptTokens).toBe(0);
+    expect(r.embedding).toHaveLength(1536);
+    expect(r.embedding.every((v) => v === 0)).toBe(true);
+  });
+
   it("organização SEM chave nenhuma vira erro tipado, não uma falha genérica", async () => {
     chaveMock = () => null;
 

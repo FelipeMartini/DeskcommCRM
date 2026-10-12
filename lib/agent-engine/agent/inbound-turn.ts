@@ -424,7 +424,14 @@ export const AGENT_TOOL_DEFS = {
       'invente o que não encontrar. Sem resultados = diga que vai confirmar, nunca chute.',
     inputSchema: z
       .object({
-        query: z.string().min(2).describe('a pergunta ou termos a buscar, em pt-br'),
+        query: z
+          .string()
+          .min(2)
+          .describe(
+            'a pergunta ou termos a buscar, em pt-br. Escreva também as palavras parecidas que o ' +
+              'material pode usar (ex.: "valor preço custa", "app aplicativo") — a busca compara ' +
+              'palavras e pode não ligar uma à outra sozinha.',
+          ),
       })
       .passthrough(),
   },

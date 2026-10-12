@@ -15,6 +15,7 @@ import { embed } from "ai";
 
 import {
   DIMENSOES_DO_EMBEDDING,
+  MODELO_DE_EMBEDDING_DA_BUSCA_POR_TEXTO,
   modeloDeEmbedding,
   resolverChaveDeEmbedding,
   type ChaveDeEmbedding,
@@ -54,7 +55,8 @@ export class SemChaveDeEmbeddingError extends Error {
   constructor(readonly organizationId: string) {
     super(
       "Esta organização não tem chave de embedding para indexar nem consultar o material. " +
-        "Cadastre uma chave OpenAI ou OpenRouter em Credenciais.",
+        "Cadastre uma chave OpenAI, OpenRouter ou Google em Credenciais, ou troque a base para " +
+        "a busca por palavras, que não usa chave.",
     );
     this.name = "SemChaveDeEmbeddingError";
   }
@@ -68,6 +70,18 @@ export async function embedText(
     opts.chave ?? (await resolverChaveDeEmbedding(opts.organizationId, opts.ponto));
   if (!chave) {
     throw new SemChaveDeEmbeddingError(opts.organizationId);
+  }
+
+  // A BUSCA POR PALAVRAS não calcula vetor nenhum: o trecho é gravado com vetor zero
+  // (a coluna é NOT NULL) e a pergunta é respondida por `fn_buscar_trechos_por_texto`,
+  // que recebe o TEXTO. Quem chama reconhece a família pelo `model` devolvido
+  // (`ehBuscaPorTexto`) e troca de função; nenhuma rede é tocada aqui.
+  if (chave.provedor === "texto") {
+    return {
+      embedding: new Array<number>(DIMENSOES_DO_EMBEDDING).fill(0),
+      promptTokens: 0,
+      model: MODELO_DE_EMBEDDING_DA_BUSCA_POR_TEXTO,
+    };
   }
 
   const modelId = String(opts.model ?? modeloDeEmbedding(chave.provedor));

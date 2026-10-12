@@ -18,7 +18,11 @@
 import type pg from 'pg';
 
 import { embedText } from '@/lib/ai/embed';
-import { MODELO_DE_EMBEDDING_DO_GOOGLE } from '@/lib/ai/embeddings/chave';
+import {
+  MODELO_DE_EMBEDDING_DO_GOOGLE,
+  ehBuscaPorTexto,
+  limiarDoModelo,
+} from '@/lib/ai/embeddings/chave';
 import type { Citation } from '@/lib/ai/citations/types';
 import type { Logger } from '../obs/logger';
 
@@ -88,13 +92,22 @@ export async function searchKnowledge(
     // quando ela não passa. Sem isso, "a base não tem essa informação" e "a base
     // tem e o corte está apertado demais" são indistinguíveis — e são problemas
     // com consertos opostos.
-    const { rows } = usaFontes
+    const porTexto = ehBuscaPorTexto(model);
+    const { rows } =
+      usaFontes && porTexto
+        ? // A família "busca por palavras" (0647): não há vetor, a pergunta vai como texto.
+          await pool.query<KnowledgeHit>(
+            `select chunk_id, knowledge_source_id, source_name, content, similarity, metadata
+             from fn_buscar_trechos_por_texto($1, $2::uuid[], $3, $4, $5, $6)`,
+            [args.organizationId, fontes, args.query, args.topK, PISO_SIMILARIDADE, model],
+          )
+        : usaFontes
       ? await pool.query<KnowledgeHit>(
           `select chunk_id, knowledge_source_id, source_name, content, similarity, metadata
            from fn_buscar_trechos_das_fontes($1, $2::uuid[], $3::vector, $4, $5, $6)`,
           [args.organizationId, fontes, vec, args.topK, PISO_SIMILARIDADE, model],
         )
-      : model === MODELO_DE_EMBEDDING_DO_GOOGLE
+      : model === MODELO_DE_EMBEDDING_DO_GOOGLE || porTexto
         ? // O legado (`retrieve_top_k_chunks`) não filtra por modelo, e toda versão
           // legada foi calculada com a OpenAI: comparar uma pergunta do Google
           // com ela devolveria trechos errados com nota alta. Nada é melhor.
@@ -105,7 +118,8 @@ export async function searchKnowledge(
           [args.organizationId, args.kbVersionId, vec, args.topK, PISO_SIMILARIDADE],
         );
 
-    const results = rows.filter((r) => r.similarity >= args.threshold);
+    const limiar = limiarDoModelo(model, args.threshold);
+    const results = rows.filter((r) => r.similarity >= limiar);
     // Sem depender da ordem das linhas. O `filter` descarta o NaN que o pgvector
     // devolve para chunk de embedding zerado — ele contaminaria o `Math.max` e
     // anularia o top_score de linhas BOAS na mesma busca. Sobra o array vazio,

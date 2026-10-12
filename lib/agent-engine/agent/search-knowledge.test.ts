@@ -296,3 +296,51 @@ describe('searchKnowledge — o modelo da pergunta decide com quais trechos comp
     expect(sqls.some((s) => s.includes('retrieve_top_k_chunks'))).toBe(false);
   });
 });
+
+// Migration 0647: a base preparada por PALAVRAS. Sem vetor: a pergunta vai como texto para a
+// função irmã, e o limiar é o das palavras (cobertura de termos, não cosseno).
+describe('searchKnowledge — a base preparada por palavras', () => {
+  const MARCADOR = 'texto/postgres-fts';
+  const embedZero = () =>
+    vi.fn().mockResolvedValue({ embedding: new Array(1536).fill(0), promptTokens: 0, model: MARCADOR });
+
+  it('materiais: chama a função por palavras com o TEXTO da pergunta, nunca o vetor', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [hit] });
+    await searchKnowledge(
+      { query } as unknown as pg.Pool,
+      { organizationId: 'org1', knowledgeSourceIds: ['s1'], query: 'frete grátis', topK: 5, threshold: 0.72 },
+      { embed: embedZero() },
+    );
+    const [sql, params] = query.mock.calls[0]!;
+    expect(String(sql)).toContain('fn_buscar_trechos_por_texto');
+    expect(String(sql)).not.toContain('fn_buscar_trechos_das_fontes');
+    expect(params).toEqual(['org1', ['s1'], 'frete grátis', 5, -1, MARCADOR]);
+  });
+
+  it('o limiar do agente (0,72) não se aplica à nota de palavras: vale o teto efetivo', async () => {
+    const query = vi.fn().mockResolvedValue({
+      rows: [
+        { chunk_id: 'c1', knowledge_source_id: 's1', content: 'acha', similarity: 0.5, metadata: null },
+        { chunk_id: 'c2', knowledge_source_id: 's1', content: 'quase nada', similarity: 0.1, metadata: null },
+      ],
+    });
+    const out = await searchKnowledge(
+      { query } as unknown as pg.Pool,
+      { organizationId: 'org1', knowledgeSourceIds: ['s1'], query: 'frete', topK: 5, threshold: 0.72 },
+      { embed: embedZero() },
+    );
+    expect(out.ok && out.results.map((h) => h.chunk_id)).toEqual(['c1']);
+  });
+
+  it('legado (kbVersionId, vetores OpenAI) com pergunta por palavras: não consulta e não inventa trecho', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [hit] });
+    const out = await searchKnowledge(
+      { query } as unknown as pg.Pool,
+      { organizationId: 'org1', kbVersionId: 'kb1', query: 'frete', topK: 5, threshold: 0.72 },
+      { embed: embedZero() },
+    );
+    expect(out).toEqual({ ok: true, results: [] });
+    const sqls = query.mock.calls.map((c) => String(c[0]));
+    expect(sqls.some((s) => s.includes('retrieve_top_k_chunks'))).toBe(false);
+  });
+});

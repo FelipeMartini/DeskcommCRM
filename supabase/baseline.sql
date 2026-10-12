@@ -51132,6 +51132,144 @@ grant execute on function public.comando_da_conversa(public.conversations) to au
 
 notify pgrst, 'reload schema';
 
+-- ---- busca por palavras na base de conhecimento (migration 0647) ----
+-- O dump --schema-only não traz função pós-snapshot. Sem este apêndice, clones
+-- novos (install.sh) e clones atualizando (update.sh reaplica baseline.sql) não
+-- têm a família "texto" da base: sem chave de embedding o material nunca é
+-- preparado. Idempotente (create or replace). Racional no cabeçalho da migration.
+-- Tira o acento e põe em minúsculas. IMMUTABLE e sem depender de locale (o `lower` do
+-- Postgres só trata acento se o banco foi criado com locale que o conheça; o `translate`
+-- vem antes e cobre as maiúsculas acentuadas).
+create or replace function public.fn_normaliza_para_busca(p_texto text)
+  returns text
+  language sql immutable parallel safe
+  set search_path to 'public'
+as $$
+  select lower(translate(
+    coalesce(p_texto, ''),
+    'áàâãäåéèêëíìîïóòôõöúùûüçñÁÀÂÃÄÅÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ',
+    'aaaaaaeeeeiiiiooooouuuucnAAAAAAEEEEIIIIOOOOOUUUUCN'
+  ))
+$$;
+
+comment on function public.fn_normaliza_para_busca(text) is
+  'Tira o acento e põe em minúsculas, sem depender de locale. Usada pela busca por palavras da base de conhecimento (0647).';
+
+revoke execute on function public.fn_normaliza_para_busca(text) from public, anon;
+grant  execute on function public.fn_normaliza_para_busca(text) to authenticated, service_role;
+
+create or replace function public.fn_buscar_trechos_por_texto(
+  p_organization_id uuid,
+  p_source_ids uuid[],
+  p_query text,
+  p_k integer default 5,
+  p_threshold real default 0,
+  p_embedding_model text default null
+) returns table(
+  chunk_id uuid,
+  knowledge_source_id uuid,
+  source_name text,
+  content text,
+  similarity real,
+  metadata jsonb
+)
+  language plpgsql stable security definer
+  set search_path to 'public'
+as $$
+declare
+  v_termos text[];
+begin
+  if auth.uid() is not null
+     and not public.fn_role_at_least(p_organization_id, 'viewer') then
+    raise exception 'caller_not_authorized_for_org'
+      using hint = 'fn_buscar_trechos_por_texto: caller must be an active member of the organization';
+  end if;
+
+  -- Os termos distintos da pergunta, como o dicionário os guarda. Pergunta feita só de
+  -- palavra vazia ("e o de?") não tem termo, e não achar nada é a resposta certa.
+  select coalesce(array_agg(distinct l.lexeme), '{}'::text[])
+    into v_termos
+    from unnest(
+      to_tsvector('portuguese', public.fn_normaliza_para_busca(p_query))
+    ) as l(lexeme, positions, weights);
+
+  if coalesce(cardinality(v_termos), 0) = 0 then
+    return;
+  end if;
+
+  return query
+  with candidatos as (
+    select
+      c.id as cid,
+      c.knowledge_source_id as sid,
+      s.name as nome,
+      c.content as texto,
+      c.metadata as meta,
+      c."position" as pos,
+      tsvector_to_array(
+        to_tsvector('portuguese', public.fn_normaliza_para_busca(c.content))
+      ) as lexemas
+    from public.ai_chunks c
+    join public.ai_knowledge_sources s
+      on s.id = c.knowledge_source_id
+     and s.organization_id = c.organization_id
+    join public.ai_knowledge_versions v
+      on v.id = c.kb_version_id
+    where c.organization_id = p_organization_id
+      and s.id = any(p_source_ids)
+      and s.is_active
+      and s.status = 'ready'
+      and c.kb_version_id = s.active_kb_version_id
+      and (
+        p_embedding_model is null
+        or v.embedding_model is null
+        or v.embedding_model = p_embedding_model
+      )
+  ),
+  total as (
+    select count(*)::double precision as n from candidatos
+  ),
+  pesos as (
+    select
+      t.termo,
+      ln(
+        1 + (select n from total)
+          / (1 + (select count(*) from candidatos cd where t.termo = any(cd.lexemas)))::double precision
+      ) as peso
+    from unnest(v_termos) as t(termo)
+  ),
+  soma as (
+    select sum(peso) as total_dos_pesos from pesos
+  ),
+  notas as (
+    select
+      cd.*,
+      coalesce(
+        (select sum(p.peso) from pesos p where p.termo = any(cd.lexemas)),
+        0
+      ) / nullif((select total_dos_pesos from soma), 0) as nota
+    from candidatos cd
+  )
+  select
+    n.cid as chunk_id,
+    n.sid as knowledge_source_id,
+    n.nome as source_name,
+    n.texto as content,
+    least(n.nota, 1)::real as similarity,
+    n.meta as metadata
+  from notas n
+  where n.nota > 0
+    and n.nota >= p_threshold
+  order by n.nota desc, n.pos asc
+  limit greatest(p_k, 0);
+end $$;
+
+comment on function public.fn_buscar_trechos_por_texto(uuid, uuid[], text, integer, real, text) is
+  'Busca por palavras (português, sem acento) nos materiais que o agente pode ler: nota = cobertura ponderada por idf dos termos da pergunta (0181 irmã sem vetor; 0647). SECURITY DEFINER + filtro programático de organização — quem chama valida o tenant.';
+
+revoke execute on function public.fn_buscar_trechos_por_texto(uuid, uuid[], text, integer, real, text) from public, anon;
+grant  execute on function public.fn_buscar_trechos_por_texto(uuid, uuid[], text, integer, real, text) to authenticated, service_role;
+
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
 --
 -- ⚠️ DE PROPÓSITO, NENHUMA FUNÇÃO É CRIADA DEPOIS DESTE BLOCO. Apêndice que cria

@@ -16,6 +16,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { embedText } from "@/lib/ai/embed";
+import { ehBuscaPorTexto, limiarDoModelo } from "@/lib/ai/embeddings/chave";
 
 /**
  * Limiar do CAMINHO DO HUMANO — o mesmo que a ferramenta MCP `crm_search_knowledge`
@@ -103,14 +104,26 @@ export async function buscarConhecimento(
   // se faltou pouco ou se nao ha nada parecido no acervo.
   const PISO = -1;
 
-  const { data, error } = await supabase.rpc("fn_buscar_trechos_das_fontes", {
-    p_organization_id: p.organizationId,
-    p_source_ids: p.knowledgeSourceIds,
-    p_embedding: `[${embedding.join(",")}]`,
-    p_k: p.topK,
-    p_threshold: PISO,
-    p_embedding_model: model,
-  });
+  // A família "busca por palavras" não tem vetor: a mesma pergunta vai como TEXTO para a
+  // função irmã, que devolve o mesmo formato (migration 0647).
+  const porTexto = ehBuscaPorTexto(model);
+  const { data, error } = porTexto
+    ? await supabase.rpc("fn_buscar_trechos_por_texto", {
+        p_organization_id: p.organizationId,
+        p_source_ids: p.knowledgeSourceIds,
+        p_query: p.pergunta,
+        p_k: p.topK,
+        p_threshold: PISO,
+        p_embedding_model: model,
+      })
+    : await supabase.rpc("fn_buscar_trechos_das_fontes", {
+        p_organization_id: p.organizationId,
+        p_source_ids: p.knowledgeSourceIds,
+        p_embedding: `[${embedding.join(",")}]`,
+        p_k: p.topK,
+        p_threshold: PISO,
+        p_embedding_model: model,
+      });
 
   if (error) {
     throw new Error(`busca_de_conhecimento_falhou: ${error.message}`);
@@ -119,9 +132,10 @@ export async function buscarConhecimento(
   const linhas = (data ?? []) as LinhaDaRpc[];
   const melhor = linhas.length > 0 ? Math.max(...linhas.map((l) => l.similarity)) : null;
 
+  const limiar = limiarDoModelo(model, p.limiar);
   return {
     trechos: linhas
-      .filter((l) => l.similarity >= p.limiar)
+      .filter((l) => l.similarity >= limiar)
       .map((l) => ({
         chunk_id: l.chunk_id,
         knowledge_source_id: l.knowledge_source_id,
