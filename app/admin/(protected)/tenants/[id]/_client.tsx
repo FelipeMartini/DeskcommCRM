@@ -3,6 +3,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useTenantDetail } from "@/hooks/useTenantDetail";
 import { TenantOverview } from "@/components/admin/tenants/TenantOverview";
 import { TenantActions } from "@/components/admin/tenants/TenantActions";
+import { TenantAiCard } from "@/components/admin/tenants/TenantAiCard";
 import { SuspendedBanner } from "@/components/admin/tenants/SuspendedBanner";
 import { TenantMembers } from "@/components/admin/tenants/TenantMembers";
 import { useT } from "@/hooks/i18n/useT";
@@ -39,6 +40,7 @@ export function TenantOverviewClient({ id, cobrancaLigada = false }: TenantOverv
   }
 
   const { organization, counts, integrations } = data.data;
+  const settings = (organization.settings ?? {}) as Record<string, any>;
 
   return (
     <div className="space-y-6">
@@ -53,6 +55,11 @@ export function TenantOverviewClient({ id, cobrancaLigada = false }: TenantOverv
             counts={counts}
             integrations={integrations}
             cobrancaLigada={cobrancaLigada}
+          />
+          <TenantAiCard
+            organizationId={organization.id}
+            initialHabilitado={settings.omnirouter?.habilitado === true}
+            initialModel={settings.llm?.default_model || "claude-haiku-5-5"}
           />
           <TenantMembers
             organizationId={organization.id}
