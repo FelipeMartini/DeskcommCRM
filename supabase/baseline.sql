@@ -4921,7 +4921,8 @@ insert into public.ai_models (provider, model_id, display_name, description, con
 values
   ('anthropic', 'claude-opus-4-7',    'Claude Opus 4.7',    'Flagship Anthropic — raciocínio complexo',                  200000,  1500, 7500, true, false),
   ('anthropic', 'claude-sonnet-4-6',  'Claude Sonnet 4.6',  'Default recomendado — equilíbrio custo/qualidade',           200000,   300, 1500, true, false),
-  ('anthropic', 'claude-haiku-4-5',   'Claude Haiku 4.5',   'Cheap/fast — atendimentos curtos e classificação',           200000,   100,  500, true, true),
+  ('anthropic', 'claude-haiku-4-5',   'Claude Haiku 4.5',   'Cheap/fast — atendimentos curtos e classificação',           200000,   100,  500, true, false),
+  ('anthropic', 'claude-haiku-5-5',   'Claude Haiku 5.5',   'Flagship Speed & Intelligence — Atendimento ágil e padrão',  200000,   100,  500, true, true),
   ('openai',    'gpt-5',              'GPT-5',              'Flagship OpenAI',                                           400000,   500, 4000, true, false),
   ('openai',    'gpt-5-mini',         'GPT-5 Mini',         'Cheap/fast OpenAI',                                         400000,   150,  600, true, true),
   ('openai',    'gpt-4o',             'GPT-4o (legacy)',    'Compat — uso legado',                                       128000,   250, 1000, true, false),
@@ -9032,7 +9033,7 @@ create table if not exists ai_routers (
   channel_session_id uuid not null references channel_sessions(id) on delete cascade,
   is_active boolean not null default true,
   config jsonb not null default jsonb_build_object(
-    'classifier_model', 'claude-haiku-4-5',
+    'classifier_model', 'claude-haiku-5-5',
     'sticky', true,
     'min_confidence', 0.6
   ),
@@ -9610,7 +9611,7 @@ begin
                (select m.model_id from public.ai_models m
                 where m.provider = 'anthropic' and m.is_default_for_provider
                   and m.deprecated_at is null limit 1),
-               'claude-haiku-4-5'
+               'claude-haiku-5-5'
              )
            ),
       true
@@ -45335,7 +45336,7 @@ revoke execute on function public.fn_service_status(uuid,uuid,text,bigint) from 
 grant execute on function public.fn_service_status(uuid,uuid,text,bigint) to service_role;
 -- ---- classificador do roteador nasce "Automático" (migration 0530) ----
 --
--- `ai_routers.config` semeava `'classifier_model', 'claude-haiku-4-5'`: id fixo
+-- `ai_routers.config` semeava `'classifier_model', 'claude-haiku-5-5'`: id fixo
 -- do Anthropic num produto multi-provedor. Numa organização configurada na
 -- OpenRouter, ele vencia o padrão da organização (precedência 3 de
 -- `decidirBinding`, `lib/ai/pontos/resolver.ts`) e ia para o endpoint errado —
@@ -45346,7 +45347,7 @@ grant execute on function public.fn_service_status(uuid,uuid,text,bigint) to ser
 -- O default perde só `classifier_model` (`sticky` e `min_confidence` ficam): o
 -- roteador nasce em "Automático" e o seam resolve pelo painel de provedores,
 -- senão pelo padrão da organização. A cura só alcança a linha com a forma exata
--- do seed E que quebrava: `classifier_model = 'claude-haiku-4-5'` (o único id
+-- do seed E que quebrava: `classifier_model = 'claude-haiku-5-5'` (o único id
 -- semeado — `anthropic/claude-haiku-4-5` é escolha válida da Requesty, 0410),
 -- `classifier_provider` ausente (a tela grava os dois juntos) e organização fora
 -- do Anthropic (regra de `llmSettingsSchema`: provedor ausente, não-texto ou
@@ -45363,7 +45364,7 @@ update public.ai_routers r
 set config = r.config - 'classifier_model'
 from public.organizations o
 where o.id = r.organization_id
-  and r.config->>'classifier_model' = 'claude-haiku-4-5'
+  and r.config->>'classifier_model' = 'claude-haiku-5-5'
   and coalesce(r.config->>'classifier_provider', '') = ''
   and coalesce(
         case when jsonb_typeof(o.settings->'llm'->'provider') = 'string'
