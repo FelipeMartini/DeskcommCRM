@@ -294,6 +294,8 @@ const schema = z.object({
   CLAUDE_PONTE_API_KEY: z.string().optional().default(""),
   CLAUDE_PONTE_ORGS: z.string().optional().default(""),
   OPENROUTER_BASE_URL: z.string().optional().default(""),
+  OMNIROUTER_BASE_URL: z.string().optional().default("https://omnirouter.poa.metodoatuarial.com.br/v1"),
+  OMNIROUTER_API_KEY: z.string().optional().default(""),
   // Atribuição OPCIONAL da OpenRouter (`HTTP-Referer` / `X-Title`): identifica a
   // instalação no painel e no ranking público DELES. A doc da OpenRouter chama
   // os dois de opcionais e a chamada funciona sem — por isso default vazio e
