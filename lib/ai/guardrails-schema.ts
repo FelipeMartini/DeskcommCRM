@@ -11,6 +11,7 @@ import { DEFAULT_SENTIMENT_THRESHOLD } from "@/lib/ai/prompts/sentiment";
 // ---------------------------------------------------------------------------
 
 export const AGENT_MODELS = [
+  "anthropic/claude-haiku-5-5",
   "anthropic/claude-sonnet-4-6",
   "anthropic/claude-haiku-4-5",
   "anthropic/claude-opus-4-7",

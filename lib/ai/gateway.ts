@@ -27,6 +27,7 @@ export type ModelId =
   | "anthropic/claude-sonnet-5"
   | "anthropic/claude-opus-5"
   | "anthropic/claude-haiku-4-5"
+  | "anthropic/claude-haiku-5-5"
   | "openai/text-embedding-3-small"
   // Allow arbitrary tenant-configured strings without losing autocomplete on the canonical ones.
   | (string & {});
@@ -39,7 +40,7 @@ export type ModelId =
 // como default é o de CLASSIFICAÇÃO, que continua em pé porque passa pela
 // conferência de par provedor+modelo antes de executar
 // (`lib/ai/par-provedor-modelo.ts`) e não executa sob outro provedor direto.
-export const DEFAULT_CLASSIFIER_MODEL: ModelId = "anthropic/claude-haiku-4-5";
+export const DEFAULT_CLASSIFIER_MODEL: ModelId = "anthropic/claude-haiku-5-5";
 export const DEFAULT_EMBEDDING_MODEL: ModelId = "openai/text-embedding-3-small";
 
 /**
