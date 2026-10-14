@@ -143,12 +143,13 @@ export async function PUT(
       // Cadastra ou atualiza credencial OmniRouter
       await guardarCredencial({
         admin,
-        organizationId: orgId,
+        orgId,
+        userId: adminCtx.user.id,
         provider: "custom",
         label: "OmniRouter Corporativo",
         apiKey: chaveEfetiva,
         baseUrl: OMNIROUTER_BASE_URL,
-        actorUserId: adminCtx.user.id,
+        requestId,
       });
     }
 
