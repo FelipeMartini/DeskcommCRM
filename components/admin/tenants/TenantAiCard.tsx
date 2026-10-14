@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useT } from "@/hooks/i18n/useT";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 interface TenantAiCardProps {
   organizationId: string;
@@ -24,7 +24,6 @@ export function TenantAiCard({
   omnirouterBaseUrl = "https://omnirouter.poa.metodoatuarial.com.br/v1",
 }: TenantAiCardProps) {
   const t = useT();
-  const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
 
   const [habilitado, setHabilitado] = useState(initialHabilitado);
@@ -49,18 +48,13 @@ export function TenantAiCard({
           throw new Error(errData.error?.message || "Erro ao salvar configuração de IA");
         }
 
-        toast({
-          title: t("Configuração de IA atualizada"),
-          description: habilitado
+        toast.success(
+          habilitado
             ? t("OmniRouter habilitado e configurado com sucesso para este tenant.")
             : t("OmniRouter desabilitado para este tenant."),
-        });
+        );
       } catch (err) {
-        toast({
-          title: t("Falha na gravação"),
-          description: err instanceof Error ? err.message : String(err),
-          variant: "destructive",
-        });
+        toast.error(err instanceof Error ? err.message : String(err));
       }
     });
   };
