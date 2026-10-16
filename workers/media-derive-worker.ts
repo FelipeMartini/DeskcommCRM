@@ -13,12 +13,14 @@ import { PONTO_TRANSCRICAO_DE_AUDIO, PONTO_VISAO_DE_IMAGEM } from "@/lib/ai/pont
 import { costCents, type TokenUsage } from "@/lib/agent-engine/edge/llm/pricing";
 import {
   aplicarOrcamento,
+  fabricaDe,
   LlmBudgetExceededError,
   normalizarErro,
 } from "@/lib/agent-engine/edge/llm/run-model-call";
 import { normalizarChaveDeOrcamento } from "@/lib/agent-engine/edge/llm/orcamento";
 import { chaveDeOrcamentoDaInstalacao } from "@/lib/instalacao/comportamento";
 import {
+  llmEdgeConfigFromEnv,
   resolveOrgLlmConfig,
   type LlmEdgeConfig,
   type OrgLlmConfig,
@@ -191,17 +193,28 @@ export async function deriveMessageMedia(row: EventRow): Promise<HandlerResult> 
     const buffer = Buffer.from(await dl.data.arrayBuffer());
 
     // Credencial BYOK da org p/ visão (imagem).
-    const llmCfg: LlmEdgeConfig = {
-      anthropicApiKey: process.env.ANTHROPIC_API_KEY,
-      openaiApiKey: process.env.OPENAI_API_KEY,
-      // Sem esta linha, a instalação que escolheu OpenRouter no install.sh (a
-      // primeira opção do menu) não tem chave nenhuma que este seam aceite:
-      // toda derivação de mídia lança LlmNotConfiguredError ANTES de chegar ao
-      // aviso, e o desfecho é 5 tentativas, media_derived_status='failed' e
-      // ZERO avisos na Central — só um logger.error no log do contêiner.
-      openrouterApiKey: process.env.OPENROUTER_API_KEY,
-      cacheTtl: "1h",
-    };
+    //
+    // ─── A configuração vem da função COMPARTILHADA, nunca escrita à mão ─────
+    //
+    // Até 15/10/2026 este bloco montava a `LlmEdgeConfig` campo a campo
+    // (`anthropicApiKey`, `openaiApiKey`, `openrouterApiKey`) e NÃO levava
+    // `ponte`. Sem `ponte`, o degrau da claude-ponte de `resolveOrgLlmConfig`
+    // era pulado para toda organização, a escada caía na chave da INSTALAÇÃO
+    // (`ANTHROPIC_API_KEY`, no servidor a mesma do OmniRoute) e a fábrica
+    // `anthropic` — que não lê endereço nenhum — mandava a FOTO do cliente e
+    // essa chave a `api.anthropic.com`: três tentativas recusadas com 401 em
+    // 15/10, medidas pela Mylab no contador de kernel. Chamada direta com chave
+    // de API também sai da cobrança do Console e do rastro da ponte (ordem do
+    // dono, 10–11/10: toda chamada à Anthropic do CRM passa pela ponte).
+    //
+    // `llmEdgeConfigFromEnv(env)` é o que todos os outros chamadores usam, e
+    // carrega de uma vez as três chaves (inclusive a da OpenRouter, que esta
+    // linha existia para garantir — instalação só-OpenRouter, escolhida no
+    // install.sh, sem ela morria em `LlmNotConfiguredError` com ZERO avisos na
+    // Central) e as três `CLAUDE_PONTE_*`. Campo novo de configuração passa a
+    // chegar aqui sem ninguém lembrar: o que só funciona quando alguém lembra,
+    // não funciona.
+    const llmCfg: LlmEdgeConfig = llmEdgeConfigFromEnv(env);
 
     // ─── O painel de provedores manda AQUI também ────────────────────────────
     //
@@ -316,6 +329,15 @@ export async function deriveMessageMedia(row: EventRow): Promise<HandlerResult> 
     // vídeo precisam de quem ouça, e uma leitura de foto não pode custar uma
     // resolução de credencial que ninguém pediu (o teste #1591 aperta exatamente
     // isso: o binding de visão resolve, e mais nada).
+    //
+    // ⚠️ Com a ponte resolvida para a organização, `conversa.apiKey` é a chave
+    // DA PONTE. Hoje isso não chega a lugar nenhum: o degrau 3 só vale quando
+    // `transcreveAudio(provider, modelo)` é verdadeiro e para `anthropic` é falso.
+    // Mas `transcricaoPeloModelo` escolhe a fábrica pelo provedor, sem `ponte` — se
+    // um dia a Anthropic ganhar a capacidade `audio` no catálogo, esta entrada
+    // passa a mandar o áudio e a chave da ponte a `api.anthropic.com`. Quem mexer em
+    // `transcreveAudio` para `anthropic` deve tornar `transcricaoPeloModelo` ciente
+    // da ponte (usar `fabricaDe`) ANTES.
     const decisao: DecisaoDeTranscricao = await decidirTranscricao({
       conversa:
         precisaTranscricao && conversa
@@ -555,7 +577,10 @@ async function lerBindingDoPonto(
 }
 
 function buildDeriveDeps(
-  llm: Pick<OrgLlmConfig, "provider" | "apiKey" | "defaultModel" | "orcamento" | "orcamentoIndisponivelPorque" | "origemDaChave">,
+  llm: Pick<
+    OrgLlmConfig,
+    "provider" | "apiKey" | "defaultModel" | "orcamento" | "orcamentoIndisponivelPorque" | "origemDaChave" | "ponte"
+  >,
   decisao: DecisaoDeTranscricao,
   orgId: string,
   admin: ReturnType<typeof createAdminClient>,
@@ -702,7 +727,19 @@ function buildDeriveDeps(
         return MARCADOR_NAO_LIDA;
       }
     }
-    const factory = registry[llm.provider];
+    // ─── QUAL fábrica fala, e PARA ONDE ─────────────────────────────────────
+    //
+    // Quando `resolveOrgLlmConfig` escolheu a claude-ponte, `llm.apiKey` é a
+    // chave DA PONTE e `llm.ponte.baseURL` o endereço validado dela. Só a
+    // fábrica da ponte sabe falar com esse par; a `anthropic` vai SEMPRE a
+    // `api.anthropic.com` e entregaria lá a chave da ponte junto com a foto do
+    // cliente. Por isso a escolha passa por `fabricaDe` — a MESMA regra do
+    // turno do agente (`run-model-call.ts`) — e nunca por `registry[llm.provider]`.
+    //
+    // O endereço da ponte vence o do binding, como no turno. Os dois não se
+    // encontram aqui: endereço próprio com chave da instalação (e a da ponte é
+    // uma) já foi recusado acima, antes de qualquer byte sair.
+    const factory = registry[fabricaDe(llm)];
     if (!factory) {
       await avisarMidiaNaoLida(orgId, "imagem", `o provedor ${llm.provider} não está disponível nesta instalação`);
       return MARCADOR_NAO_LIDA;
@@ -755,7 +792,7 @@ function buildDeriveDeps(
     let res: Awaited<ReturnType<typeof generateText>>;
     try {
       res = await generateText({
-        model: factory(llm.apiKey, modelo, baseUrlDaVisao ?? undefined),
+        model: factory(llm.apiKey, modelo, llm.ponte?.baseURL ?? baseUrlDaVisao ?? undefined),
         messages: [
           {
             role: "user",

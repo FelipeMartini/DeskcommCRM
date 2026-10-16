@@ -79,6 +79,9 @@ const credencial = vi.hoisted(() => ({
   conversaGoogle: null as string | null,
 }));
 vi.mock("@/lib/agent-engine/edge/llm/credentials", () => ({
+  // O worker monta a configuração pela função compartilhada (como o turno do agente). Este teste
+  // não exercita a escada, então ela devolve uma configuração mínima e DEFINIDA.
+  llmEdgeConfigFromEnv: () => ({ cacheTtl: "1h" as const }),
   resolveOrgLlmConfig: vi.fn(async (_db: unknown, _cfg: unknown, _org: string, override?: { provider?: string }) => {
     if (credencial.conversaGoogle && override?.provider === "openai") throw new Error("sem credencial openai");
     return {

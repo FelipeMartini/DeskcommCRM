@@ -109,9 +109,19 @@ describe("o worker de mídia obedece ao painel", () => {
     expect(fonte).toContain("ai_purpose_bindings");
   });
 
-  it("a chave da OpenRouter é passada ao seam da derivação", () => {
+  it("a chave da OpenRouter chega ao seam da derivação pela função COMPARTILHADA", () => {
+    // Até 15/10/2026 esta trava pinava a linha `openrouterApiKey: process.env.OPENROUTER_API_KEY`
+    // escrita à mão no worker — e foi essa mão que esqueceu a `ponte` (a foto do cliente saiu a
+    // api.anthropic.com com a chave da instalação). A garantia certa é a mesma, só que mais forte:
+    // o worker monta a configuração por `llmEdgeConfigFromEnv(env)`, que carrega a chave da
+    // OpenRouter (provado no primeiro caso deste arquivo) E a ponte, e NÃO tem campo escrito à mão
+    // que possa ficar para trás. Um campo novo de configuração passa a chegar aqui sem ninguém lembrar.
     const fonte = readFileSync("workers/media-derive-worker.ts", "utf8");
-    expect(fonte).toMatch(/openrouterApiKey: process\.env\.OPENROUTER_API_KEY/);
+    expect(fonte).toMatch(/const llmCfg: LlmEdgeConfig = llmEdgeConfigFromEnv\(env\);/);
+    expect(
+      fonte,
+      "campo escrito à mão na configuração do worker é exatamente como a `ponte` foi esquecida",
+    ).not.toMatch(/\b(anthropicApiKey|openaiApiKey|openrouterApiKey)\s*:/);
   });
 });
 
