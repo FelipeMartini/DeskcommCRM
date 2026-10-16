@@ -442,8 +442,8 @@ describe("a família da base não muda porque uma credencial apareceu ou sumiu",
 /**
  * A terceira família (migration 0647): a base preparada por PALAVRAS, no próprio Postgres.
  * Não usa chave, não custa e não depende do crédito de nenhum provedor — é o que mantém o
- * agente consultando o material quando a organização só tem a assinatura de texto (a
- * claude-ponte), que não gera embedding.
+ * agente consultando o material quando a organização só tem uma conexão de texto (como o
+ * OmniRouter da instalação), que não gera embedding.
  */
 describe("a base preparada por palavras (família texto)", () => {
   const MARCADOR = "texto/postgres-fts";

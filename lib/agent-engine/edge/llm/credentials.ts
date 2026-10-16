@@ -17,7 +17,13 @@
  */
 import type pg from 'pg';
 
-import { ponteDaOrganizacao, type VariaveisDaPonte } from '@/lib/ai/claude-ponte';
+import {
+  CHAVES_DO_OMNIROUTER,
+  escolhaDoOmniRouterNasConfiguracoes,
+  omniRouterDaOrganizacao,
+  variaveisDoOmniRouter,
+  type VariaveisDoOmniRouter,
+} from '@/lib/ai/omnirouter';
 import { lerLoginCodexRenovandoSeProxima } from '@/lib/ai/credenciais/login-codex';
 import { PROVEDOR_POR_ASSINATURA } from '@/lib/ai/pontos/provedores';
 import { PROVEDOR_DE_RESERVA_DA_ASSINATURA } from '@/lib/ai/pontos/reserva-da-assinatura';
@@ -25,6 +31,7 @@ import type { TokensDoCodex } from '@/lib/ai/pontos/pkce-da-assinatura';
 import { z } from 'zod';
 
 import { byteaToBuffer, decryptKey } from '@/lib/crypto/aes_gcm';
+import { valoresDaInstalacaoNoMotor } from '@/lib/instalacao/config-sql';
 import { createAdminClient } from '@/lib/supabase/admin';
 import {
   LIMIAR_PADRAO_PCT,
@@ -58,12 +65,13 @@ export interface LlmEdgeConfig {
    */
   openrouterApiKey?: string;
   /**
-   * As três variáveis `CLAUDE_PONTE_*` do `.env`, CRUAS: quem as valida é
-   * `ponteDaOrganizacao` (`lib/ai/claude-ponte.ts`), e só para a organização que
-   * a usaria. Ausente = a ponte não existe nesta instalação, e a escada de
-   * credenciais é exatamente a de sempre.
+   * As três variáveis `OMNIROUTER_*` do `.env`, CRUAS — o PISO da instalação. Quem manda é o valor que
+   * o admin gravou na tela de Credenciais (`platform_config`), lido a cada chamada por
+   * `valoresDaInstalacaoNoMotor`; o `.env` só responde quando o banco não tem a chave. Quem as valida é
+   * `omniRouterDaOrganizacao` (`lib/ai/omnirouter.ts`), e só para a organização que a usaria. Ausente
+   * = só o banco decide, e sem nada configurado a escada de credenciais é a de sempre.
    */
-  ponte?: VariaveisDaPonte;
+  omnirouter?: VariaveisDoOmniRouter;
   /**
    * TTL do prefixo estável de cache (knob LLM_CACHE_TTL). Opcional para quem
    * monta a config na mão (testes) — o seam aplica a doutrina '1h' quando ausente.
@@ -104,9 +112,9 @@ export function llmEdgeConfigFromEnv(env: {
   ANTHROPIC_API_KEY?: string;
   OPENAI_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
-  CLAUDE_PONTE_BASE_URL?: string;
-  CLAUDE_PONTE_API_KEY?: string;
-  CLAUDE_PONTE_ORGS?: string;
+  OMNIROUTER_BASE_URL?: string;
+  OMNIROUTER_API_KEY?: string;
+  OMNIROUTER_PARA_TODAS?: string;
   LLM_CACHE_TTL?: string;
   AI_BUDGET_ENFORCEMENT?: string;
   DEEPSEEK_THINKING?: string;
@@ -123,15 +131,10 @@ export function llmEdgeConfigFromEnv(env: {
     ...(env.ANTHROPIC_API_KEY ? { anthropicApiKey: env.ANTHROPIC_API_KEY } : {}),
     ...(env.OPENAI_API_KEY ? { openaiApiKey: env.OPENAI_API_KEY } : {}),
     ...(env.OPENROUTER_API_KEY ? { openrouterApiKey: env.OPENROUTER_API_KEY } : {}),
-    // Só a lista decide se a ponte existe para alguém; sem ela as outras duas nem são lidas.
-    ...(env.CLAUDE_PONTE_ORGS
-      ? {
-          ponte: {
-            CLAUDE_PONTE_ORGS: env.CLAUDE_PONTE_ORGS,
-            CLAUDE_PONTE_BASE_URL: env.CLAUDE_PONTE_BASE_URL,
-            CLAUDE_PONTE_API_KEY: env.CLAUDE_PONTE_API_KEY,
-          },
-        }
+    // O PISO do OmniRouter: só entra quando o `.env` diz alguma coisa. Ausente NÃO quer dizer "sem
+    // OmniRouter": o valor que vale pode estar no banco (gravado pela tela), e é lido a cada chamada.
+    ...(CHAVES_DO_OMNIROUTER.some((nome) => (env[nome] ?? '').trim() !== '')
+      ? { omnirouter: variaveisDoOmniRouter(env) }
       : {}),
     cacheTtl: ttl,
     deepseekThinking: raciocinio,
@@ -148,7 +151,7 @@ export class LlmNotConfiguredError extends Error {
   override readonly name = 'llm_not_configured';
   constructor() {
     super(
-      'org sem credencial LLM utilizável — cadastre uma chave BYOK ativa/validada em ai_provider_credentials ou defina ANTHROPIC_API_KEY / OPENAI_API_KEY (fallback de plataforma, conforme o provider do modelo)',
+      'org sem credencial LLM utilizável — cadastre uma chave BYOK ativa/validada em ai_provider_credentials, habilite o OmniRouter da instalação para a organização ou defina ANTHROPIC_API_KEY / OPENAI_API_KEY (fallback de plataforma, conforme o provider do modelo)',
     );
   }
 }
@@ -195,17 +198,17 @@ export interface OrgLlmConfig {
    */
   origemDaChave: OrigemDaChaveLlm;
   /**
-   * Presente SÓ quando a chamada vai pela `claude-ponte` (`lib/ai/claude-ponte.ts`):
-   * a organização não tinha credencial própria executável, está na lista da
-   * instalação e as variáveis prestam. Então `apiKey` é a chave DA PONTE (nunca
-   * uma chave da Anthropic) e o endereço é este, validado. Ausente = o caminho de
-   * sempre, e a fábrica `anthropic` não lê endereço de lugar nenhum.
+   * Presente SÓ quando a chamada vai pelo OmniRouter da instalação (`lib/ai/omnirouter.ts`): a
+   * organização pediu o provedor `anthropic`, não tinha credencial própria executável, foi escolhida
+   * para o OmniRouter e a configuração presta. Então `apiKey` é a chave DO OMNIROUTER (nunca uma chave
+   * da Anthropic) e o endereço é este, validado. Ausente = o caminho de sempre, e a fábrica
+   * `anthropic` não lê endereço de lugar nenhum.
    *
-   * `origemDaChave` segue valendo `chave_da_instalacao` nestes casos, de
-   * propósito: toda trava que protege a chave da instalação de um endereço
-   * escolhido por uma empresa (decisão 22-a) protege a da ponte também.
+   * `origemDaChave` segue valendo `chave_da_instalacao` nestes casos, de propósito: toda trava que
+   * protege a chave da instalação de um endereço escolhido por uma empresa (decisão 22-a) protege a
+   * do OmniRouter também.
    */
-  ponte?: { baseURL: string; origem: string };
+  omnirouter?: { baseURL: string; origem: string };
   defaultModel: string | null;
   params: Record<string, unknown>;
   enabledModels: string[];
@@ -247,9 +250,6 @@ const llmSettingsSchema = z
     default_model: z.string().min(1).nullable().catch(null),
     params: z.record(z.string(), z.unknown()).catch({}),
     enabled_models: z.array(z.string()).catch([]),
-    // O interruptor da claude-ponte da organização (`lib/ai/claude-ponte-ativa.ts`). O PADRÃO É
-    // LIGADA: só o `false` booleano desliga, e um valor torto vale o padrão (preferência, não cerca).
-    ponte_ativa: z.boolean().catch(true),
   })
   .passthrough()
   .catch({
@@ -257,7 +257,6 @@ const llmSettingsSchema = z
     default_model: null,
     params: {},
     enabled_models: [],
-    ponte_ativa: true,
   });
 
 /**
@@ -273,6 +272,7 @@ const llmSettingsSchema = z
  */
 const SQL_CONFIG_COM_ORCAMENTO = `
   select o.settings->'llm'            as llm,
+         o.settings->'omnirouter'     as omnirouter,
          b.monthly_limit_cents        as teto,
          b.enforcement_mode           as modo,
          b.enforcement_effective_at   as efetivo_em,
@@ -282,10 +282,14 @@ const SQL_CONFIG_COM_ORCAMENTO = `
    where o.id = $1`;
 
 /** A query de antes da 0159 — a rede quando o schema do clone está atrasado. */
-const SQL_CONFIG_LEGADO = `select settings->'llm' as llm from organizations where id = $1`;
+const SQL_CONFIG_LEGADO = `
+  select settings->'llm' as llm, settings->'omnirouter' as omnirouter
+    from organizations where id = $1`;
 
 interface LinhaDeConfig {
   llm: unknown;
+  /** `organizations.settings->'omnirouter'`: a ESCOLHA da organização (`habilitado`). */
+  omnirouter?: unknown;
   teto?: number | string | null;
   modo?: string | null;
   efetivo_em?: Date | null;
@@ -312,9 +316,34 @@ function causaDoBanco(err: unknown): string {
 }
 
 /**
+ * O OmniRouter da instalação para ESTA organização, ou `null` quando ela não é atendida por ele.
+ *
+ * Os valores vêm do BANCO primeiro (o que o admin gravou em Credenciais), com o `.env` do motor como
+ * piso — a mesma regra do app, por `valoresDaInstalacaoNoMotor`. A recusa explícita da organização
+ * (`habilitado: false`) encerra aqui sem nem ir ao banco: é o caminho de quem não usa o OmniRouter, e
+ * ele não paga uma consulta a mais. Lança `OmniRouterInvalidoError` só quando a organização É atendida
+ * e a configuração está pela metade ou malformada (ver `lib/ai/omnirouter.ts`).
+ */
+async function omniRouterDaInstalacao(
+  db: pg.Pool,
+  cfg: LlmEdgeConfig,
+  escolha: boolean | undefined,
+): Promise<ReturnType<typeof omniRouterDaOrganizacao>> {
+  if (escolha === false) return null;
+  const valores = await valoresDaInstalacaoNoMotor(db, CHAVES_DO_OMNIROUTER, cfg.omnirouter ?? {});
+  const variaveis: VariaveisDoOmniRouter = {
+    OMNIROUTER_BASE_URL: valores.OMNIROUTER_BASE_URL ?? undefined,
+    OMNIROUTER_API_KEY: valores.OMNIROUTER_API_KEY ?? undefined,
+    OMNIROUTER_PARA_TODAS: valores.OMNIROUTER_PARA_TODAS ?? undefined,
+  };
+  return omniRouterDaOrganizacao(variaveis, escolha);
+}
+
+/**
  * Resolve a config LLM da org: knobs de organizations.settings->'llm' + credencial
  * BYOK mais recente ativa/validada de ai_provider_credentials (decifrada com
- * aes_gcm). Sem BYOK → fallback cfg.anthropicApiKey (só anthropic). Sem nada →
+ * aes_gcm). Sem BYOK → o OmniRouter da instalação (só anthropic, e só para a organização escolhida)
+ * → fallback cfg.anthropicApiKey (só anthropic). Sem nada →
  * LlmNotConfiguredError. Chamada a cada run — troca de config vale no run seguinte.
  */
 /**
@@ -468,8 +497,8 @@ export async function resolveOrgLlmConfig(
   // Atribuída junto com a chave, em cada degrau: a origem é um fato de QUAL
   // ramo escolheu a chave, e só este ponto sabe isso sem adivinhar.
   let origemDaChave: OrigemDaChaveLlm;
-  // Só vira não-nulo no degrau da ponte; vai para o retorno ao lado da chave.
-  let ponte: ReturnType<typeof ponteDaOrganizacao> = null;
+  // Só vira não-nulo no degrau do OmniRouter; vai para o retorno ao lado da chave.
+  let omnirouter: ReturnType<typeof omniRouterDaOrganizacao> = null;
   const cred = credRows[0];
   if (cred !== undefined) {
     apiKey = decryptKey({
@@ -480,15 +509,16 @@ export async function resolveOrgLlmConfig(
     origemDaChave = 'credencial_da_organizacao';
   } else if (
     provider === 'anthropic' &&
-    settings.ponte_ativa &&
-    (ponte = ponteDaOrganizacao(cfg.ponte, organizationId)) !== null
+    (omnirouter = await omniRouterDaInstalacao(db, cfg, escolhaDoOmniRouterNasConfiguracoes(linha?.omnirouter))) !==
+      null
   ) {
-    // A credencial PRÓPRIA já teve a vez no degrau de cima e não existe. Aqui a
-    // organização é da lista da instalação E não desligou a ponte na tela (padrão: ligada):
-    // a chave é a da PONTE, o endereço é o da ponte, e a chave real da instalação (se houver)
-    // não participa. Desligada, o degrau é pulado SEM avaliar as variáveis: quem a desligou não
-    // leva erro de `.env` mal posto, e cai na chave da instalação ou na falta de chave.
-    apiKey = ponte.apiKey;
+    // A credencial PRÓPRIA já teve a vez no degrau de cima e não existe. Aqui a organização foi
+    // ESCOLHIDA para o OmniRouter (pelo admin, ou pela oferta geral da instalação sem recusa dela): a
+    // chave é a do OmniRouter, o endereço é o do OmniRouter, e a chave real da instalação (se houver)
+    // não participa. Não escolhida, o degrau é pulado SEM avaliar as variáveis: quem não usa o
+    // OmniRouter não leva erro de configuração mal posta, e cai na chave da instalação ou na falta
+    // de chave.
+    apiKey = omnirouter.apiKey;
     origemDaChave = 'chave_da_instalacao';
   } else if (provider === 'anthropic' && cfg.anthropicApiKey) {
     apiKey = cfg.anthropicApiKey;
@@ -526,7 +556,7 @@ export async function resolveOrgLlmConfig(
     apiKey,
     baseUrl,
     origemDaChave,
-    ...(ponte !== null ? { ponte: { baseURL: ponte.baseURL, origem: ponte.origem } } : {}),
+    ...(omnirouter !== null ? { omnirouter: { baseURL: omnirouter.baseURL, origem: omnirouter.origem } } : {}),
     defaultModel: settings.default_model ?? null,
     params: settings.params,
     enabledModels: settings.enabled_models,

@@ -7,6 +7,7 @@ import { escritaDeAdminOuRecusa } from "@/lib/auth/escritaDeAdminOuRecusa";
 import { MENSAGEM_DA_RECUSA_DE_ESCRITA } from "@/lib/auth/recusa-de-escrita-de-admin";
 import { acharChave } from "@/lib/instalacao/catalogo";
 import { estadoParaTela, gravarPelaTela, voltarAoAmbiente, type EstadoParaTela } from "@/lib/instalacao/config";
+import { recusaDoValor } from "@/lib/instalacao/validar-valor";
 
 /**
  * `ok: true` carrega o ESTADO NOVO da chave, relido depois da escrita.
@@ -76,6 +77,11 @@ export async function salvarConfiguracaoDaInstalacao(
   if (limpo.length === 0) {
     return { ok: false, erro: "Escreva um valor, ou use “Voltar ao padrão” para limpar." };
   }
+
+  // Conferência própria de cada chave (o endereço do OmniRouter, por exemplo): um valor torto não fica
+  // gravado atrás de um "salvo". A mensagem nunca repete o valor digitado.
+  const recusa = recusaDoValor(chave, limpo);
+  if (recusa !== null) return { ok: false, erro: recusa };
 
   const r = await gravarPelaTela(chave, limpo, {
     ehSegredo: doCatalogo.natureza === "segredo",

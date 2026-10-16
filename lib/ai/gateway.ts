@@ -20,9 +20,10 @@ import { env } from "@/lib/env";
 /** Endpoint da OpenRouter. Compatível com a API da OpenAI, então o provider
  *  `@ai-sdk/openai` fala com ela sem dependência nova. */
 export const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL?.trim() || "https://openrouter.ai/api/v1";
-/** Endpoint do OmniRouter da instalação (OpenAI-compatível). Vem só do ambiente: sem
- *  endereço embutido no código (é de quem opera a instalação), e vazio = não configurado. */
-export const OMNIROUTER_BASE_URL = process.env.OMNIROUTER_BASE_URL?.trim() || "";
+// O endereço do OmniRouter NÃO mora aqui: ele é da instalação (Admin › Configuração › Credenciais, com
+// o `.env` como piso) e se lê a cada chamada em `lib/ai/omnirouter-ativo.ts` (app) e
+// `lib/instalacao/config-sql.ts` (motor). Uma constante lida na carga do módulo passaria por cima do
+// que o painel gravar.
 
 export type ModelId =
   | "anthropic/claude-sonnet-5"

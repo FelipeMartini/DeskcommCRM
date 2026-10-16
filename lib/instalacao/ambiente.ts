@@ -18,7 +18,6 @@
  * Fonte injetável de propósito, como `listClassifierModels` recebe as chaves de
  * plataforma: é o que permite testar sem mexer no `process.env` do processo.
  */
-import { ponteAtendeAOrganizacao } from "@/lib/ai/claude-ponte";
 import { IDS_DE_PROVEDOR } from "@/lib/ai/pontos/provedores";
 import { lerTransporteDeWhatsapp, type TransporteDeWhatsapp } from "@/lib/channels/transporte";
 
@@ -67,51 +66,22 @@ function preenchida(source: FonteDeAmbiente, nome: string | undefined): boolean 
 }
 
 /**
- * A claude-ponte cobre este provedor, para esta organização?
+ * `anthropicViaOmniRouter` é opcional de propósito: sem ele a leitura é a de sempre (só as chaves do
+ * `.env`). Com ele `true`, o `anthropic` também conta como presente — que é como a instalação "tem
+ * chave" para uma organização sem `ANTHROPIC_API_KEY` quando o OmniRouter a atende.
  *
- * Só o `anthropic` tem ponte, e só para a organização que a lista `CLAUDE_PONTE_ORGS` atende com
- * as três variáveis em ordem (`lib/ai/claude-ponte.ts`). É pergunta de EXISTÊNCIA para os portões
- * de salvar e publicar agente: a chave da ponte nunca sai daqui, e quem a USA é o motor.
- *
- * Fora disto (sem as variáveis, organização fora da lista, outro provedor) a resposta é `false`
- * sem olhar mais nada: a instalação que não usa a ponte se comporta exatamente como antes.
- */
-export function ponteCobreOProvedor(
-  provider: string,
-  organizationId: string,
-  source: FonteDeAmbiente = process.env,
-  ponteLigada = true,
-): boolean {
-  if (provider !== "anthropic") return false;
-  // A organização desligou a ponte na tela (`lib/ai/claude-ponte-ativa.ts`): para ela a instalação
-  // não "tem chave" por esse caminho, e os portões de salvar e publicar dizem a verdade em vez de
-  // deixar publicar um agente que o motor vai recusar a cada mensagem.
-  if (!ponteLigada) return false;
-  return ponteAtendeAOrganizacao(
-    {
-      CLAUDE_PONTE_BASE_URL: source.CLAUDE_PONTE_BASE_URL,
-      CLAUDE_PONTE_API_KEY: source.CLAUDE_PONTE_API_KEY,
-      CLAUDE_PONTE_ORGS: source.CLAUDE_PONTE_ORGS,
-    },
-    organizationId,
-  );
-}
-
-/**
- * `organizationId` é opcional de propósito: sem ele a leitura é a de sempre (só as chaves do
- * `.env`). Com ele, o `anthropic` também conta como presente quando a claude-ponte atende ESSA
- * organização — que é como a instalação "tem chave" para ela sem ter `ANTHROPIC_API_KEY`.
+ * A pergunta "o OmniRouter atende ESTA organização?" é assíncrona (lê a tela de Credenciais e a
+ * escolha da organização) e mora em `omniRouterServeAOrganizacao` (`lib/ai/omnirouter-ativo.ts`);
+ * esta função é síncrona e sem I/O de propósito e só recebe a resposta.
  */
 export function lerAmbiente(
   source: FonteDeAmbiente = process.env,
-  organizationId?: string,
-  ponteLigada = true,
+  anthropicViaOmniRouter = false,
 ): AmbienteDaInstalacao {
   const chavesDeProvedor: Record<string, boolean> = {};
   for (const id of IDS_DE_PROVEDOR) {
     chavesDeProvedor[id] =
-      preenchida(source, VARIAVEL_DA_CHAVE[id]) ||
-      (organizationId !== undefined && ponteCobreOProvedor(id, organizationId, source, ponteLigada));
+      preenchida(source, VARIAVEL_DA_CHAVE[id]) || (id === "anthropic" && anthropicViaOmniRouter);
   }
 
   return {

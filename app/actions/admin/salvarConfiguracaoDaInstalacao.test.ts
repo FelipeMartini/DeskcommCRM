@@ -60,3 +60,71 @@ describe("as chaves da cobrança só se escrevem pela tela de Cobrança", () => 
     expect(deps.gravar).toHaveBeenCalledWith("SUPPORT_EMAIL", "ajuda@exemplo.com", expect.objectContaining({ ehSegredo: false }));
   });
 });
+
+/**
+ * O OmniRouter é editável pela tela de Credenciais (ordem do dono, 16/10/2026): o endereço e a chave
+ * da instalação. A ação confere o valor ANTES de gravar, e a auditoria leva o fato, nunca o valor.
+ */
+describe("as chaves do OmniRouter: gravam o que presta e recusam o que não presta", () => {
+  const CHAVE_SINTETICA = "chave-sintetica-do-omnirouter-9876";
+
+  it("o catálogo as oferece como editáveis, na tela de Credenciais, no grupo de IA", () => {
+    for (const chave of ["OMNIROUTER_BASE_URL", "OMNIROUTER_API_KEY", "OMNIROUTER_PARA_TODAS"]) {
+      const c = CATALOGO_DA_INSTALACAO.find((x) => x.chave === chave);
+      expect(c, chave).toBeDefined();
+      expect(c).toMatchObject({ controle: "edita", grupo: "ia" });
+      expect(c!.telaDona ?? "credenciais").toBe("credenciais");
+    }
+    expect(CATALOGO_DA_INSTALACAO.find((x) => x.chave === "OMNIROUTER_API_KEY")!.natureza).toBe("segredo");
+  });
+
+  it("endereço válido: grava como texto", async () => {
+    const r = await salvarConfiguracaoDaInstalacao("OMNIROUTER_BASE_URL", "  https://omnirouter.example.com  ");
+    expect(r.ok).toBe(true);
+    expect(deps.gravar).toHaveBeenCalledWith(
+      "OMNIROUTER_BASE_URL",
+      "https://omnirouter.example.com",
+      expect.objectContaining({ ehSegredo: false }),
+    );
+  });
+
+  it("⭐ chave: grava como SEGREDO, e a auditoria leva só o fato e os últimos 4 — nunca o valor", async () => {
+    const r = await salvarConfiguracaoDaInstalacao("OMNIROUTER_API_KEY", CHAVE_SINTETICA);
+    expect(r.ok).toBe(true);
+    expect(deps.gravar).toHaveBeenCalledWith(
+      "OMNIROUTER_API_KEY",
+      CHAVE_SINTETICA,
+      expect.objectContaining({ ehSegredo: true }),
+    );
+    expect(deps.audit).toHaveBeenCalledTimes(1);
+    const registro = JSON.stringify(deps.audit.mock.calls[0]![0]);
+    expect(registro).toContain("OMNIROUTER_API_KEY");
+    expect(registro).toContain("9876");
+    expect(registro).not.toContain(CHAVE_SINTETICA);
+  });
+
+  it.each([
+    ["OMNIROUTER_BASE_URL", "omnirouter"],
+    ["OMNIROUTER_BASE_URL", "https://usuario:segredo-sintetico@omnirouter.example.com"],
+    ["OMNIROUTER_BASE_URL", "https://omnirouter.example.com/v1?x=1"],
+    ["OMNIROUTER_API_KEY", "duas palavras"],
+    ["OMNIROUTER_PARA_TODAS", "talvez"],
+  ])("⭐ %s com valor torto (%j): recusa SEM gravar nem auditar, e sem repetir o valor", async (chave, valor) => {
+    const r = await salvarConfiguracaoDaInstalacao(chave, valor);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.erro.length).toBeGreaterThan(10);
+      expect(r.erro).not.toContain("segredo-sintetico");
+      expect(r.erro).not.toContain("duas palavras");
+    }
+    expect(deps.gravar).not.toHaveBeenCalled();
+    expect(deps.audit).not.toHaveBeenCalled();
+  });
+
+  it("voltar ao padrão apaga a linha (o `.env` volta a responder) e audita só o nome", async () => {
+    const r = await voltarConfiguracaoAoPadrao("OMNIROUTER_BASE_URL");
+    expect(r.ok).toBe(true);
+    expect(deps.voltar).toHaveBeenCalledWith("OMNIROUTER_BASE_URL");
+    expect(deps.audit).toHaveBeenCalledTimes(1);
+  });
+});

@@ -59,8 +59,7 @@ import {
 import { costCents } from './pricing';
 import { chaveDeOrcamentoDaInstalacao } from '../../../instalacao/comportamento';
 import { cobrancaLigadaComMemo } from '../../../instalacao/modulos';
-import { ClaudePonteInvalidaError, FABRICA_DA_PONTE } from '@/lib/ai/claude-ponte';
-import { ClaudePonteOcupadaError } from '@/lib/ai/claude-ponte-fila';
+import { FABRICA_DO_OMNIROUTER, OmniRouterInvalidoError } from '@/lib/ai/omnirouter';
 import { createDefaultRegistry, type ProviderRegistry } from './providers';
 import { buildStablePrefix } from './stable-prefix';
 import {
@@ -898,12 +897,12 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
       // `config.baseUrl` é o da PRÓPRIA credencial e só o provedor personalizado
       // (#1642) tem um: o endereço nasce junto da chave, então o agente
       // publicado nele alcança o mesmo gateway que a tela testou ao salvar.
-      // A ponte traz o PRÓPRIO endereço (validado na resolução) e ele vence qualquer outro:
-      // a fábrica da ponte não fala com endereço escolhido por uma empresa.
+      // O OmniRouter traz o PRÓPRIO endereço (validado na resolução) e ele vence qualquer outro:
+      // a fábrica do OmniRouter não fala com endereço escolhido por uma empresa.
       model: fabrica(
         cfgUsada.apiKey,
         model,
-        cfgUsada.ponte?.baseURL ?? decisao.baseUrl ?? cfgUsada.baseUrl ?? undefined,
+        cfgUsada.omnirouter?.baseURL ?? decisao.baseUrl ?? cfgUsada.baseUrl ?? undefined,
       ),
       system: prefix.system,
       messages: input.messages,
@@ -1240,16 +1239,16 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
  */
 /**
  * QUAL fábrica do registry fala por esta configuração. Quase sempre a do próprio
- * provedor; a `claude-ponte` é outro DESTINO do provedor `anthropic`, escolhido
- * por `resolveOrgLlmConfig` (`config.ponte`) e nunca por quem chama.
+ * provedor; o OmniRouter da instalação é outro DESTINO do provedor `anthropic`, escolhido
+ * por `resolveOrgLlmConfig` (`config.omnirouter`) e nunca por quem chama.
  *
  * Exportada porque o turno NÃO é o único chamador de LLM que sai pelo registry: o worker de mídia
  * (`workers/media-derive-worker.ts`) também chama o modelo, e escolher a fábrica por
- * `registry[llm.provider]` mandaria a chave DA PONTE (e a foto do cliente) a `api.anthropic.com`.
+ * `registry[llm.provider]` mandaria a chave DO OMNIROUTER (e a foto do cliente) a `api.anthropic.com`.
  * Uma regra só, aqui, para os dois.
  */
-export function fabricaDe(cfg: { provider: string; ponte?: unknown }): string | typeof FABRICA_DA_PONTE {
-  return cfg.ponte !== undefined ? FABRICA_DA_PONTE : cfg.provider;
+export function fabricaDe(cfg: { provider: string; omnirouter?: unknown }): string | typeof FABRICA_DO_OMNIROUTER {
+  return cfg.omnirouter !== undefined ? FABRICA_DO_OMNIROUTER : cfg.provider;
 }
 
 /**
@@ -1315,26 +1314,15 @@ export function normalizarErro(err: unknown): {
     };
   }
 
-  // E a terceira, que também é nossa: as variáveis `CLAUDE_PONTE_*` do `.env` postas e
-  // inutilizáveis para uma organização que a ponte atenderia. Não é chave ruim nem
-  // provedor fora do ar — nenhum byte saiu —, e quem corrige é quem opera o servidor.
-  // Casada pela CLASSE pelo mesmo motivo das duas de cima.
-  if (err instanceof ClaudePonteInvalidaError) {
+  // E a terceira, que também é nossa: o endereço e a chave do OmniRouter da instalação postos e
+  // inutilizáveis para uma organização que ele atenderia. Não é chave ruim nem provedor fora do ar —
+  // nenhum byte saiu —, e quem corrige é quem opera o painel de Credenciais da instalação. Casada
+  // pela CLASSE pelo mesmo motivo das duas de cima.
+  if (err instanceof OmniRouterInvalidoError) {
     return {
-      error_code: 'claude_ponte_invalida',
+      error_code: 'omnirouter_invalido',
       error_message: redigirMensagemDoProvedor(bruto),
       http_status: null,
-    };
-  }
-
-  // A quarta, também nossa: a fila da ponte nesta instalação não liberou a vaga a tempo. Nenhum
-  // byte saiu. É o mesmo que um 529 do provedor ocupado (refazer mais tarde), e o job é
-  // reagendado pela fila do worker. Procurada na cadeia porque o SDK pode embrulhar o erro.
-  if (cadeiaDoErro(err).some((e) => e instanceof ClaudePonteOcupadaError)) {
-    return {
-      error_code: 'provedor_indisponivel',
-      error_message: redigirMensagemDoProvedor(bruto),
-      http_status: 529,
     };
   }
 

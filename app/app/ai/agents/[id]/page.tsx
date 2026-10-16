@@ -18,7 +18,7 @@ import { AgentEditorClient } from "./_client";
 import type { FunilDaResposta } from "@/hooks/pipelines/usePipelines";
 import { coberturaDoFunil, type EtapaDoMapa } from "@/lib/leads/agent-mapping";
 import type { CoberturaPorFunil } from "./_components/FunisDoAgente";
-import { ponteLigadaDaOrganizacao } from "@/lib/ai/claude-ponte-ativa";
+import { omniRouterServeAOrganizacao } from "@/lib/ai/omnirouter-ativo";
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 import { escolherVersoesDaTela } from "@/lib/ai/agents/versoes-da-tela";
 import { fusoUtilizavel } from "@/lib/tempo/fusos";
@@ -36,14 +36,15 @@ const CREDENTIAL_COLUMNS =
 
 /**
  * Os provedores cuja chave veio na INSTALAÇÃO (`.env`), não da tela de
- * Credenciais.
+ * Credenciais. A Anthropic também conta como "da instalação" quando o OmniRouter
+ * da instalação atende esta organização (`omniRouterServeAOrganizacao`).
  *
  * Sai de `lerAmbiente`, a mesma leitura que o retrato da instalação usa — uma
  * segunda lista de nomes de variável divergiria no dia em que um provedor novo
  * entrasse.
  */
-function provedoresDaInstalacao(organizationId: string, ponteLigada: boolean): string[] {
-  const a = lerAmbiente(process.env, organizationId, ponteLigada);
+function provedoresDaInstalacao(anthropicViaOmniRouter: boolean): string[] {
+  const a = lerAmbiente(process.env, anthropicViaOmniRouter);
   return Object.entries(a.chavesDeProvedor)
     .filter(([, tem]) => tem)
     .map(([id]) => id);
@@ -232,8 +233,7 @@ export default async function AgentEditorPage({ params }: { params: Promise<{ id
         versions={versions}
         credentials={credentials}
         provedoresDaInstalacao={provedoresDaInstalacao(
-          activeOrg.orgId,
-          await ponteLigadaDaOrganizacao(createAdminClient(), activeOrg.orgId),
+          await omniRouterServeAOrganizacao(createAdminClient(), "anthropic", activeOrg.orgId),
         )}
         provedoresOferecidos={await idsDosProvedoresOferecidos(createAdminClient())}
         channelSessions={channelSessions}

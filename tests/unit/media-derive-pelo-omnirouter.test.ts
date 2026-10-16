@@ -1,21 +1,22 @@
 /**
- * A FOTO DO CLIENTE NÃO PODE SAIR PARA `api.anthropic.com` QUANDO A INSTALAÇÃO USA A PONTE.
+ * A FOTO DO CLIENTE NÃO PODE SAIR PARA `api.anthropic.com` QUANDO A INSTALAÇÃO USA O OMNIROUTER.
  *
  * O que aconteceu (medido pela Mylab em 15/10/2026, no contador de kernel do contêiner): o
- * `media-derive-worker` montava a `LlmEdgeConfig` à mão, campo a campo, e NÃO levava `ponte`.
- * Sem ela o degrau da claude-ponte de `resolveOrgLlmConfig` era pulado para toda organização, a
- * escada caía na chave da INSTALAÇÃO (`ANTHROPIC_API_KEY`, no servidor a mesma do OmniRoute) e a
- * fábrica `anthropic` — que tem o endereço fixo e não lê nenhum outro — mandava a foto do
- * cliente (~77 KB) e essa chave para fora do laboratório. Três tentativas, todas recusadas com
- * 401, mas o byte já tinha saído. É ponto de LGPD, e a ordem do dono (10–11/10) é que TODA
- * chamada à Anthropic do CRM passe pela ponte.
+ * `media-derive-worker` montava a `LlmEdgeConfig` à mão, campo a campo, e NÃO levava o gateway da
+ * instalação. Sem ele o degrau do gateway de `resolveOrgLlmConfig` era pulado para toda organização, a
+ * escada caía na chave da INSTALAÇÃO (`ANTHROPIC_API_KEY`) e a fábrica `anthropic` — que tem o
+ * endereço fixo e não lê nenhum outro — mandava a foto do cliente (~77 KB) e essa chave para fora do
+ * laboratório. Três tentativas, todas recusadas com 401, mas o byte já tinha saído. É ponto de LGPD.
+ *
+ * O gateway de hoje é o OmniRouter (`lib/ai/omnirouter.ts`), configurável na tela de Credenciais; o
+ * `.env` é só o piso. Este arquivo é o sucessor do teste que existia para a antiga ponte.
  *
  * Por que os testes que já existiam não pegaram: todos eles dublam `resolveOrgLlmConfig`, o
- * `createDefaultRegistry` ou os dois — então a pergunta "a ponte chega ao worker?" ficava
- * mascarada pelos dublês. Aqui nada disso é dublê: o worker é o real, a escada de credenciais é a
- * real, o registro de provedores é o real e o SDK é o real, com `globalThis.fetch` interceptado
- * para dizer QUEM foi chamado, com QUE chave e levando O QUÊ. Só o banco, o `deriveMediaText`
- * (a fronteira) e a consulta de capacidade do catálogo são dublês.
+ * `createDefaultRegistry` ou os dois — então a pergunta "o gateway chega ao worker?" ficava mascarada
+ * pelos dublês. Aqui nada disso é dublê: o worker é o real, a escada de credenciais é a real, o
+ * registro de provedores é o real e o SDK é o real, com `globalThis.fetch` interceptado para dizer
+ * QUEM foi chamado, com QUE chave e levando O QUÊ. Só o banco, o `deriveMediaText` (a fronteira) e a
+ * consulta de capacidade do catálogo são dublês.
  *
  * Valores sintéticos: nenhuma chave real, nenhuma rede.
  */
@@ -28,11 +29,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const banco = vi.hoisted(() => ({
   credenciais: [] as unknown[],
   settings: { provider: "anthropic", default_model: "claude-haiku-4-5" } as unknown,
+  /** `organizations.settings->'omnirouter'`: a ESCOLHA da organização. `undefined` = nunca escolheu. */
+  escolha: undefined as unknown,
+  /** O que a tela de Credenciais gravou em `platform_config` (vence o `.env`). */
+  platformConfig: [] as unknown[],
 }));
 vi.mock("@/lib/agent-engine/db/pool", () => ({
   createPool: () => ({
     query: async (sql: string) => {
-      if (sql.includes("settings->'llm'")) return { rows: [{ llm: banco.settings }] };
+      if (sql.includes("settings->'llm'")) {
+        return { rows: [{ llm: banco.settings, omnirouter: banco.escolha }] };
+      }
+      if (sql.includes("from platform_config")) return { rows: banco.platformConfig };
       if (sql.includes("from ai_purpose_bindings")) return { rows: [] };
       if (sql.includes("from ai_provider_credentials")) return { rows: banco.credenciais };
       return { rows: [] };
@@ -98,14 +106,14 @@ vi.mock("@/lib/ai/pontos/capacidade-em-vigor", () => ({
   visaoEmVigor: vi.fn(async () => ({ enxerga: true, sabemos: true })),
 }));
 
-// ─── O ambiente: o worker lê as chaves e a ponte pelo `env` do app ───────────
+// ─── O ambiente: o worker lê as chaves e o gateway pelo `env` do app (o PISO) ─
 const ambiente = vi.hoisted(() => ({
   ANTHROPIC_API_KEY: "",
   OPENAI_API_KEY: "",
   OPENROUTER_API_KEY: "",
-  CLAUDE_PONTE_BASE_URL: "",
-  CLAUDE_PONTE_API_KEY: "",
-  CLAUDE_PONTE_ORGS: "",
+  OMNIROUTER_BASE_URL: "",
+  OMNIROUTER_API_KEY: "",
+  OMNIROUTER_PARA_TODAS: "",
 }));
 vi.mock("@/lib/env", async (importOriginal) => {
   const real = await importOriginal<{ env: Env }>();
@@ -122,14 +130,14 @@ vi.mock("@/lib/env", async (importOriginal) => {
       get OPENROUTER_API_KEY() {
         return ambiente.OPENROUTER_API_KEY;
       },
-      get CLAUDE_PONTE_BASE_URL() {
-        return ambiente.CLAUDE_PONTE_BASE_URL;
+      get OMNIROUTER_BASE_URL() {
+        return ambiente.OMNIROUTER_BASE_URL;
       },
-      get CLAUDE_PONTE_API_KEY() {
-        return ambiente.CLAUDE_PONTE_API_KEY;
+      get OMNIROUTER_API_KEY() {
+        return ambiente.OMNIROUTER_API_KEY;
       },
-      get CLAUDE_PONTE_ORGS() {
-        return ambiente.CLAUDE_PONTE_ORGS;
+      get OMNIROUTER_PARA_TODAS() {
+        return ambiente.OMNIROUTER_PARA_TODAS;
       },
     },
   };
@@ -139,16 +147,14 @@ import { deriveMessageMedia } from "@/workers/media-derive-worker";
 import { deriveMediaText, type DeriveDeps } from "@/lib/messaging/media/derive";
 import type { Env } from "@/lib/env";
 
-const PONTE = "http://claude-ponte:8080";
-const CHAVE_DA_PONTE = "chave-da-ponte-sintetica";
+const OMNI = "http://omnirouter:20128";
+const CHAVE_DO_OMNI = "chave-do-omnirouter-sintetica";
 const CHAVE_DA_INSTALACAO = "chave-anthropic-da-instalacao-sintetica";
 const CHAVE_DA_ORG = "chave-propria-da-org-sintetica";
-const ORG_NA_LISTA = "11111111-1111-4111-8111-111111111111";
+const ORG_ESCOLHIDA = "11111111-1111-4111-8111-111111111111";
 const OUTRA_ORG = "22222222-2222-4222-8222-222222222222";
 /** Montado em partes: é valor de teste, não segredo. */
-const COM_CREDENCIAL = ["http://", "usuario", ":", "valor-sintetico", "@claude-ponte:8080"].join(
-  "",
-);
+const COM_CREDENCIAL = ["http://", "usuario", ":", "valor-sintetico", "@omnirouter:20128"].join("");
 
 const COM_BYOK = [{ id: "cred-1", api_key_encrypted: "x", api_key_iv: "y", api_key_tag: "z" }];
 
@@ -156,6 +162,23 @@ const COM_BYOK = [{ id: "cred-1", api_key_encrypted: "x", api_key_iv: "y", api_k
 const FOTO = Buffer.from("foto-do-cliente-sintetica-0123456789");
 const FOTO_EM_BASE64 = FOTO.toString("base64");
 
+/** A resposta do OmniRouter (API OpenAI chat/completions). */
+const COMPLETION_DA_FOTO = {
+  id: "chatcmpl-teste",
+  object: "chat.completion",
+  created: 1,
+  model: "claude-haiku-4-5",
+  choices: [
+    {
+      index: 0,
+      message: { role: "assistant", content: "uma sandália azul sobre a mesa" },
+      finish_reason: "stop",
+    },
+  ],
+  usage: { prompt_tokens: 1200, completion_tokens: 12, total_tokens: 1212 },
+};
+
+/** A resposta da Anthropic direta (API de mensagens) — só para o caminho em que o gateway não entra. */
 const MENSAGEM_DA_ANTHROPIC = {
   id: "msg_teste",
   type: "message",
@@ -170,6 +193,7 @@ const MENSAGEM_DA_ANTHROPIC = {
 interface Chamada {
   url: string;
   host: string;
+  /** `Authorization: Bearer …` (OmniRouter) ou `x-api-key` (Anthropic direta), o que vier. */
   chave: string | null;
   redirect: RequestRedirect | undefined;
   corpo: string;
@@ -205,53 +229,77 @@ function corposDaCentral(): string[] {
   );
 }
 
-/** A instalação do Felipe: a ponte para todas as organizações, e a chave da instalação ao fundo. */
-function comAPonteParaTodos(orgs = "*"): void {
+/** O OmniRouter no `.env` (o piso), com a chave real da instalação ao fundo. */
+function comOOmniRouterNoEnv(): void {
   ambiente.ANTHROPIC_API_KEY = CHAVE_DA_INSTALACAO;
-  ambiente.CLAUDE_PONTE_BASE_URL = PONTE;
-  ambiente.CLAUDE_PONTE_API_KEY = CHAVE_DA_PONTE;
-  ambiente.CLAUDE_PONTE_ORGS = orgs;
+  ambiente.OMNIROUTER_BASE_URL = OMNI;
+  ambiente.OMNIROUTER_API_KEY = CHAVE_DO_OMNI;
 }
 
-describe("worker de mídia: a descrição da foto passa pela claude-ponte", () => {
+/** A linha de `platform_config` como a tela de Credenciais a grava (texto simples ou segredo). */
+function linhaDaTela(chave: string, valor: string | null, segredo = false) {
+  return {
+    chave,
+    valor: segredo ? null : valor,
+    ciphertext: segredo ? "c" : null,
+    iv: segredo ? "i" : null,
+    tag: segredo ? "t" : null,
+    eh_segredo: segredo,
+    semeado_do_env: false,
+  };
+}
+
+describe("worker de mídia: a descrição da foto passa pelo OmniRouter", () => {
   let fetchOriginal: typeof globalThis.fetch;
   let chamadas: Chamada[];
-  /** O que o servidor do outro lado responde; cada caso pode trocar (a ponte recusando, por exemplo). */
-  let responder: () => Response;
+  /** O que o servidor do outro lado responde; cada caso pode trocar (o OmniRouter recusando, por exemplo). */
+  let responder: (c: Chamada) => Response;
+
+  const respostaDoOmniRouter = () =>
+    new Response(JSON.stringify(COMPLETION_DA_FOTO), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  const respostaDaAnthropic = () =>
+    new Response(JSON.stringify(MENSAGEM_DA_ANTHROPIC), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.unstubAllEnvs();
     banco.credenciais = [];
+    banco.escolha = undefined;
+    banco.platformConfig = [];
     Object.assign(ambiente, {
       ANTHROPIC_API_KEY: "",
       OPENAI_API_KEY: "",
       OPENROUTER_API_KEY: "",
-      CLAUDE_PONTE_BASE_URL: "",
-      CLAUDE_PONTE_API_KEY: "",
-      CLAUDE_PONTE_ORGS: "",
+      OMNIROUTER_BASE_URL: "",
+      OMNIROUTER_API_KEY: "",
+      OMNIROUTER_PARA_TODAS: "",
     });
     downloadMock.mockResolvedValue({
       data: { arrayBuffer: async () => new ArrayBuffer(8) },
       error: null,
     });
     chamadas = [];
-    responder = () =>
-      new Response(JSON.stringify(MENSAGEM_DA_ANTHROPIC), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+    // Cada destino responde no formato da sua própria API; o caso só troca o que quiser quebrar.
+    responder = (c) => (c.host === "api.anthropic.com" ? respostaDaAnthropic() : respostaDoOmniRouter());
     fetchOriginal = globalThis.fetch;
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" || input instanceof URL ? String(input) : input.url;
-      chamadas.push({
+      const cabecalhos = new Headers(init?.headers);
+      const chamada: Chamada = {
         url,
         host: new URL(url).host,
-        chave: new Headers(init?.headers).get("x-api-key"),
+        chave: cabecalhos.get("x-api-key") ?? cabecalhos.get("authorization")?.replace(/^Bearer /, "") ?? null,
         redirect: init?.redirect,
         corpo: typeof init?.body === "string" ? init.body : "",
-      });
-      return responder();
+      };
+      chamadas.push(chamada);
+      return responder(chamada);
     }) as typeof globalThis.fetch;
     // A fábrica `anthropic` ignora esta variável; limpá-la deixa o ambiente do caso previsível.
     vi.stubEnv("ANTHROPIC_BASE_URL", undefined);
@@ -264,50 +312,99 @@ describe("worker de mídia: a descrição da foto passa pela claude-ponte", () =
 
   const hosts = () => [...new Set(chamadas.map((c) => c.host))];
 
-  it("⭐ organização da lista, sem credencial própria: a foto vai SÓ à ponte, com a chave da ponte", async () => {
-    comAPonteParaTodos(ORG_NA_LISTA);
+  it("⭐ organização escolhida, sem credencial própria: a foto vai SÓ ao OmniRouter, com a chave dele", async () => {
+    comOOmniRouterNoEnv();
+    banco.escolha = { habilitado: true };
 
-    await deriveMessageMedia(eventRow(ORG_NA_LISTA));
+    await deriveMessageMedia(eventRow(ORG_ESCOLHIDA));
     const texto = await depsDaChamada().describeImage(FOTO, "image/png");
 
-    // Uma chamada, à ponte, no caminho do SDK, sem seguir redirect.
+    // Uma chamada, ao OmniRouter, no caminho do SDK, sem seguir redirect.
     expect(chamadas).toHaveLength(1);
     expect(chamadas[0]).toMatchObject({
-      url: `${PONTE}/v1/messages`,
-      host: "claude-ponte:8080",
-      chave: CHAVE_DA_PONTE,
+      url: `${OMNI}/v1/chat/completions`,
+      host: "omnirouter:20128",
+      chave: CHAVE_DO_OMNI,
       redirect: "manual",
     });
     // E é a FOTO que foi: sem isto o caso passaria também se o worker mandasse só o texto.
-    expect(chamadas[0]!.corpo, "a foto do cliente não chegou à ponte").toContain(FOTO_EM_BASE64);
+    expect(chamadas[0]!.corpo, "a foto do cliente não chegou ao OmniRouter").toContain(FOTO_EM_BASE64);
     // Nada saiu para a Anthropic, e a chave da instalação não participou de chamada nenhuma.
-    expect(hosts()).toEqual(["claude-ponte:8080"]);
+    expect(hosts()).toEqual(["omnirouter:20128"]);
     expect(chamadas.some((c) => c.chave === CHAVE_DA_INSTALACAO)).toBe(false);
     // A descrição voltou e nada foi dado como "mídia não lida" ao operador.
     expect(texto).toBe("uma sandália azul sobre a mesa");
     expect(corposDaCentral()).toEqual([]);
   });
 
-  it("a ponte para TODAS (`*`) atende a organização sem credencial própria do mesmo jeito", async () => {
-    comAPonteParaTodos("*");
+  it("a oferta geral da instalação (`OMNIROUTER_PARA_TODAS`) atende quem nunca escolheu", async () => {
+    comOOmniRouterNoEnv();
+    ambiente.OMNIROUTER_PARA_TODAS = "true";
 
     await deriveMessageMedia(eventRow(OUTRA_ORG));
     await depsDaChamada().describeImage(FOTO, "image/png");
 
-    expect(hosts()).toEqual(["claude-ponte:8080"]);
-    expect(chamadas[0]!.chave).toBe(CHAVE_DA_PONTE);
+    expect(hosts()).toEqual(["omnirouter:20128"]);
+    expect(chamadas[0]!.chave).toBe(CHAVE_DO_OMNI);
+  });
+
+  it("⭐ a oferta geral NÃO vale para a organização que RECUSOU: a foto não vai ao OmniRouter", async () => {
+    comOOmniRouterNoEnv();
+    ambiente.OMNIROUTER_PARA_TODAS = "true";
+    banco.escolha = { habilitado: false };
+
+    await deriveMessageMedia(eventRow(ORG_ESCOLHIDA));
+    await depsDaChamada().describeImage(FOTO, "image/png");
+
+    expect(chamadas.some((c) => c.host === "omnirouter:20128")).toBe(false);
+    // Quem recusou segue o caminho de sempre (a chave da instalação), nunca a de outro dono.
+    expect(hosts()).toEqual(["api.anthropic.com"]);
+    expect(chamadas.every((c) => c.chave === CHAVE_DA_INSTALACAO)).toBe(true);
+  });
+
+  it("⭐ o que a TELA de Credenciais gravou vence o `.env`: a foto vai ao endereço e com a chave do painel", async () => {
+    // O `.env` aponta para um OmniRouter antigo; o painel (banco) aponta para o novo. O motor lê o banco.
+    comOOmniRouterNoEnv();
+    banco.escolha = { habilitado: true };
+    banco.platformConfig = [
+      linhaDaTela("OMNIROUTER_BASE_URL", "http://omnirouter-novo:20128"),
+      linhaDaTela("OMNIROUTER_API_KEY", null, true),
+    ];
+
+    await deriveMessageMedia(eventRow(ORG_ESCOLHIDA));
+    await depsDaChamada().describeImage(FOTO, "image/png");
+
+    expect(hosts()).toEqual(["omnirouter-novo:20128"]);
+    // O `decryptKey` fingido devolve "chave-propria-da-org-sintetica" para qualquer envelope: o que
+    // importa é que NÃO foi a chave do `.env` (o painel venceu).
+    expect(chamadas.some((c) => c.chave === CHAVE_DO_OMNI)).toBe(false);
+    expect(chamadas.every((c) => c.chave === CHAVE_DA_ORG)).toBe(true);
+  });
+
+  it("⭐ só o painel (sem nada no `.env`) já basta: o OmniRouter existe para o motor", async () => {
+    banco.escolha = { habilitado: true };
+    banco.platformConfig = [
+      linhaDaTela("OMNIROUTER_BASE_URL", OMNI),
+      linhaDaTela("OMNIROUTER_API_KEY", null, true),
+    ];
+
+    await deriveMessageMedia(eventRow(ORG_ESCOLHIDA));
+    await depsDaChamada().describeImage(FOTO, "image/png");
+
+    expect(hosts()).toEqual(["omnirouter:20128"]);
   });
 
   it("⭐ a chamada que saiu é registrada em llm_calls como da Anthropic (o custo não some)", async () => {
-    comAPonteParaTodos(ORG_NA_LISTA);
+    comOOmniRouterNoEnv();
+    banco.escolha = { habilitado: true };
 
-    await deriveMessageMedia(eventRow(ORG_NA_LISTA));
+    await deriveMessageMedia(eventRow(ORG_ESCOLHIDA));
     await depsDaChamada().describeImage(FOTO, "image/png");
 
     // A linha é fire-and-forget: espera ela assentar em vez de supor a ordem.
     await vi.waitFor(() => expect(custoInsertMock).toHaveBeenCalledTimes(1));
     expect(custoInsertMock.mock.calls[0]![0]).toMatchObject({
-      organization_id: ORG_NA_LISTA,
+      organization_id: ORG_ESCOLHIDA,
       provider: "anthropic",
       model: "claude-haiku-4-5",
       status: "ok",
@@ -316,29 +413,26 @@ describe("worker de mídia: a descrição da foto passa pela claude-ponte", () =
     });
   });
 
-  it("⭐ a ponte RECUSANDO (429 da cota): a descrição falha em voz alta e a foto NÃO cai na Anthropic de reserva", async () => {
-    // A cota semanal da assinatura já esgotou na prática (429 por quase 40 h em 14–15/10). Falhar
-    // fechado é a garantia: a recusa vira erro do worker (que o drain repete e, esgotadas as
+  it("⭐ o OmniRouter RECUSANDO (429): a descrição falha em voz alta e a foto NÃO cai na Anthropic de reserva", async () => {
+    // Falhar fechado é a garantia: a recusa vira erro do worker (que o drain repete e, esgotadas as
     // tentativas, mostra ao operador), e jamais um segundo destino que ninguém autorizou.
-    comAPonteParaTodos(ORG_NA_LISTA);
+    comOOmniRouterNoEnv();
+    banco.escolha = { habilitado: true };
     responder = () =>
       new Response(
-        JSON.stringify({
-          type: "error",
-          error: { type: "rate_limit_error", message: "teto da ponte" },
-        }),
+        JSON.stringify({ error: { message: "teto do gateway", type: "rate_limit_error" } }),
         // `retry-after-ms` curto: o SDK repete por padrão e o caso não precisa esperar o backoff.
         { status: 429, headers: { "content-type": "application/json", "retry-after-ms": "1" } },
       );
 
-    await deriveMessageMedia(eventRow(ORG_NA_LISTA));
+    await deriveMessageMedia(eventRow(ORG_ESCOLHIDA));
     await expect(depsDaChamada().describeImage(FOTO, "image/png")).rejects.toThrow();
 
     expect(chamadas.length).toBeGreaterThan(0);
-    expect(hosts(), "a foto foi para outro destino quando a ponte recusou").toEqual([
-      "claude-ponte:8080",
+    expect(hosts(), "a foto foi para outro destino quando o OmniRouter recusou").toEqual([
+      "omnirouter:20128",
     ]);
-    expect(chamadas.every((c) => c.chave === CHAVE_DA_PONTE)).toBe(true);
+    expect(chamadas.every((c) => c.chave === CHAVE_DO_OMNI)).toBe(true);
     // A falha deixa rastro de custo/erro para a tela de Execuções, como qualquer outra.
     await vi.waitFor(() => expect(custoInsertMock).toHaveBeenCalledTimes(1));
     expect(custoInsertMock.mock.calls[0]![0]).toMatchObject({
@@ -347,53 +441,56 @@ describe("worker de mídia: a descrição da foto passa pela claude-ponte", () =
     });
   });
 
-  it("⭐ E10: organização da lista COM credencial própria: vai à Anthropic com a chave DELA, e a ponte nem vê", async () => {
-    comAPonteParaTodos(ORG_NA_LISTA);
+  it("⭐ organização escolhida COM credencial própria: vai à Anthropic com a chave DELA, e o OmniRouter nem vê", async () => {
+    comOOmniRouterNoEnv();
+    banco.escolha = { habilitado: true };
     banco.credenciais = COM_BYOK;
 
-    await deriveMessageMedia(eventRow(ORG_NA_LISTA));
+    await deriveMessageMedia(eventRow(ORG_ESCOLHIDA));
     await depsDaChamada().describeImage(FOTO, "image/png");
 
     expect(hosts()).toEqual(["api.anthropic.com"]);
     expect(chamadas.every((c) => c.chave === CHAVE_DA_ORG)).toBe(true);
-    expect(chamadas.some((c) => c.host === "claude-ponte:8080")).toBe(false);
+    expect(chamadas.some((c) => c.host === "omnirouter:20128")).toBe(false);
   });
 
-  it("CONTROLE — instalação sem ponte: segue como sempre, pela chave da instalação (regressão zero)", async () => {
-    // Sem `CLAUDE_PONTE_*` nada da ponte existe. Sem este caso, uma correção que mandasse TUDO
-    // para a ponte deixaria os de cima verdes — e quebraria quem nunca ligou a ponte.
+  it("CONTROLE — instalação sem OmniRouter: segue como sempre, pela chave da instalação (regressão zero)", async () => {
+    // Sem `OMNIROUTER_*` nada do gateway existe. Sem este caso, uma correção que mandasse TUDO para
+    // o OmniRouter deixaria os de cima verdes — e quebraria quem nunca o configurou.
     ambiente.ANTHROPIC_API_KEY = CHAVE_DA_INSTALACAO;
+    banco.escolha = { habilitado: true };
 
-    await deriveMessageMedia(eventRow(ORG_NA_LISTA));
+    await deriveMessageMedia(eventRow(ORG_ESCOLHIDA));
     await depsDaChamada().describeImage(FOTO, "image/png");
 
     expect(hosts()).toEqual(["api.anthropic.com"]);
     expect(chamadas.every((c) => c.chave === CHAVE_DA_INSTALACAO)).toBe(true);
   });
 
-  it("CONTROLE — organização FORA da lista: a ponte não a atende e o caminho de sempre segue", async () => {
-    comAPonteParaTodos(ORG_NA_LISTA);
+  it("CONTROLE — organização que NÃO foi escolhida: o OmniRouter não a atende e o caminho de sempre segue", async () => {
+    comOOmniRouterNoEnv();
 
     await deriveMessageMedia(eventRow(OUTRA_ORG));
     await depsDaChamada().describeImage(FOTO, "image/png");
 
     expect(hosts()).toEqual(["api.anthropic.com"]);
     expect(chamadas.every((c) => c.chave === CHAVE_DA_INSTALACAO)).toBe(true);
-    expect(chamadas.some((c) => c.host === "claude-ponte:8080")).toBe(false);
+    expect(chamadas.some((c) => c.host === "omnirouter:20128")).toBe(false);
   });
 
-  it("⭐ variável da ponte malformada para quem a usaria: NENHUM byte sai, nem para a Anthropic", async () => {
-    // Endereço com credencial embutida: a ponte recusa em vez de cair no endereço padrão ou na
-    // chave da instalação. Falhar fechado é a garantia — quem escolhe a ponte não recebe a
-    // Anthropic de brinde.
-    comAPonteParaTodos(ORG_NA_LISTA);
-    ambiente.CLAUDE_PONTE_BASE_URL = COM_CREDENCIAL;
+  it("⭐ endereço do OmniRouter malformado para quem o usaria: NENHUM byte sai, nem para a Anthropic", async () => {
+    // Endereço com credencial embutida: o módulo recusa em vez de cair no endereço padrão ou na chave
+    // da instalação. Falhar fechado é a garantia — quem escolhe o OmniRouter não recebe a Anthropic
+    // de brinde.
+    comOOmniRouterNoEnv();
+    ambiente.OMNIROUTER_BASE_URL = COM_CREDENCIAL;
+    banco.escolha = { habilitado: true };
 
-    const r = await deriveMessageMedia(eventRow(ORG_NA_LISTA));
+    const r = await deriveMessageMedia(eventRow(ORG_ESCOLHIDA));
     const deps = vi.mocked(deriveMediaText).mock.calls[0]?.[3];
     if (deps) await deps.describeImage(FOTO, "image/png");
 
-    expect(chamadas, "a foto saiu com a ponte malformada").toHaveLength(0);
+    expect(chamadas, "a foto saiu com o OmniRouter malformado").toHaveLength(0);
     expect(r.status).not.toBe("ok");
   });
 });

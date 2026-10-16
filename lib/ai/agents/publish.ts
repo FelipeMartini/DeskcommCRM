@@ -6,7 +6,7 @@
  * with a stable error code, and unknown errors to 500.
  */
 import { chaveDePlataforma } from "@/lib/ai/runtime/agent";
-import { ponteServeAOrganizacao } from "@/lib/ai/claude-ponte-ativa";
+import { omniRouterServeAOrganizacao } from "@/lib/ai/omnirouter-ativo";
 import { audit } from "@/lib/audit";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PUBLISH_ERROR_CODES, type PublishErrorCode } from "./validation";
@@ -61,12 +61,12 @@ export async function publishAgentVersion(
   if (readError || !version)
     return { ok: false, code: "version_not_found", message: "version_not_found" };
   const platform = version.credential_id === null;
-  // "Chave da instalação" = a do `.env` OU a claude-ponte, quando ela atende esta organização e ela
-  // não a desligou na tela (`lib/ai/claude-ponte-ativa.ts`).
+  // "Chave da instalação" = a do `.env` OU o OmniRouter da instalação, quando ele atende esta
+  // organização (`lib/ai/omnirouter-ativo.ts`).
   if (
     platform &&
     !chaveDePlataforma(version.provider) &&
-    !(await ponteServeAOrganizacao(admin, version.provider, params.orgId))
+    !(await omniRouterServeAOrganizacao(admin, version.provider, params.orgId))
   )
     return { ok: false, code: "credential_missing", message: "credential_missing" };
   const { data, error } = await admin.rpc("fn_publish_ai_agent_version", {
