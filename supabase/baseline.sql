@@ -45336,7 +45336,7 @@ revoke execute on function public.fn_service_status(uuid,uuid,text,bigint) from 
 grant execute on function public.fn_service_status(uuid,uuid,text,bigint) to service_role;
 -- ---- classificador do roteador nasce "Automático" (migration 0530) ----
 --
--- `ai_routers.config` semeava `'classifier_model', 'claude-haiku-5-5'`: id fixo
+-- `ai_routers.config` semeava `'classifier_model', 'claude-haiku-4-5'`: id fixo
 -- do Anthropic num produto multi-provedor. Numa organização configurada na
 -- OpenRouter, ele vencia o padrão da organização (precedência 3 de
 -- `decidirBinding`, `lib/ai/pontos/resolver.ts`) e ia para o endpoint errado —
@@ -45347,7 +45347,7 @@ grant execute on function public.fn_service_status(uuid,uuid,text,bigint) to ser
 -- O default perde só `classifier_model` (`sticky` e `min_confidence` ficam): o
 -- roteador nasce em "Automático" e o seam resolve pelo painel de provedores,
 -- senão pelo padrão da organização. A cura só alcança a linha com a forma exata
--- do seed E que quebrava: `classifier_model = 'claude-haiku-5-5'` (o único id
+-- do seed E que quebrava: `classifier_model = 'claude-haiku-4-5'` (o único id
 -- semeado — `anthropic/claude-haiku-4-5` é escolha válida da Requesty, 0410),
 -- `classifier_provider` ausente (a tela grava os dois juntos) e organização fora
 -- do Anthropic (regra de `llmSettingsSchema`: provedor ausente, não-texto ou
@@ -45364,7 +45364,7 @@ update public.ai_routers r
 set config = r.config - 'classifier_model'
 from public.organizations o
 where o.id = r.organization_id
-  and r.config->>'classifier_model' = 'claude-haiku-5-5'
+  and r.config->>'classifier_model' = 'claude-haiku-4-5'
   and coalesce(r.config->>'classifier_provider', '') = ''
   and coalesce(
         case when jsonb_typeof(o.settings->'llm'->'provider') = 'string'
