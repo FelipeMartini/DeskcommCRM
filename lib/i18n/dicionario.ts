@@ -15444,6 +15444,38 @@ export const DICIONARIO: Traducoes = {
     es: "La suscripción de IA de la instalación no atiende a esta organización.",
   },
   "Não foi possível salvar a escolha.": { es: "No fue posible guardar la elección." },
+  "OmniRouter habilitado e configurado com sucesso para este tenant.": {
+    es: "OmniRouter habilitado y configurado con éxito para este tenant.",
+  },
+  "OmniRouter desabilitado para este tenant.": {
+    es: "OmniRouter deshabilitado para este tenant.",
+  },
+  "Inteligência Artificial & OmniRouter": { es: "Inteligencia Artificial y OmniRouter" },
+  Habilitado: { es: "Habilitado" },
+  Desabilitado: { es: "Deshabilitado" },
+  "Controle exclusivo de Super Admin para roteamento via OmniRouter.": {
+    es: "Control exclusivo del Super Admin para el enrutamiento vía OmniRouter.",
+  },
+  "Habilitar OmniRouter": { es: "Habilitar OmniRouter" },
+  "Endpoint Gateway:": { es: "Endpoint del gateway:" },
+  "Endereço do OmniRouter não configurado nesta instalação (variável OMNIROUTER_BASE_URL).": {
+    es: "Dirección del OmniRouter no configurada en esta instalación (variable OMNIROUTER_BASE_URL).",
+  },
+  "Chave API do OmniRouter para esta Organização": {
+    es: "Clave API del OmniRouter para esta organización",
+  },
+  "Deixe em branco para usar a chave global do sistema...": {
+    es: "Déjelo en blanco para usar la clave global del sistema...",
+  },
+  "Se não informar chave específica, esta organização utilizará a credencial global da instalação.": {
+    es: "Si no informa una clave específica, esta organización usará la credencial global de la instalación.",
+  },
+  "Modelo Padrão da IA": { es: "Modelo predeterminado de la IA" },
+  "Padrão recomendado: claude-haiku-5-5 (alta velocidade e tool calling no WhatsApp).": {
+    es: "Predeterminado recomendado: claude-haiku-5-5 (alta velocidad y tool calling en WhatsApp).",
+  },
+  "Gravando...": { es: "Guardando..." },
+  "Salvar Configuração": { es: "Guardar configuración" },
 };
 
 /**
