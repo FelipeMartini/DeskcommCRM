@@ -44,6 +44,12 @@ const ORDEM: readonly {
     resumo: "Contatos obrigatórios e as chaves que protegem o que está guardado.",
   },
   {
+    grupo: "retencao",
+    titulo: "Retenção de dados",
+    resumo:
+      "Por quantos dias cada tipo de dado fica guardado antes de a rotina diária de limpeza removê-lo. Vale para todas as organizações; o mínimo de cada um protege contra apagar cedo demais.",
+  },
+  {
     grupo: "whatsapp",
     titulo: "WhatsApp",
     resumo: "As senhas que ligam o sistema ao programa que conecta o WhatsApp.",

@@ -22,6 +22,7 @@
  */
 
 import { CHAVES_DE_CANAL_DA_INSTALACAO } from "@/lib/channels/chaves-da-instalacao";
+import { PRAZOS_GLOBAIS, explicacaoDoPrazo } from "@/lib/retencao/prazos-globais";
 
 export type GrupoDaInstalacao =
   | "email"
@@ -125,8 +126,25 @@ const DE_CANAL: readonly ChaveDaInstalacao[] = CHAVES_DE_CANAL_DA_INSTALACAO.map
   comoTrocar: c.comoTrocar,
 }));
 
+/**
+ * Os PRAZOS GLOBAIS de retenção (ordem do dono, 16/10/2026: modelo misto). Os 15 vêm de
+ * `lib/retencao/prazos-globais.ts` — que lê o padrão e o piso das mesmas constantes que o cron de poda usa —,
+ * então a tela não repete número nenhum e não pode prometer um padrão que o código não cumpre. O leitor é
+ * `prazosDaInstalacao` (`lib/retencao/prazos-da-instalacao.ts`), chamado por `data-retention` e
+ * `webhook-log-retention`; a conferência antes de gravar é `recusaDoPrazo`, em `validar-valor.ts`.
+ */
+const DE_RETENCAO: readonly ChaveDaInstalacao[] = PRAZOS_GLOBAIS.map((p) => ({
+  chave: p.chave,
+  rotulo: p.rotulo,
+  explicacao: explicacaoDoPrazo(p),
+  grupo: "retencao" as const,
+  natureza: "numero" as const,
+  controle: "edita" as const,
+}));
+
 export const CATALOGO_DA_INSTALACAO: readonly ChaveDaInstalacao[] = [
   ...DE_CANAL,
+  ...DE_RETENCAO,
   {
     chave: "RESEND_API_KEY",
     rotulo: "Chave do serviço de e-mail",
