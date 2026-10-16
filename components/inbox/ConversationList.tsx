@@ -5,6 +5,7 @@ import { useT } from "@/hooks/i18n/useT";
 import type { InfiniteData, UseInfiniteQueryResult } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Check } from "@/lib/ui/icons";
 import { useChannelSessions } from "@/hooks/channels/useChannelSessions";
 
 import { useAutomaticoAtivo } from "@/hooks/ai/useAutomaticoAtivo";
@@ -33,6 +34,14 @@ interface Props {
   onLimparFiltros?: () => void;
   /** Notifies parent when the visible list changes (used by keyboard nav). */
   onVisibleChange?: (ids: string[]) => void;
+  /**
+   * Seleção múltipla (#2484, F1). Quando `onAlternarSelecao` vem, cada linha
+   * ganha a caixa de marcação e a lista oferece o "selecionar todas" — sem
+   * ela, a lista é exatamente a que era.
+   */
+  selecionados?: Set<string>;
+  onAlternarSelecao?: (id: string) => void;
+  onSelecionarTodosVisiveis?: () => void;
 }
 
 export function ConversationList({
@@ -42,6 +51,9 @@ export function ConversationList({
   onSelect,
   onVisibleChange,
   onLimparFiltros,
+  selecionados,
+  onAlternarSelecao,
+  onSelecionarTodosVisiveis,
 }: Props) {
   const t = useT();
   // Só mostra POR ONDE a conversa entrou quando há mais de um número. Com um
@@ -120,7 +132,15 @@ export function ConversationList({
   // responde) herda a lista anterior pelo `placeholderData` do hook — só essa
   // troca: aba ou busca nova é outra lista, e volta ao skeleton. `items.length === 0` declara a regra em palavras — o preço de
   // reconstruí-la aqui é o defeito inteiro desta issue.
-  if (q.isLoading && items.length === 0) {
+  //
+  // `isPending`, e não `isLoading` (#2365): a consulta SEGURADA da Fila — a que
+  // espera o fato org-wide antes de sair, para não pedir a mesma lista duas
+  // vezes — está pendente SEM estar buscando, e `isLoading` seria falso ali. A
+  // diferença não é cosmética: com `isLoading`, a espera de ~200ms do fato
+  // caía no vazio por AUSÊNCIA e a tela dizia "Sem conversas por aqui" — caixa
+  // vazia em vez de "está vindo". `isPending` continua falso no refetch (há
+  // dado), então a regra do #2366 segue de pé: sem dado é primeira carga.
+  if (q.isPending && items.length === 0) {
     return (
       <div className="space-y-3 p-3">
         {[1, 2, 3, 4, 5].map((i) => (
@@ -185,6 +205,32 @@ export function ConversationList({
             {t("Só entram na inbox os grupos ligados em Conexões › Grupos, e cada um aparece aqui a partir da primeira mensagem recebida depois de ligar (o histórico anterior não entra).")}
           </p>
         )}
+        {/* Cabeça da seleção em lote (#2484, F1): marca de uma vez tudo o que
+            está na tela. Some com a lista vazia — oferecer "selecionar todas"
+            quando não há nenhuma é botão de mentira. */}
+        {onAlternarSelecao && items.length > 0 && (
+          <div className="flex items-center gap-2 border-b border-border/70 px-3 py-1.5">
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={
+                selecionados
+                  ? items.every((c) => selecionados.has(c.id))
+                  : false
+              }
+              aria-label={t("Selecionar todas as conversas visíveis")}
+              title={t("Selecionar todas")}
+              data-testid="selecionar-todas-visiveis"
+              onClick={onSelecionarTodosVisiveis}
+              className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-input bg-background transition-colors hover:bg-surface-elevated focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {selecionados && items.every((c) => selecionados.has(c.id)) && (
+                <Check size={12} weight="bold" aria-hidden />
+              )}
+            </button>
+            <span className="text-xs text-text-muted">{t("Selecionar todas")}</span>
+          </div>
+        )}
         {items.map((c, i) => (
           <ConversationListItem
             key={c.id}
@@ -196,6 +242,8 @@ export function ConversationList({
             mostrarAtendente={mostrarAtendente}
             mostrarAutomatico={mostrarAutomatico}
             automaticoDaOrg={automaticoDaOrg.data}
+            selecionado={selecionados?.has(c.id)}
+            onAlternarSelecao={onAlternarSelecao}
           />
         ))}
         {q.hasNextPage && (

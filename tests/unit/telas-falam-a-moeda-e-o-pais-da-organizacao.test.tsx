@@ -39,6 +39,8 @@ const XISTAO: PerfilDoPais = {
   // Rótulos da tela da organização do país sintético — o campo é obrigatório
   // no perfil justamente para país novo declarar os seus (#1946, item 4).
   empresa: { rotuloNomeLegal: "Razão do Xistão", rotuloNumero: "CNPJ do Xistão" },
+  // País sintético declara os SEUS papéis legais (#2344).
+  papel: { controlador: "Controlador do Xistão", encarregado: "Encarregado do Xistão" },
   telefoneExemplo: "+999123456789",
   documento: {
     rotulo: "Bilhete",
@@ -50,6 +52,8 @@ const XISTAO: PerfilDoPais = {
     valida: () => true,
     normaliza: (v) => v,
   },
+  idioma: "xi-XI",
+  fusoDoSugerido: "UTC",
   lei: null,
   calendario: { feriados: [], rotulo: "feriados do Xistão" },
   padroesDePii: [],
