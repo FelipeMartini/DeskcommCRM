@@ -197,23 +197,22 @@ export async function deriveMessageMedia(row: EventRow): Promise<HandlerResult> 
     // ─── A configuração vem da função COMPARTILHADA, nunca escrita à mão ─────
     //
     // Até 15/10/2026 este bloco montava a `LlmEdgeConfig` campo a campo
-    // (`anthropicApiKey`, `openaiApiKey`, `openrouterApiKey`) e NÃO levava
-    // `ponte`. Sem `ponte`, o degrau da claude-ponte de `resolveOrgLlmConfig`
-    // era pulado para toda organização, a escada caía na chave da INSTALAÇÃO
-    // (`ANTHROPIC_API_KEY`, no servidor a mesma do OmniRoute) e a fábrica
-    // `anthropic` — que não lê endereço nenhum — mandava a FOTO do cliente e
-    // essa chave a `api.anthropic.com`: três tentativas recusadas com 401 em
-    // 15/10, medidas pela Mylab no contador de kernel. Chamada direta com chave
-    // de API também sai da cobrança do Console e do rastro da ponte (ordem do
-    // dono, 10–11/10: toda chamada à Anthropic do CRM passa pela ponte).
+    // (`anthropicApiKey`, `openaiApiKey`, `openrouterApiKey`) e NÃO levava o
+    // gateway da instalação. Sem ele, o degrau do OmniRouter de
+    // `resolveOrgLlmConfig` era pulado para toda organização, a escada caía na
+    // chave da INSTALAÇÃO (`ANTHROPIC_API_KEY`) e a fábrica `anthropic` — que não
+    // lê endereço nenhum — mandava a FOTO do cliente e essa chave a
+    // `api.anthropic.com`: três tentativas recusadas com 401 em 15/10, medidas
+    // pela Mylab no contador de kernel.
     //
     // `llmEdgeConfigFromEnv(env)` é o que todos os outros chamadores usam, e
     // carrega de uma vez as três chaves (inclusive a da OpenRouter, que esta
     // linha existia para garantir — instalação só-OpenRouter, escolhida no
     // install.sh, sem ela morria em `LlmNotConfiguredError` com ZERO avisos na
-    // Central) e as três `CLAUDE_PONTE_*`. Campo novo de configuração passa a
-    // chegar aqui sem ninguém lembrar: o que só funciona quando alguém lembra,
-    // não funciona.
+    // Central) e as três `OMNIROUTER_*` (o piso do `.env`; o que a tela de
+    // Credenciais gravou o motor lê do banco, em `resolveOrgLlmConfig`). Campo
+    // novo de configuração passa a chegar aqui sem ninguém lembrar: o que só
+    // funciona quando alguém lembra, não funciona.
     const llmCfg: LlmEdgeConfig = llmEdgeConfigFromEnv(env);
 
     // ─── O painel de provedores manda AQUI também ────────────────────────────
@@ -330,14 +329,14 @@ export async function deriveMessageMedia(row: EventRow): Promise<HandlerResult> 
     // resolução de credencial que ninguém pediu (o teste #1591 aperta exatamente
     // isso: o binding de visão resolve, e mais nada).
     //
-    // ⚠️ Com a ponte resolvida para a organização, `conversa.apiKey` é a chave
-    // DA PONTE. Hoje isso não chega a lugar nenhum: o degrau 3 só vale quando
+    // ⚠️ Com o OmniRouter resolvido para a organização, `conversa.apiKey` é a chave
+    // DO OMNIROUTER. Hoje isso não chega a lugar nenhum: o degrau 3 só vale quando
     // `transcreveAudio(provider, modelo)` é verdadeiro e para `anthropic` é falso.
-    // Mas `transcricaoPeloModelo` escolhe a fábrica pelo provedor, sem `ponte` — se
+    // Mas `transcricaoPeloModelo` escolhe a fábrica pelo provedor, sem `omnirouter` — se
     // um dia a Anthropic ganhar a capacidade `audio` no catálogo, esta entrada
-    // passa a mandar o áudio e a chave da ponte a `api.anthropic.com`. Quem mexer em
+    // passa a mandar o áudio e a chave do OmniRouter a `api.anthropic.com`. Quem mexer em
     // `transcreveAudio` para `anthropic` deve tornar `transcricaoPeloModelo` ciente
-    // da ponte (usar `fabricaDe`) ANTES.
+    // do OmniRouter (usar `fabricaDe`) ANTES.
     const decisao: DecisaoDeTranscricao = await decidirTranscricao({
       conversa:
         precisaTranscricao && conversa
@@ -579,7 +578,7 @@ async function lerBindingDoPonto(
 function buildDeriveDeps(
   llm: Pick<
     OrgLlmConfig,
-    "provider" | "apiKey" | "defaultModel" | "orcamento" | "orcamentoIndisponivelPorque" | "origemDaChave" | "ponte"
+    "provider" | "apiKey" | "defaultModel" | "orcamento" | "orcamentoIndisponivelPorque" | "origemDaChave" | "omnirouter"
   >,
   decisao: DecisaoDeTranscricao,
   orgId: string,
@@ -729,15 +728,15 @@ function buildDeriveDeps(
     }
     // ─── QUAL fábrica fala, e PARA ONDE ─────────────────────────────────────
     //
-    // Quando `resolveOrgLlmConfig` escolheu a claude-ponte, `llm.apiKey` é a
-    // chave DA PONTE e `llm.ponte.baseURL` o endereço validado dela. Só a
-    // fábrica da ponte sabe falar com esse par; a `anthropic` vai SEMPRE a
-    // `api.anthropic.com` e entregaria lá a chave da ponte junto com a foto do
+    // Quando `resolveOrgLlmConfig` escolheu o OmniRouter, `llm.apiKey` é a
+    // chave DO OMNIROUTER e `llm.omnirouter.baseURL` o endereço validado dele. Só a
+    // fábrica do OmniRouter sabe falar com esse par; a `anthropic` vai SEMPRE a
+    // `api.anthropic.com` e entregaria lá a chave do OmniRouter junto com a foto do
     // cliente. Por isso a escolha passa por `fabricaDe` — a MESMA regra do
     // turno do agente (`run-model-call.ts`) — e nunca por `registry[llm.provider]`.
     //
-    // O endereço da ponte vence o do binding, como no turno. Os dois não se
-    // encontram aqui: endereço próprio com chave da instalação (e a da ponte é
+    // O endereço do OmniRouter vence o do binding, como no turno. Os dois não se
+    // encontram aqui: endereço próprio com chave da instalação (e a do OmniRouter é
     // uma) já foi recusado acima, antes de qualquer byte sair.
     const factory = registry[fabricaDe(llm)];
     if (!factory) {
@@ -792,7 +791,7 @@ function buildDeriveDeps(
     let res: Awaited<ReturnType<typeof generateText>>;
     try {
       res = await generateText({
-        model: factory(llm.apiKey, modelo, llm.ponte?.baseURL ?? baseUrlDaVisao ?? undefined),
+        model: factory(llm.apiKey, modelo, llm.omnirouter?.baseURL ?? baseUrlDaVisao ?? undefined),
         messages: [
           {
             role: "user",

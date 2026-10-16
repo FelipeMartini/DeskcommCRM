@@ -15937,23 +15937,15 @@ export const DICIONARIO: Traducoes = {
   "Sem contato vinculado, a etiqueta não é aplicada.": {
     es: "Sin contacto vinculado, la etiqueta no se aplica.",
   },
-  "Assinatura de IA da instalação": { es: "Suscripción de IA de la instalación" },
-  "Esta instalação oferece a assinatura de IA de texto a esta organização. Ligada, os agentes e as tarefas de IA usam a assinatura em vez de uma chave de API. Uma chave própria, se existir, continua valendo antes dela.":
+  "IA da instalação (OmniRouter)": { es: "IA de la instalación (OmniRouter)" },
+  "Esta instalação oferece IA de texto a esta organização pelo OmniRouter. Os agentes e as tarefas de IA usam essa conexão em vez de uma chave de API. Uma chave própria, se existir, continua valendo antes dela. Só o administrador da plataforma liga ou desliga o OmniRouter para a organização.":
     {
-      es: "Esta instalación ofrece la suscripción de IA de texto a esta organización. Activada, los agentes y las tareas de IA usan la suscripción en lugar de una clave de API. Una clave propia, si existe, sigue valiendo antes que ella.",
+      es: "Esta instalación ofrece IA de texto a esta organización mediante el OmniRouter. Los agentes y las tareas de IA usan esa conexión en lugar de una clave de API. Una clave propia, si existe, sigue valiendo antes que ella. Solo el administrador de la plataforma activa o desactiva el OmniRouter para la organización.",
     },
-  "Usar a assinatura de IA da instalação": { es: "Usar la suscripción de IA de la instalación" },
-  "Assinatura de IA ligada.": { es: "Suscripción de IA activada." },
-  "Assinatura de IA desligada.": { es: "Suscripción de IA desactivada." },
-  "Desligada: sem uma chave própria nem a chave da instalação, os agentes desta organização ficam sem IA até você ligar de novo.":
+  "Esta organização não foi escolhida, mas a instalação oferece o OmniRouter a todas: ela é atendida pela oferta geral. Para recusar, salve com o interruptor desligado.":
     {
-      es: "Desactivada: sin una clave propia ni la clave de la instalación, los agentes de esta organización se quedan sin IA hasta que la actives de nuevo.",
+      es: "Esta organización no fue elegida, pero la instalación ofrece el OmniRouter a todas: se atiende por la oferta general. Para rechazarlo, guarda con el interruptor desactivado.",
     },
-  "Só administradores mudam isto.": { es: "Solo los administradores cambian esto." },
-  "A assinatura de IA da instalação não atende esta organização.": {
-    es: "La suscripción de IA de la instalación no atiende a esta organización.",
-  },
-  "Não foi possível salvar a escolha.": { es: "No fue posible guardar la elección." },
   "OmniRouter habilitado e configurado com sucesso para este tenant.": {
     es: "OmniRouter habilitado y configurado con éxito para este tenant.",
   },
@@ -15968,8 +15960,8 @@ export const DICIONARIO: Traducoes = {
   },
   "Habilitar OmniRouter": { es: "Habilitar OmniRouter" },
   "Endpoint Gateway:": { es: "Endpoint del gateway:" },
-  "Endereço do OmniRouter não configurado nesta instalação (variável OMNIROUTER_BASE_URL).": {
-    es: "Dirección del OmniRouter no configurada en esta instalación (variable OMNIROUTER_BASE_URL).",
+  "Endereço do OmniRouter não configurado nesta instalação. Defina-o em Configuração › Credenciais.": {
+    es: "Dirección del OmniRouter no configurada en esta instalación. Defínela en Configuración › Credenciales.",
   },
   "Chave API do OmniRouter para esta Organização": {
     es: "Clave API del OmniRouter para esta organización",

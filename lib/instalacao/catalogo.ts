@@ -96,10 +96,17 @@ export interface ChaveDaInstalacao {
  * impressão". Ou seja: é exatamente a configuração que falta em toda instalação
  * nova e que hoje exige SSH.
  *
- * As credenciais de IA NÃO entram nesta leva, e o motivo é bom: elas já têm um
- * caminho próprio e mais rico (`ai_provider_credentials`, cifradas POR
- * ORGANIZAÇÃO, com escada de resolução). Duplicá-las aqui criaria duas respostas
- * para "qual chave vale", que é como se cria um bug que ninguém consegue depurar.
+ * As chaves de IA POR PROVEDOR (Anthropic, OpenAI, OpenRouter) NÃO entram nesta
+ * leva, e o motivo é bom: elas já têm um caminho próprio e mais rico
+ * (`ai_provider_credentials`, cifradas POR ORGANIZAÇÃO, com escada de resolução).
+ * Duplicá-las aqui criaria duas respostas para "qual chave vale", que é como se
+ * cria um bug que ninguém consegue depurar.
+ *
+ * O OmniRouter é a exceção, e por isso está aqui (ordem do dono, 16/10/2026): ele
+ * é UMA conexão da instalação inteira — o endereço e a chave que o administrador
+ * da plataforma digita uma vez —, não uma credencial de organização. A escolha de
+ * QUEM ele atende é da organização (`/admin/tenants/[id]`), e a credencial própria
+ * dela continua valendo antes dele.
  */
 /**
  * As chaves de CANAL vêm de `lib/channels/`, e não estão escritas aqui de
@@ -156,6 +163,39 @@ export const CATALOGO_DA_INSTALACAO: readonly ChaveDaInstalacao[] = [
     explicacao:
       "O contato obrigatório pela LGPD para pedidos de privacidade. Aparece nos documentos legais.",
     grupo: "seguranca",
+    natureza: "texto",
+    controle: "edita",
+  },
+
+  // ── IA: o OmniRouter da instalação ────────────────────────────────────────
+  // Lidos por `valorDaInstalacao` em `lib/ai/omnirouter-ativo.ts` (app) e por
+  // `valoresDaInstalacaoNoMotor` em `lib/instalacao/config-sql.ts` (worker): o que a
+  // tela grava vale nos dois, e o `.env` é só o piso. A conferência do valor antes de
+  // gravar está em `lib/instalacao/validar-valor.ts`.
+  {
+    chave: "OMNIROUTER_BASE_URL",
+    rotulo: "Endereço do OmniRouter",
+    explicacao:
+      "Onde está o OmniRouter, o roteador de IA desta instalação (por exemplo, https://omnirouter.example.com). Sem ele, nenhuma organização usa o OmniRouter.",
+    grupo: "ia",
+    natureza: "texto",
+    controle: "edita",
+  },
+  {
+    chave: "OMNIROUTER_API_KEY",
+    rotulo: "Chave do OmniRouter",
+    explicacao:
+      "A chave que o OmniRouter exige. É uma só para a instalação: as organizações que você escolher usam esta conexão sem precisar de uma chave de IA própria.",
+    grupo: "ia",
+    natureza: "segredo",
+    controle: "edita",
+  },
+  {
+    chave: "OMNIROUTER_PARA_TODAS",
+    rotulo: "Oferecer o OmniRouter a todas as organizações",
+    explicacao:
+      "Escreva true para que toda organização sem chave de IA própria use o OmniRouter, ou false para só as que você escolher em Organizações. Quem você recusar lá nunca usa.",
+    grupo: "ia",
     natureza: "texto",
     controle: "edita",
   },

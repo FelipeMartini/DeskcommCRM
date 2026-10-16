@@ -5,8 +5,8 @@ import { GOV_ORG, GOV_VIEWER, countAs, seedGov, sql } from "./gov-helpers";
 /**
  * Migration 0647 — a base de conhecimento ganha a BUSCA POR PALAVRAS.
  *
- * A organização que não tem crédito de embedding (ou que só tem a assinatura de texto da
- * claude-ponte, que não gera vetor) passa a ter base: o material é cortado em trechos como
+ * A organização que não tem crédito de embedding (ou que só tem uma conexão de texto, como o
+ * OmniRouter da instalação, que não gera vetor) passa a ter base: o material é cortado em trechos como
  * sempre, o vetor gravado é ZERO e a pergunta é respondida por `fn_buscar_trechos_por_texto`,
  * no próprio Postgres.
  *

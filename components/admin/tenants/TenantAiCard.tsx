@@ -29,21 +29,31 @@ export function TenantAiCard({
   const [habilitado, setHabilitado] = useState(initialHabilitado);
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState(initialModel);
-  // O endereço do OmniRouter é da instalação (variável de ambiente), não do código: quando a
-  // página não o traz, o card pergunta à rota GET do admin. Vazio = não configurado.
+  // O endereço do OmniRouter é da instalação (Admin › Configuração › Credenciais), não do código:
+  // quando a página não o traz, o card pergunta à rota GET do admin. Vazio = não configurado.
   const [endereco, setEndereco] = useState(omnirouterBaseUrl);
+  // A oferta geral da instalação (`OMNIROUTER_PARA_TODAS`) atende quem não foi escolhido nem
+  // recusado: sem dizer isso, "Desabilitado" aqui contradiria o que o motor faz.
+  const [atendidaPelaOfertaGeral, setAtendidaPelaOfertaGeral] = useState(false);
 
   useEffect(() => {
-    if (omnirouterBaseUrl) return;
     let cancelado = false;
     fetch(`/api/v1/admin/tenants/${organizationId}/ai`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((corpo: { data?: { omnirouter_base_url?: unknown } } | null) => {
-        const valor = corpo?.data?.omnirouter_base_url;
-        if (!cancelado && typeof valor === "string") setEndereco(valor);
-      })
+      .then(
+        (
+          corpo: {
+            data?: { omnirouter_base_url?: unknown; escolha?: unknown; atendida?: unknown };
+          } | null,
+        ) => {
+          if (cancelado) return;
+          const valor = corpo?.data?.omnirouter_base_url;
+          if (!omnirouterBaseUrl && typeof valor === "string") setEndereco(valor);
+          setAtendidaPelaOfertaGeral(corpo?.data?.escolha === null && corpo?.data?.atendida === true);
+        },
+      )
       .catch(() => {
-        // Sem o endereço o card mostra "não configurado"; a rota PUT segue sendo a que decide.
+        // Sem a leitura o card mostra "não configurado"; a rota PUT segue sendo a que decide.
       });
     return () => {
       cancelado = true;
@@ -105,6 +115,13 @@ export function TenantAiCard({
             aria-label={t("Habilitar OmniRouter")}
           />
         </div>
+        {!habilitado && atendidaPelaOfertaGeral && (
+          <p data-testid="tenant-ai-oferta-geral" className="mt-2 text-[11px] text-muted-foreground">
+            {t(
+              "Esta organização não foi escolhida, mas a instalação oferece o OmniRouter a todas: ela é atendida pela oferta geral. Para recusar, salve com o interruptor desligado.",
+            )}
+          </p>
+        )}
       </CardHeader>
       {habilitado && (
         <CardContent className="space-y-4 pt-0">
@@ -114,7 +131,7 @@ export function TenantAiCard({
               <code className="text-primary font-mono text-[11px] block break-all">{endereco}</code>
             ) : (
               <p className="text-[11px] text-destructive">
-                {t("Endereço do OmniRouter não configurado nesta instalação (variável OMNIROUTER_BASE_URL).")}
+                {t("Endereço do OmniRouter não configurado nesta instalação. Defina-o em Configuração › Credenciais.")}
               </p>
             )}
           </div>

@@ -104,7 +104,8 @@ export function bloqueioDePublicacao(e: EntradaDoBloqueio): MotivoDeBloqueio | n
   if (e.chave.daInstalacao) {
     // A escolha é legítima, mas só se a chave EXISTIR no ambiente. Publicar sem
     // ela entrega um agente que morre em toda mensagem — a mesma recusa que a
-    // rota de versões faz com `lerAmbiente()`, e que o `publishAgentVersion`
+    // rota de versões faz com `lerAmbiente` (que conta também o OmniRouter da
+    // instalação, quando ele atende a organização), e que o `publishAgentVersion`
     // repete com `chaveDePlataforma`.
     if (!e.chave.instalacaoTemChaveDoProvedor) {
       return { codigo: "instalacao_sem_chave_do_provedor", provedor: e.provedor };

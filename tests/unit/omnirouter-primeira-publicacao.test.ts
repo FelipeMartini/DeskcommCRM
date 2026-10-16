@@ -1,29 +1,44 @@
 /**
- * A CLAUDE-PONTE E A PRIMEIRA PUBLICAÇÃO (o onboarding).
+ * O OMNIROUTER E A PRIMEIRA PUBLICAÇÃO (o onboarding).
  *
  * `publishFirstVersion` recusava com `sem_chave` quando não havia credencial da organização nem
- * `ANTHROPIC_API_KEY` no `.env` — e a claude-ponte é justamente a instalação atender sem essa
- * variável. Aqui se prova, com um banco fingido mínimo, os dois lados:
+ * `ANTHROPIC_API_KEY` no `.env` — e o OmniRouter é justamente a instalação atender sem essa variável,
+ * para a organização que o administrador escolheu (ou para todas, se a oferta geral estiver ligada).
+ * Aqui se prova, com um banco fingido mínimo, os dois lados:
  *
- *   - ponte atendendo a organização → a versão é criada com `credential_id: null` (a chave da
+ *   - OmniRouter atendendo a organização → a versão é criada com `credential_id: null` (a chave da
  *     instalação) e publicada;
- *   - ponte atendendo OUTRA organização, ou sem variáveis → `sem_chave`, como sempre foi.
+ *   - organização NÃO escolhida, que RECUSOU, ou instalação sem OmniRouter → `sem_chave`, como sempre foi.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ channels: vi.fn(), publish: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  channels: vi.fn(),
+  publish: vi.fn(),
+  valorDaInstalacao: vi.fn(),
+}));
 vi.mock("@/lib/channels/selectable", () => ({ listSelectableChannels: mocks.channels }));
 vi.mock("@/lib/ai/agents/publish", () => ({ publishAgentVersion: mocks.publish }));
 vi.mock("@/lib/ai/runtime/agent", () => ({ chaveDePlataforma: vi.fn(() => null) }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: vi.fn() }));
+vi.mock("@/lib/instalacao/config", () => ({ valorDaInstalacao: mocks.valorDaInstalacao }));
 
 import { publishFirstVersion } from "@/lib/ai/agents/first-publication";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
-const OUTRA_ORG = "22222222-2222-4222-8222-222222222222";
-const PONTE = "http://claude-ponte:8080";
+const OMNI = "http://omnirouter:20128";
+const CHAVE = "chave-sintetica-do-omnirouter";
 
-function banco(llmDaOrganizacao: Record<string, unknown> = {}) {
+/** O que a tela de Credenciais (ou o `.env`) devolve; o que não está aqui vale "ausente". */
+function instalacaoCom(valores: Record<string, string>) {
+  mocks.valorDaInstalacao.mockImplementation(async (chave: string) => ({
+    valor: valores[chave] ?? null,
+    fonte: chave in valores ? "banco" : "ausente",
+  }));
+}
+const OMNI_POSTO = { OMNIROUTER_BASE_URL: OMNI, OMNIROUTER_API_KEY: CHAVE };
+
+function banco(omnirouterDaOrganizacao?: Record<string, unknown>) {
   const inseridas: Array<Record<string, unknown>> = [];
   const admin = {
     from(tabela: string) {
@@ -32,7 +47,12 @@ function banco(llmDaOrganizacao: Record<string, unknown> = {}) {
         switch (tabela) {
           case "organizations":
             return {
-              data: { settings: { llm: { provider: "anthropic", ...llmDaOrganizacao } } },
+              data: {
+                settings: {
+                  llm: { provider: "anthropic" },
+                  ...(omnirouterDaOrganizacao ? { omnirouter: omnirouterDaOrganizacao } : {}),
+                },
+              },
               error: null,
             };
           case "ai_provider_credentials":
@@ -83,38 +103,34 @@ function banco(llmDaOrganizacao: Record<string, unknown> = {}) {
 beforeEach(() => {
   mocks.channels.mockResolvedValue([{ id: "canal-1" }]);
   mocks.publish.mockResolvedValue({ ok: true });
+  instalacaoCom({});
 });
 
 afterEach(() => {
-  vi.unstubAllEnvs();
   vi.clearAllMocks();
 });
 
 const agente = { id: "agente-1", published_version_id: null };
 
-describe("publishFirstVersion — a chave da instalação inclui a claude-ponte", () => {
-  it("sem credencial da organização, sem .env e sem ponte: sem_chave (como sempre foi)", async () => {
+describe("publishFirstVersion — a chave da instalação inclui o OmniRouter", () => {
+  it("sem credencial da organização, sem .env e sem OmniRouter: sem_chave (como sempre foi)", async () => {
     const { admin, inseridas } = banco();
     const r = await publishFirstVersion(admin, ORG, agente, "prompt", "usuario-1");
     expect(r).toMatchObject({ published: false, reason: "sem_chave", provider: "anthropic" });
     expect(inseridas).toHaveLength(0);
   });
 
-  it("ponte atendendo OUTRA organização: continua sem_chave", async () => {
-    vi.stubEnv("CLAUDE_PONTE_BASE_URL", PONTE);
-    vi.stubEnv("CLAUDE_PONTE_API_KEY", "chave-sintetica-da-ponte");
-    vi.stubEnv("CLAUDE_PONTE_ORGS", OUTRA_ORG);
+  it("OmniRouter configurado, mas a organização NÃO foi escolhida: continua sem_chave", async () => {
+    instalacaoCom(OMNI_POSTO);
     const { admin, inseridas } = banco();
     const r = await publishFirstVersion(admin, ORG, agente, "prompt", "usuario-1");
     expect(r).toMatchObject({ published: false, reason: "sem_chave" });
     expect(inseridas).toHaveLength(0);
   });
 
-  it("ponte atendendo a organização: cria a versão com a chave da instalação e publica", async () => {
-    vi.stubEnv("CLAUDE_PONTE_BASE_URL", PONTE);
-    vi.stubEnv("CLAUDE_PONTE_API_KEY", "chave-sintetica-da-ponte");
-    vi.stubEnv("CLAUDE_PONTE_ORGS", ORG);
-    const { admin, inseridas } = banco();
+  it("⭐ OmniRouter atendendo a organização escolhida: cria a versão com a chave da instalação e publica", async () => {
+    instalacaoCom(OMNI_POSTO);
+    const { admin, inseridas } = banco({ habilitado: true });
     const r = await publishFirstVersion(admin, ORG, agente, "prompt", "usuario-1");
     expect(r).toEqual({ published: true });
     expect(inseridas).toHaveLength(1);
@@ -126,21 +142,33 @@ describe("publishFirstVersion — a chave da instalação inclui a claude-ponte"
     expect(mocks.publish).toHaveBeenCalledTimes(1);
   });
 
-  it("⭐ ponte atendendo a organização, mas DESLIGADA na tela: sem_chave, e nada é criado", async () => {
-    vi.stubEnv("CLAUDE_PONTE_BASE_URL", PONTE);
-    vi.stubEnv("CLAUDE_PONTE_API_KEY", "chave-sintetica-da-ponte");
-    vi.stubEnv("CLAUDE_PONTE_ORGS", ORG);
-    const { admin, inseridas } = banco({ ponte_ativa: false });
+  it("⭐ a oferta geral da instalação atende quem não escolheu", async () => {
+    instalacaoCom({ ...OMNI_POSTO, OMNIROUTER_PARA_TODAS: "true" });
+    const { admin, inseridas } = banco();
+    const r = await publishFirstVersion(admin, ORG, agente, "prompt", "usuario-1");
+    expect(r).toEqual({ published: true });
+    expect(inseridas).toHaveLength(1);
+  });
+
+  it("⭐ oferta geral ligada, mas a organização RECUSOU: sem_chave, e nada é criado", async () => {
+    instalacaoCom({ ...OMNI_POSTO, OMNIROUTER_PARA_TODAS: "true" });
+    const { admin, inseridas } = banco({ habilitado: false });
     const r = await publishFirstVersion(admin, ORG, agente, "prompt", "usuario-1");
     expect(r).toMatchObject({ published: false, reason: "sem_chave", provider: "anthropic" });
     expect(inseridas).toHaveLength(0);
   });
 
-  it("ponte com variável quebrada: sem_chave, e nada é criado", async () => {
-    vi.stubEnv("CLAUDE_PONTE_BASE_URL", "nao-e-url");
-    vi.stubEnv("CLAUDE_PONTE_API_KEY", "chave-sintetica-da-ponte");
-    vi.stubEnv("CLAUDE_PONTE_ORGS", ORG);
-    const { admin, inseridas } = banco();
+  it("OmniRouter com endereço quebrado: sem_chave, e nada é criado", async () => {
+    instalacaoCom({ OMNIROUTER_BASE_URL: "nao-e-url", OMNIROUTER_API_KEY: CHAVE });
+    const { admin, inseridas } = banco({ habilitado: true });
+    const r = await publishFirstVersion(admin, ORG, agente, "prompt", "usuario-1");
+    expect(r).toMatchObject({ published: false, reason: "sem_chave" });
+    expect(inseridas).toHaveLength(0);
+  });
+
+  it("OmniRouter sem a chave: sem_chave", async () => {
+    instalacaoCom({ OMNIROUTER_BASE_URL: OMNI });
+    const { admin, inseridas } = banco({ habilitado: true });
     const r = await publishFirstVersion(admin, ORG, agente, "prompt", "usuario-1");
     expect(r).toMatchObject({ published: false, reason: "sem_chave" });
     expect(inseridas).toHaveLength(0);

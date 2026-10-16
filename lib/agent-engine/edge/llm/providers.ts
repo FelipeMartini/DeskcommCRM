@@ -9,7 +9,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import type { LanguageModel } from 'ai';
 import { MockLanguageModelV3 } from 'ai/test';
 
-import { FABRICA_DA_PONTE, opcoesDaPonte } from '@/lib/ai/claude-ponte';
+import { FABRICA_DO_OMNIROUTER, opcoesDoOmniRouter } from '@/lib/ai/omnirouter';
 import { PROVEDOR_POR_ASSINATURA } from '@/lib/ai/pontos/provedores';
 import { fetchParaDestinoDaOrganizacao } from '@/lib/automation/destinos-internos-autorizados';
 
@@ -29,11 +29,12 @@ import { allowlistedFetch, buildAllowlist } from '../egress';
 export type ProviderFactory = (apiKey: string, modelId: string, baseUrl?: string) => LanguageModel;
 
 /**
- * As chaves de TEXTO são provedores (a mesma lista que a tela oferece). A claude-ponte é um destino
- * do `anthropic`, não um provedor, e mora numa chave `symbol` à parte: ver `FABRICA_DA_PONTE`.
+ * As chaves de TEXTO são provedores (a mesma lista que a tela oferece). O OmniRouter da instalação é
+ * um destino do `anthropic`, não um provedor, e mora numa chave `symbol` à parte: ver
+ * `FABRICA_DO_OMNIROUTER`.
  */
 export type ProviderRegistry = Record<string, ProviderFactory> & {
-  [FABRICA_DA_PONTE]?: ProviderFactory;
+  [FABRICA_DO_OMNIROUTER]?: ProviderFactory;
 };
 
 /**
@@ -312,16 +313,18 @@ export function createDefaultRegistry(opts?: {
         fetch: contain(ANTHROPIC_ENDPOINT),
       })(modelId),
     /**
-     * A `claude-ponte` (`lib/ai/claude-ponte.ts`): outro DESTINO para o mesmo
-     * protocolo, e uma fábrica À PARTE da `anthropic` de propósito. A de cima vai
-     * SEMPRE a `api.anthropic.com` e não lê endereço de lugar nenhum; esta só é
-     * escolhida quando `resolveOrgLlmConfig` resolveu a ponte para a organização
-     * (`config.ponte`), e o terceiro argumento é o endereço VALIDADO daquela
-     * resolução — revalidado aqui. As duas chaves (a da empresa e a da ponte) não
-     * têm como trocar de destino: não existe fábrica que aceite as duas.
+     * O OmniRouter da instalação (`lib/ai/omnirouter.ts`): um roteador que fala a API da OpenAI, e
+     * uma fábrica À PARTE da `anthropic` de propósito. A de cima vai SEMPRE a `api.anthropic.com` e
+     * não lê endereço de lugar nenhum; esta só é escolhida quando `resolveOrgLlmConfig` resolveu o
+     * OmniRouter para a organização (`config.omnirouter`), e o terceiro argumento é o endereço
+     * VALIDADO daquela resolução — revalidado aqui. As duas chaves (a da empresa e a do OmniRouter)
+     * não têm como trocar de destino: não existe fábrica que aceite as duas.
+     *
+     * `.chat()` pela mesma razão da OpenRouter: Chat Completions é o formato que um roteador serve
+     * para qualquer família de modelo.
      */
-    [FABRICA_DA_PONTE]: (apiKey, modelId, baseUrl) =>
-      createAnthropic(opcoesDaPonte(apiKey, baseUrl, contain))(modelId),
+    [FABRICA_DO_OMNIROUTER]: (apiKey, modelId, baseUrl) =>
+      createOpenAI(opcoesDoOmniRouter(apiKey, baseUrl, contain)).chat(modelId),
     openai: (apiKey, modelId) => {
       const contido = contain(OPENAI_ENDPOINT);
       const fetchFinal =
@@ -457,5 +460,5 @@ export function createFakeRegistry(
           warnings: [],
         },
     });
-  return { anthropic: factory, [FABRICA_DA_PONTE]: factory, fake: factory };
+  return { anthropic: factory, [FABRICA_DO_OMNIROUTER]: factory, fake: factory };
 }

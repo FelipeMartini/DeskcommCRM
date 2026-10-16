@@ -287,18 +287,18 @@ const schema = z.object({
   // OpenAI. Opcional — sem ela nada muda; com ela o chat passa a ser roteado
   // por lá. Ver resolveLanguageModel() em lib/ai/gateway.ts.
   OPENROUTER_API_KEY: z.string().optional().default(""),
-  // A claude-ponte (`lib/ai/claude-ponte.ts`): caminho PRÓPRIO, separado da Anthropic. Sem
-  // validar o valor aqui: quem decide se presta é `ponteDaOrganizacao`, só para a organização
-  // que a usaria. Vazias = a ponte não existe e tudo se comporta como sempre.
-  CLAUDE_PONTE_BASE_URL: z.string().optional().default(""),
-  CLAUDE_PONTE_API_KEY: z.string().optional().default(""),
-  CLAUDE_PONTE_ORGS: z.string().optional().default(""),
   OPENROUTER_BASE_URL: z.string().optional().default(""),
   // OmniRouter (gateway OpenAI-compatível da instalação): SEM endereço embutido no código. O
   // endereço é de quem opera a instalação, não do produto; vazio = o OmniRouter não existe e o
-  // painel do admin recusa habilitá-lo (rota PUT de `admin/tenants/[id]/ai`).
+  // painel do admin recusa habilitá-lo (rota PUT de `admin/tenants/[id]/ai`). São o PISO do
+  // `.env`: o valor gravado na tela de Credenciais (`platform_config`) vence — ver
+  // `lib/ai/omnirouter-ativo.ts` (app) e `lib/instalacao/config-sql.ts` (motor). Sem validar o
+  // valor aqui: quem decide se presta é `omniRouterDaOrganizacao`, só para a organização que o
+  // usaria. `OMNIROUTER_PARA_TODAS=true` oferece o OmniRouter a todas as organizações sem
+  // credencial própria que o admin não recusou.
   OMNIROUTER_BASE_URL: z.string().optional().default(""),
   OMNIROUTER_API_KEY: z.string().optional().default(""),
+  OMNIROUTER_PARA_TODAS: z.string().optional().default(""),
   // Atribuição OPCIONAL da OpenRouter (`HTTP-Referer` / `X-Title`): identifica a
   // instalação no painel e no ranking público DELES. A doc da OpenRouter chama
   // os dois de opcionais e a chamada funciona sem — por isso default vazio e
