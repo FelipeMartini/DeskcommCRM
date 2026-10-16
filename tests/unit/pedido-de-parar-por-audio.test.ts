@@ -40,6 +40,9 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => criarAdmin() }
 vi.mock("@/lib/escalacao/handoff-tecnico", () => ({ reagirAConclusaoDeDerivacao: reagirMock }));
 vi.mock("@/lib/messaging/media/derive", () => ({ deriveMediaText: vi.fn(async () => H.transcricao) }));
 vi.mock("@/lib/agent-engine/edge/llm/credentials", () => ({
+  // O worker monta a configuração pela função compartilhada (como o turno do agente). Este teste
+  // não exercita a escada, então ela devolve uma configuração mínima e DEFINIDA.
+  llmEdgeConfigFromEnv: () => ({ cacheTtl: "1h" as const }),
   resolveOrgLlmConfig: vi.fn(async () => ({
     provider: "openai",
     origemDaChave: "credencial_da_organizacao",

@@ -131,6 +131,9 @@ vi.mock("@/lib/messaging/media/derive", () => ({
 }));
 
 vi.mock("@/lib/agent-engine/edge/llm/credentials", () => ({
+  // O worker monta a configuração pela função compartilhada (como o turno do agente). Este teste
+  // não exercita a escada, então ela devolve uma configuração mínima e DEFINIDA.
+  llmEdgeConfigFromEnv: () => ({ cacheTtl: "1h" as const }),
   resolveOrgLlmConfig: vi.fn(async () => {
     const config: Record<string, unknown> = {
       provider: "openai",

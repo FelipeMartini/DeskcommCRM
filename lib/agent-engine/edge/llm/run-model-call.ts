@@ -1213,8 +1213,13 @@ export async function runModelCall(db: pg.Pool, cfg: LlmEdgeConfig, input: RunMo
  * QUAL fábrica do registry fala por esta configuração. Quase sempre a do próprio
  * provedor; a `claude-ponte` é outro DESTINO do provedor `anthropic`, escolhido
  * por `resolveOrgLlmConfig` (`config.ponte`) e nunca por quem chama.
+ *
+ * Exportada porque o turno NÃO é o único chamador de LLM que sai pelo registry: o worker de mídia
+ * (`workers/media-derive-worker.ts`) também chama o modelo, e escolher a fábrica por
+ * `registry[llm.provider]` mandaria a chave DA PONTE (e a foto do cliente) a `api.anthropic.com`.
+ * Uma regra só, aqui, para os dois.
  */
-function fabricaDe(cfg: { provider: string; ponte?: unknown }): string | typeof FABRICA_DA_PONTE {
+export function fabricaDe(cfg: { provider: string; ponte?: unknown }): string | typeof FABRICA_DA_PONTE {
   return cfg.ponte !== undefined ? FABRICA_DA_PONTE : cfg.provider;
 }
 

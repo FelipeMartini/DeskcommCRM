@@ -119,6 +119,9 @@ const credencial = vi.hoisted(() => ({
   origemDaChave: "credencial_da_organizacao" as "credencial_da_organizacao" | "chave_da_instalacao",
 }));
 vi.mock("@/lib/agent-engine/edge/llm/credentials", () => ({
+  // O worker monta a configuração pela função compartilhada (como o turno do agente). Este teste
+  // não exercita a escada, então ela devolve uma configuração mínima e DEFINIDA.
+  llmEdgeConfigFromEnv: () => ({ cacheTtl: "1h" as const }),
   resolveOrgLlmConfig: vi.fn(async () => ({
     provider: "openrouter",
     apiKey: "chave-do-binding",

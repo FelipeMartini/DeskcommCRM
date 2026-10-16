@@ -132,6 +132,9 @@ vi.mock("ai", async (importOriginal) => {
 });
 
 vi.mock("@/lib/agent-engine/edge/llm/credentials", () => ({
+  // O worker monta a configuração pela função compartilhada (como o turno do agente). Este teste
+  // não exercita a escada, então ela devolve uma configuração mínima e DEFINIDA.
+  llmEdgeConfigFromEnv: () => ({ cacheTtl: "1h" as const }),
   resolveOrgLlmConfig: (...args: unknown[]) => resolveMock(...args),
 }));
 
