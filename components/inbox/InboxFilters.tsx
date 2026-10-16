@@ -34,7 +34,8 @@ import { useAuth } from "@/hooks/auth/AuthProvider";
 import { useContactTagVocabulary } from "@/hooks/contacts/useContactTagVocabulary";
 import { useConversationTagVocabulary } from "@/hooks/inbox/useConversationTags";
 import { useConversationCounts } from "@/hooks/inbox/useConversationCounts";
-import type { Role, VisibilityMode } from "@/lib/auth/types";
+import { roleAtLeast, type Role, type VisibilityMode } from "@/lib/auth/types";
+import { SeletorDeAtendente } from "@/components/inbox/SeletorDeAtendente";
 
 export type InboxTab = "unassigned" | "mine" | "all" | "closed" | "archived" | "ai";
 
@@ -93,6 +94,21 @@ export interface InboxFiltersValue {
   tagMode?: ModoDeEtiqueta;
   /** A aba "Grupos" (Task 10): manda `is_group=true` na listagem. */
   onlyGroups?: boolean;
+  /**
+   * Só as conversas deste atendente (id do usuário). Filtro de GERENTE para cima;
+   * ausente = todas. A aba Minhas já é "as minhas", então ali ele não vale.
+   */
+  assigned_to?: string;
+}
+
+/**
+ * Trocar de aba, por QUALQUER caminho (clique na aba ou setas de "Aba anterior"/
+ * "Próxima aba"). Minhas já é "só as minhas": um atendente escolhido antes não
+ * vale ali, e seguir com ele deixaria as outras abas contando o atendente com o
+ * seletor escondido.
+ */
+export function comAba(value: InboxFiltersValue, tab: InboxTab): InboxFiltersValue {
+  return { ...value, tab, ...(tab === "mine" ? { assigned_to: undefined } : {}) };
 }
 
 interface Props {
@@ -198,18 +214,24 @@ export function InboxFilters({ value, onChange }: Props) {
   // manda o atendente procurar trabalho que não existe — a regra já estava escrita
   // na rota; faltava alcançar os filtros ao lado da aba.
   const { data: counts } = useConversationCounts(activeOrg?.orgId ?? null, {
+    assigned_to: value.assigned_to,
     unread: value.onlyUnread,
     tag: etiquetas,
     tagMode: value.tagMode,
     channel_session_id: value.channel_session_id,
   });
 
+  // Filtro por ATENDENTE: só para gerente ou acima (a lista de quem atende é da
+  // gestão; o atendente comum continua vendo só o escopo dele, que a RLS impõe).
+  const podeFiltrarPorAtendente = roleAtLeast(activeOrg?.role, "manager");
+  const mostrarSeletorDeAtendente = podeFiltrarPorAtendente && value.tab !== "mine";
+
   const tabs = activeOrg
     ? visibleInboxTabs(activeOrg.role, activeOrg.visibility_mode)
     : INBOX_TABS.map((t) => t.value);
   const moveTab = (direction: -1 | 1) => {
     const next = tabs[tabs.indexOf(value.tab) + direction];
-    if (next) onChange({ ...value, tab: next });
+    if (next) onChange(comAba(value, next));
   };
   const countFor: Partial<Record<InboxTab, number>> = {
     // `fila` é o nome novo; `unassigned` é o alias que a rota versionada mantém.
@@ -428,7 +450,7 @@ export function InboxFilters({ value, onChange }: Props) {
           </button>
         </div>
 
-        {(showChannelSwitch || mostrarSeletorDeTag) && (
+        {(showChannelSwitch || mostrarSeletorDeTag || mostrarSeletorDeAtendente) && (
           <div className="flex gap-2">
             {showChannelSwitch && (
               <Select
@@ -596,15 +618,45 @@ export function InboxFilters({ value, onChange }: Props) {
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
+
+            {mostrarSeletorDeAtendente && (
+              <SeletorDeAtendente
+                value={value.assigned_to}
+                onChange={(atendente) => onChange({ ...value, assigned_to: atendente })}
+              />
+            )}
           </div>
         )}
       </div>
 
       {/* As setas aparecem só quando há abas fora da área visível; a faixa e o
-          sublinhado continuam com a altura compacta do Inbox. */}
+          sublinhado continuam com a altura compacta do Inbox.
+
+          `flex-wrap` + `gap-x-1` (#2745) — A FAIXA QUEBRA EM VEZ DE ESCONDER.
+          Medido em browser real, com o CSS do produto compilado e a fonte
+          verdadeira (`tests/sonda-abas-inbox-1280.test.tsx`), as seis abas
+          somam 358px de rótulo+contagem e 378px com o gap de 4px; a coluna da
+          lista vale de 240 (mínimo do arraste, `LIMITES_LISTA`) a 520px, e o
+          padrão da faixa `xl` — a janela de 1280px da issue — é 272px. Sem
+          quebra, o `overflow-x-auto` rolava 191px na coluna de 272 e 13px na
+          de 450: "Fechadas" cortada e "Arquivadas" escondida atrás da seta,
+          que era exatamente o corte medido. Agora, na mesma medição: 2 linhas
+          (68px) em 272, 1 linha (30px) em 450, e as seis dentro da coluna em
+          toda a faixa — rolagem zero.
+
+          `shrink-0` + `whitespace-nowrap` seguem valendo: rótulo não encolhe
+          nem parte no meio. O `gap-x-1` só aperta onde não há folga (com
+          `justify-between` a sobra continua distribuída, então a faixa larga
+          não muda de figura) — e é o que leva 272px de 3 linhas para 2. A
+          seta de rolagem fica sendo o que sempre foi: reserva para o caso em
+          que UMA aba sozinha não cabe (zoom alto, coluna arrastada no mínimo).
+
+          Só o LAYOUT mudou: `value.tab`, `onChange`, `visibleInboxTabs` e
+          `countFor` estão byte a byte como estavam — a aba continua o mesmo
+          filtro com o mesmo rótulo, e "Automático" continua "Automático". */}
       <Tabs
         value={value.tab}
-        onValueChange={(v) => onChange({ ...value, tab: v as InboxTab })}
+        onValueChange={(v) => onChange(comAba(value, v as InboxTab))}
         className="px-3"
       >
         <div className="flex items-center gap-1">
@@ -623,7 +675,7 @@ export function InboxFilters({ value, onChange }: Props) {
           <TabsList
             ref={tabsListRef}
             onScroll={updateMoreTabs}
-            className="h-auto min-w-0 flex-1 justify-between gap-2 rounded-none bg-transparent p-0 [scrollbar-width:none]"
+            className="h-auto min-w-0 flex-1 flex-wrap justify-between gap-x-1 gap-y-2 rounded-none bg-transparent p-0 [scrollbar-width:none]"
           >
             {tabs.map((tab) => {
               const meta = INBOX_TABS.find((t) => t.value === tab)!;

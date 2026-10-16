@@ -511,6 +511,17 @@ export async function createLeadHandler(
     /** Interno (webhook inbound) — idempotência via uniq_crm_leads_org_source_external. */
     external_id?: string;
     /**
+     * Interno (webhook inbound) — a FONTE que criou este card (issue #2316,
+     * migration 0683).
+     *
+     * É o carimbo que responde "de quem é este card" para a atualização por
+     * integração alcançar só o card da própria fonte, e ele é durável por
+     * desenho: a linha de `webhook_lead_captures` é podada em 365 dias. Não vem
+     * do corpo da requisição — quem passa é a rota de captação, que resolve a
+     * fonte pelo `path_token`.
+     */
+    webhook_source_id?: string | null;
+    /**
      * Interno (importação de planilha). Marca o `lead.created` com
      * `metadata.via`, e o gatilho de follow-up "Lead criado" não inscreve em
      * lote quem entrou por planilha. Não vem do corpo da requisição.
@@ -685,6 +696,7 @@ export async function createLeadHandler(
       source: input.source,
       source_metadata: input.source_metadata ?? {},
       external_id: input.external_id ?? null,
+      webhook_source_id: input.webhook_source_id ?? null,
       custom_fields: input.custom_fields ?? {},
       retomado_de_lead_id: input.retomado_de_lead_id ?? null,
       status: "open",
@@ -696,6 +708,33 @@ export async function createLeadHandler(
 
   const recusaNoInsert = recusaDaGuardaDoBanco(ctx, insErr);
   if (recusaNoInsert) throw recusaNoInsert;
+
+  // ── A PERDA SEM MOTIVO NA PRÓPRIA CRIAÇÃO (issue #2743) ────────────────────
+  //
+  // Nascer numa etapa de perda é o ÚNICO caminho de escrita em que este
+  // handler chega ao trigger `fn_validate_lost_reason_required` sem ter
+  // perguntado nada: o arrasto, o move, o bulk, o encerramento e o `/lose`
+  // decidem `decideMotivoDaPerda` ANTES de escrever, e aqui não há
+  // `lost_reason` no corpo (`CreateLeadInput` nem o declara). O trigger levanta
+  // `22023` — e sem esta linha o catch-all logo abaixo entregava 500
+  // `internal_error` com a mensagem crua do banco, que o Sentry conta como
+  // defeito interno (#2743, medido na prova do #2713).
+  //
+  // É a MESMA rede de segurança que `moveLeadHandler`, `bulk`, `encerramento`
+  // e o arrasto já usam — uma pergunta, uma resposta: a recusa do banco vira
+  // recusa de NEGÓCIO (422 `lost_reason_required`, frase traduzida), e um erro
+  // de banco de outra classe segue intocado no 500.
+  const recusaDeMotivoNoInsert = recusaDeMotivoDaPerdaPeloBanco(insErr, ctx.idioma);
+  if (recusaDeMotivoNoInsert) {
+    throw new ApiError(
+      422,
+      recusaDeMotivoNoInsert.codigo,
+      undefined,
+      ctx.requestId,
+      recusaDeMotivoNoInsert.mensagem,
+    );
+  }
+
   if (insErr || !lead) {
     throw new ApiError(
       500,

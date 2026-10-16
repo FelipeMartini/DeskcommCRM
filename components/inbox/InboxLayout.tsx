@@ -2,7 +2,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "@/hooks/i18n/useT";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useAuth } from "@/hooks/auth/AuthProvider";
+import { useAuth, usePermission } from "@/hooks/auth/AuthProvider";
+import { useBulkConversations, type AcaoEmLote } from "@/hooks/inbox/useBulkConversations";
+import { useSelecaoEmLote } from "@/hooks/inbox/useSelecaoEmLote";
 import { estadoDaJanela } from "@/lib/channels/janela";
 import { motivoDaJanelaFechada, motivoDoContato } from "@/lib/inbox/motivo-do-envio-bloqueado";
 import { JanelaFechadaAviso } from "@/components/inbox/JanelaFechadaAviso";
@@ -17,10 +19,12 @@ import {
 } from "@/hooks/inbox/useConversationsRealtime";
 import { useConversation, isNotFound } from "@/hooks/inbox/useConversation";
 import { ConversationList } from "./ConversationList";
+import { BarraDeAcoesEmLote } from "./BarraDeAcoesEmLote";
 import { InboxFilters, type InboxFiltersValue, type InboxTab } from "./InboxFilters";
 import { ChatThread } from "./ChatThread";
 import { Composer, type ComposerHandle } from "./Composer";
 import { ConversationHeader } from "./ConversationHeader";
+import { BotaoIniciarConversa } from "./PainelIniciarConversa";
 import { RetentionNotice } from "./RetentionNotice";
 import { CRMSidePanel } from "./CRMSidePanel";
 import type { Message as ConversationMensagem } from "@/lib/types/messaging";
@@ -257,12 +261,15 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
    * e completa quando a resposta chega; a janela é de ~200ms e o rótulo nunca
    * discorda do filtro, porque os dois usam a mesma convenção.
    */
-  const { data: automaticoDaOrg } = useAutomaticoAtivo();
+  const { data: automaticoDaOrg, isLoading: automaticoCarregando } = useAutomaticoAtivo();
   const composerRef = useRef<ComposerHandle | null>(null);
 
   const filters: ConversationsFilters = useMemo(
     () => ({
       ...tabToFilter(filterValue.tab, automaticoDaOrg),
+      // O atendente escolhido pelo gerente. A aba Minhas já traz `assigned_to=me`,
+      // e esse valor da aba vence (o seletor nem aparece ali).
+      assigned_to: tabToFilter(filterValue.tab, automaticoDaOrg).assigned_to ?? filterValue.assigned_to,
       // A tela NÃO pede o que a rota recusa: o hook trata falha com
       // `showApiError`, então digitar a primeira letra de qualquer busca faria
       // piscar um erro na cara de quem digita. A regra é a MESMA que o schema
@@ -279,6 +286,7 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
     [
       filterValue.tab,
       automaticoDaOrg,
+      filterValue.assigned_to,
       filterValue.search,
       filterValue.channel_session_id,
       filterValue.tag,
@@ -289,9 +297,33 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
   );
 
 
+  /**
+   * A FILA ESPERA O FATO DA ORG — E CONSULTA UMA VEZ SÓ (#2365).
+   *
+   * Só a aba Fila depende do fato org-wide: `comandosDaFila` devolve
+   * `aguardando,automatico` numa org SEM automático (sem robô, essas conversas
+   * também esperam gente) e `aguardando` numa org com. Enquanto o fato não
+   * chegou, `undefined` vale "assume que há" — e era essa suposição que saía
+   * como PRIMEIRA busca da lista: com o automático desligado, a resposta trocava
+   * a chave e o react-query abria uma segunda query, DESCARTANDO a primeira
+   * (trace do #2360: `comando=aguardando` 1091ms + `comando=aguardando,automatico`
+   * 896ms, duas voltas de rede pela mesma lista).
+   *
+   * Segurar a Fila até o fato chegar é o preço de UMA requisição: a pergunta já
+   * é feita pela tela de qualquer jeito (o `ConversationList` e o cabeçalho leem
+   * o mesmo hook, deduplicado), e o esqueleto cobre a espera — nunca a caixa
+   * vazia, porque `isPending` também é verdadeiro com a consulta segurada (ver
+   * `ConversationList`). Nas outras abas o filtro não depende do fato e a lista
+   * continua consultando na hora.
+   *
+   * Falha ou permissão ausente não travam a tela: aí `isLoading` é falso, a
+   * consulta sai com a convenção de sempre e nada fica esperando para sempre.
+   */
+  const filaEsperaOFatoDaOrg = filterValue.tab === "unassigned" && automaticoCarregando;
+
   // We need the selected conversation object for header / composer / side panel.
   // Source it from the same query the list uses to avoid an extra request.
-  const listQ = useConversationsRealtime(filters, orgId);
+  const listQ = useConversationsRealtime(filters, orgId, !filaEsperaOFatoDaOrg);
   const inList = useMemo(() => {
     const all = listQ.data?.pages.flatMap((p) => p.data) ?? [];
     return all.find((c) => c.id === selectedId) ?? null;
@@ -338,6 +370,33 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
 
   const claim = useClaimConversation();
   const close = useCloseConversation();
+
+  // LOTE (#2484, F1): a seleção múltipla e a barra de ações da Inbox. A
+  // permissão de ESCRITA continua sendo a do `usePermission` — quem tem
+  // `inbox.reply` pode marcar e agir em lote; para o `viewer` a seleção nem
+  // aparece. (A rota ainda valida por conta própria: este portão é de tela,
+  // a fonte da regra é a API.)
+  const podeAgirEmLote = usePermission("inbox.reply");
+  const selecao = useSelecaoEmLote();
+  const lote = useBulkConversations();
+
+  const rodarLote = useCallback(
+    (action: AcaoEmLote, toUserId?: string, reason?: string) => {
+      const ids = Array.from(selecao.selecionados);
+      if (ids.length === 0) return;
+      lote.mutate(
+        { ids, action, to_user_id: toUserId, reason },
+        {
+          // A seleção é limpa depois do lote, aconteça o que acontecer:
+          // manter marcadas as conversas recusadas (de outra organização,
+          // inexistentes) deixaria a barra no lugar mensageando um lote que
+          // não existe mais.
+          onSuccess: () => selecao.limpar(),
+        },
+      );
+    },
+    [lote, selecao],
+  );
 
   // A leitura da conversa aberta é do upstream e fica: sem ela o contador de
   // não-lidas nunca zera para quem abre a conversa.
@@ -628,7 +687,21 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
           colunas.lista,
         )}
       >
+        <BotaoIniciarConversa />
         <InboxFilters value={filterValue} onChange={setFilterValue} />
+        {podeAgirEmLote && (
+          <BarraDeAcoesEmLote
+            quantidade={selecao.quantidade}
+            pendente={lote.isPending}
+            onFechar={() => rodarLote("close")}
+            onArquivar={() => rodarLote("archive")}
+            onMarcarComoLida={() => rodarLote("mark-read")}
+            onPausarIa={() => rodarLote("pause-ai")}
+            onDevolverAoAutomatico={() => rodarLote("reactivate-bot")}
+            onTransferir={(toUserId, reason) => rodarLote("transfer", toUserId, reason)}
+            onLimpar={selecao.limpar}
+          />
+        )}
         <div className="min-h-0 flex-1 overflow-hidden">
           <ConversationList
             listQuery={listQ}
@@ -637,6 +710,16 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
             onSelect={handleSelect}
             onVisibleChange={handleVisibleChange}
             onLimparFiltros={limparFiltrosAuxiliares}
+            selecionados={selecao.selecionados}
+            onAlternarSelecao={podeAgirEmLote ? selecao.alternar : undefined}
+            onSelecionarTodosVisiveis={
+              podeAgirEmLote
+                ? () =>
+                    selecao.selecionarTodos(
+                      (listQ.data?.pages.flatMap((p) => p.data) ?? []).map((c) => c.id),
+                    )
+                : undefined
+            }
           />
         </div>
       </div>
@@ -781,6 +864,7 @@ export function InboxLayout({ initialSelectedId = null, rascunho = null }: Inbox
               janelaFechada={motivoDaJanela}
               disabled={selectedConversation.status === "closed"}
               contactName={selectedConversation.contacts?.name ?? null}
+              contactDisplayName={selectedConversation.contacts?.display_name}
               respondendo={respondendo}
               onCancelarResposta={() => setRespondendo(null)}
               currentContactId={selectedConversation.contact_id}
