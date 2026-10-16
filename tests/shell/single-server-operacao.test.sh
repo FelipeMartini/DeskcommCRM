@@ -408,5 +408,39 @@ for l in "$l_guarda" "$l_atualiza"; do
     bash -c 'awk -v l="$2" "NR<l && /^if \\[ \"\\$\\{SINGLE_SERVER:-0\\}\" = \"1\" \\]; then\$/{a=NR} NR<l && /^fi\$/{f=NR} END{exit !(a>f)}" "$1"' _ "$U" "$l"
 done
 
+# #2755 — o aviso de SMTP manda configurar E rodar o update.sh de novo, e diz
+# por quê: o app não leva o SMTP de /admin/email ao GoTrue, quem leva é o
+# `sincronizar_smtp_do_gotrue` do próprio update.sh. Tirar o "rode de novo"
+# deixaria o dono configurando a tela e esperando um e-mail que nunca sai. O
+# bloco é medido ISOLADO (awk até o `fi` dele): o update.sh inteiro tem outras
+# ordens de "rode de novo", e cobrir o arquivo todo mediria a frase errada.
+echo "o aviso de SMTP do update.sh manda configurar e atualizar, e diz por quê (#2755):"
+AVISO_SMTP="$WORK/aviso-smtp.txt"
+awk '/^  if sincronizar_smtp_do_gotrue; then$/{f=1} f{print} f&&/^  fi$/{exit}' "$U" > "$AVISO_SMTP"
+check "achei o bloco do aviso — sem ele os casos abaixo medem nada" test -s "$AVISO_SMTP"
+check "o aviso diz para configurar em /admin/email" contem "$AVISO_SMTP" "Configure em /admin/email"
+check "e manda rodar o update.sh de novo" contem "$AVISO_SMTP" "rode bash hostgator-setup-kit/update.sh de novo"
+check "e diz o porquê: é ele que leva o SMTP ao login" contem "$AVISO_SMTP" "é ele que leva o SMTP ao serviço de login"
+# Só a frase impressa: o comentário do bloco cita o painel para explicar a ausência.
+grep 'c_ylw "⚠ Sem SMTP' "$AVISO_SMTP" > "$WORK/aviso-smtp-frase.txt"
+check "achei a frase impressa do aviso" test -s "$WORK/aviso-smtp-frase.txt"
+check "e não manda para o painel de Atualização, cujo botão só aparece com versão nova" nao_contem "$WORK/aviso-smtp-frase.txt" "painel"
+
+# #2755 — a MESMA correção da saída do update.sh chega à tela final do
+# instalador. Lá a frase era "Configure em /admin/email e rode: bash
+# hostgator-setup-kit/update.sh": mandava rodar sem dizer por quê, e sem o
+# porquê ela se lê como ordem sem motivo. Aqui também é o bloco ISOLADO (awk até
+# o `fi` dele) — o instalador inteiro tem outros avisos, e cobrir o arquivo todo
+# mediria a frase errada.
+S="$KIT_DIR/install-single-server.sh"
+echo "a tela final do instalador diz por que rodar o update.sh (#2755):"
+AVISO_INSTALL="$WORK/aviso-smtp-install.txt"
+awk '/^if sincronizar_smtp_do_gotrue; then$/{f=1} f{print} f&&/^fi$/{exit}' "$S" > "$AVISO_INSTALL"
+check "achei o bloco do aviso do instalador — sem ele os casos abaixo medem nada" test -s "$AVISO_INSTALL"
+check "o aviso diz para configurar em /admin/email" contem "$AVISO_INSTALL" "Configure em /admin/email"
+check "e manda rodar o update.sh" contem "$AVISO_INSTALL" "rode bash hostgator-setup-kit/update.sh"
+check "e diz o porquê: é ele que leva o SMTP ao serviço de login" contem "$AVISO_INSTALL" "leva o SMTP ao servico de login"
+check "a frase antiga, que mandava rodar sem motivo, sumiu" nao_contem "$AVISO_INSTALL" "rode: bash hostgator-setup-kit/update.sh"
+
 [ "$FAILS" -eq 0 ] || { echo "✖ $FAILS falha(s)" >&2; exit 1; }
 echo 'ok: single-server não colide, faz backup dos anexos, manda e-mail e atualiza o Supabase'
