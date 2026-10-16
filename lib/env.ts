@@ -294,7 +294,10 @@ const schema = z.object({
   CLAUDE_PONTE_API_KEY: z.string().optional().default(""),
   CLAUDE_PONTE_ORGS: z.string().optional().default(""),
   OPENROUTER_BASE_URL: z.string().optional().default(""),
-  OMNIROUTER_BASE_URL: z.string().optional().default("https://omnirouter.poa.metodoatuarial.com.br/v1"),
+  // OmniRouter (gateway OpenAI-compatível da instalação): SEM endereço embutido no código. O
+  // endereço é de quem opera a instalação, não do produto; vazio = o OmniRouter não existe e o
+  // painel do admin recusa habilitá-lo (rota PUT de `admin/tenants/[id]/ai`).
+  OMNIROUTER_BASE_URL: z.string().optional().default(""),
   OMNIROUTER_API_KEY: z.string().optional().default(""),
   // Atribuição OPCIONAL da OpenRouter (`HTTP-Referer` / `X-Title`): identifica a
   // instalação no painel e no ranking público DELES. A doc da OpenRouter chama

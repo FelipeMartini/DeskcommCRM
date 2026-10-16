@@ -22,6 +22,7 @@ import {
 } from "@/lib/auth/requirePlatformAdmin";
 import { OMNIROUTER_BASE_URL } from "@/lib/ai/gateway";
 import { guardarCredencial } from "@/lib/ai/credenciais/guardar";
+import { requireSupportWrite } from "@/lib/impersonate/support";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -96,6 +97,9 @@ export async function PUT(
   const requestId = randomUUID();
   const { id: orgId } = await params;
 
+  const supportDenied = await requireSupportWrite(orgId);
+  if (supportDenied) return supportDenied;
+
   let adminCtx: Awaited<ReturnType<typeof requirePlatformAdminEscrita>>;
   try {
     adminCtx = await requirePlatformAdminEscrita();
@@ -119,6 +123,18 @@ export async function PUT(
   }
 
   const { habilitado, apiKey, model } = parsed.data;
+
+  // Sem endereço do OmniRouter na instalação não há para onde apontar a credencial: recusa
+  // antes de gravar qualquer coisa (o endereço não vem mais embutido no código).
+  if (habilitado && !OMNIROUTER_BASE_URL) {
+    return fail(
+      "validation_failed",
+      "O OmniRouter não está configurado nesta instalação: defina OMNIROUTER_BASE_URL no ambiente.",
+      422,
+      { requestId },
+    );
+  }
+
   const admin = createAdminClient();
 
   const { data: orgAtual, error: erroOrg } = await admin

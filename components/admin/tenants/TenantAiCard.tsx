@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -21,7 +21,7 @@ export function TenantAiCard({
   organizationId,
   initialHabilitado = false,
   initialModel = "claude-haiku-5-5",
-  omnirouterBaseUrl = "https://omnirouter.poa.metodoatuarial.com.br/v1",
+  omnirouterBaseUrl = "",
 }: TenantAiCardProps) {
   const t = useT();
   const [isPending, startTransition] = useTransition();
@@ -29,6 +29,26 @@ export function TenantAiCard({
   const [habilitado, setHabilitado] = useState(initialHabilitado);
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState(initialModel);
+  // O endereço do OmniRouter é da instalação (variável de ambiente), não do código: quando a
+  // página não o traz, o card pergunta à rota GET do admin. Vazio = não configurado.
+  const [endereco, setEndereco] = useState(omnirouterBaseUrl);
+
+  useEffect(() => {
+    if (omnirouterBaseUrl) return;
+    let cancelado = false;
+    fetch(`/api/v1/admin/tenants/${organizationId}/ai`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((corpo: { data?: { omnirouter_base_url?: unknown } } | null) => {
+        const valor = corpo?.data?.omnirouter_base_url;
+        if (!cancelado && typeof valor === "string") setEndereco(valor);
+      })
+      .catch(() => {
+        // Sem o endereço o card mostra "não configurado"; a rota PUT segue sendo a que decide.
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [organizationId, omnirouterBaseUrl]);
 
   const salvar = () => {
     startTransition(async () => {
@@ -90,9 +110,13 @@ export function TenantAiCard({
         <CardContent className="space-y-4 pt-0">
           <div className="rounded-md bg-muted/50 p-3 text-xs space-y-1">
             <div className="text-muted-foreground font-medium">{t("Endpoint Gateway:")}</div>
-            <code className="text-primary font-mono text-[11px] block break-all">
-              {omnirouterBaseUrl}
-            </code>
+            {endereco ? (
+              <code className="text-primary font-mono text-[11px] block break-all">{endereco}</code>
+            ) : (
+              <p className="text-[11px] text-destructive">
+                {t("Endereço do OmniRouter não configurado nesta instalação (variável OMNIROUTER_BASE_URL).")}
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">

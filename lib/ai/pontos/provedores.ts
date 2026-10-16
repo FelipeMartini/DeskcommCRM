@@ -143,7 +143,7 @@ export const PROVEDORES = [
   },
   {
     id: "custom",
-    rotulo: "OmniRouter / Provedor personalizado (compatível com OpenAI)",
+    rotulo: "Provedor personalizado (compatível com OpenAI)",
     quandoUsar:
       "Endpoint seu que fala a API da OpenAI — OmniRouter, 9Router, LiteLLM hospedado ou proxy corporativo, num endereço público. Você informa o endereço (base URL) e a chave, e o CRM conversa com ele como conversa com a OpenAI.",
     aceitaEndpointProprio: true,

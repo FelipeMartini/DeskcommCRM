@@ -78,6 +78,7 @@ vi.mock("@/lib/crypto/aes_gcm", () => ({
 }));
 
 const { resolverModeloDoPonto } = await import("@/lib/ai/gateway-binding");
+const { DEFAULT_CLASSIFIER_MODEL } = await import("@/lib/ai/gateway");
 
 const ORG = "33333333-3333-4333-8333-333333333333";
 const MODELO_PADRAO_DA_OPENAI = "gpt-5.6-terra";
@@ -230,7 +231,11 @@ describe("o worker responde com a chave da instalação", () => {
 });
 
 describe("o default de classificação numa VPS já instalada (#2377)", () => {
-  const HAIKU = "anthropic/claude-haiku-4-5";
+  // É a CONSTANTE do produto, não um literal: o resolvedor só trata como "o
+  // default da Anthropic" o id igual a `DEFAULT_CLASSIFIER_MODEL`. Com o literal
+  // `claude-haiku-4-5`, a troca do default para o 5.5 (13/10) deixou de ser
+  // reconhecida e a queda para o par da organização não rodava.
+  const HAIKU = DEFAULT_CLASSIFIER_MODEL;
 
   it("org em openai SEM par próprio executável e só a chave Anthropic: classifica com o piso, não para", async () => {
     estado.settings = { llm: { provider: "openai" } };
