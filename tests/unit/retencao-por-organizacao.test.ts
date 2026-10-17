@@ -17,7 +17,7 @@ import {
 
 /**
  * O PRAZO DE RETENÇÃO POR ORGANIZAÇÃO — a regra pura e a passada do cron
- * (migration 0688; modelo MISTO, etapas 2 e 3).
+ * (migration 0693; modelo MISTO, etapas 2 e 3).
  *
  * O que o banco apaga — e o que ele se recusa a apagar — é medido contra um
  * Postgres real; aqui a régua é a regra: o que vale do `settings`, o que a tela

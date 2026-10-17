@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { lastLine, sql } from "./gov-helpers";
 
 /**
- * O PRAZO DE RETENÇÃO POR ORGANIZAÇÃO CONTRA UM POSTGRES DE VERDADE — migration 0688.
+ * O PRAZO DE RETENÇÃO POR ORGANIZAÇÃO CONTRA UM POSTGRES DE VERDADE — migration 0693.
  *
  * ─── O que esta suíte garante que o teste de unidade não garante ──────────
  *
@@ -102,7 +102,7 @@ beforeEach(() => {
     insert into user_organizations (user_id, organization_id, role, revoked_at) values
       ('${ADMIN_B_REVOGADO}', '${ORG_B}', 'admin', now());
     insert into platform_admins (user_id, granted_by, reason)
-      values ('${ADMIN_DA_PLATAFORMA}', '${ADMIN_DA_PLATAFORMA}', 'teste do invariante 0688');
+      values ('${ADMIN_DA_PLATAFORMA}', '${ADMIN_DA_PLATAFORMA}', 'teste do invariante 0693');
   `);
 });
 

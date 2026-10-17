@@ -1167,7 +1167,7 @@ export const AUDIT_ACTIONS = [
   // `removidas` no metadata) ou dentro do `template.deleted`, que são os atos
   // em que a imagem sai de fato.
   "template.media_added",
-  // A poda por ORGANIZAÇÃO (migration 0688, retenção mista): uma linha por
+  // A poda por ORGANIZAÇÃO (migration 0693, retenção mista): uma linha por
   // (organização, tipo) que apagou dado pessoal pelo prazo PRÓPRIO dela, gravada
   // na própria organização para o admin dela ler. A linha global
   // `retention.sweep_run` continua existindo e só leva o resumo.

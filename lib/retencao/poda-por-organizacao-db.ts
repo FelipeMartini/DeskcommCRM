@@ -1,5 +1,5 @@
 /**
- * O adaptador do banco para a passada por organização (migration 0688).
+ * O adaptador do banco para a passada por organização (migration 0693).
  *
  * Mora aqui, e não dentro do `app/api/v1/cron/data-retention/route.ts`, por uma
  * razão medida: `tests/unit/poda-de-nonces-aceita-os-nomes-das-irmas.test.ts`

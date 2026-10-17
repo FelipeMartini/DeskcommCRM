@@ -54854,11 +54854,11 @@ begin
 end;
 $$;
 
--- ---- Retenção por organização: as funções (migration 0688) ----
--- O corpo abaixo é o da migration 0688, sem a linha de manifesto. Só cria função, então mora ANTES da
+-- ---- Retenção por organização: as funções (migration 0693) ----
+-- O corpo abaixo é o da migration 0693, sem a linha de manifesto. Só cria função, então mora ANTES da
 -- varredura anon (o teste varredura-anon-e-o-ultimo-bloco proíbe função depois dela).
 -- ═══════════════════════════════════════════════════════════════════════════
--- 0688 — o prazo de retenção do dado pessoal passa a poder ser da ORGANIZAÇÃO.
+-- 0693 — o prazo de retenção do dado pessoal passa a poder ser da ORGANIZAÇÃO.
 --
 -- ─── Por que ───────────────────────────────────────────────────────────────
 -- Hoje o prazo de cada tipo de dado é um só para a INSTALAÇÃO inteira (16

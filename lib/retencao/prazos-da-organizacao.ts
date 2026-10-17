@@ -1,6 +1,6 @@
 /**
  * O prazo de retenção POR ORGANIZAÇÃO — regra PURA, sem banco e sem env
- * (modelo MISTO, etapas 2 e 3; migration 0688).
+ * (modelo MISTO, etapas 2 e 3; migration 0693).
  *
  * ─── O que é por organização, e o que continua global ──────────────────────
  * Quatro tipos de dado PESSOAL de terceiros: a captação de lead, a conversa do

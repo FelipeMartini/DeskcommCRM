@@ -1,6 +1,6 @@
 -- manifest: Retenção de dado pessoal POR ORGANIZAÇÃO (modelo MISTO, etapas 2 e 3): captação de lead, conversa do caso, prospecção e espelho da agenda ganham um prazo próprio em `organizations.settings.retencao` que só ENCURTA o prazo global (nunca passa dele, nunca fica abaixo do piso fixo, que mora no corpo das funções). Cria `fn_piso_de_retencao_por_organizacao`, `fn_prazo_de_retencao_da_organizacao`, `fn_organizacoes_com_prazo_proprio`, `fn_expurgar_por_organizacao` (poda em lotes, uma organização e um tipo por chamada) e `fn_definir_retencao_da_organizacao` (gravação atômica, só admin da organização ou da plataforma). As podas globais existentes ficam intactas.
 -- ═══════════════════════════════════════════════════════════════════════════
--- 0688 — o prazo de retenção do dado pessoal passa a poder ser da ORGANIZAÇÃO.
+-- 0693 — o prazo de retenção do dado pessoal passa a poder ser da ORGANIZAÇÃO.
 --
 -- ─── Por que ───────────────────────────────────────────────────────────────
 -- Hoje o prazo de cada tipo de dado é um só para a INSTALAÇÃO inteira (16
