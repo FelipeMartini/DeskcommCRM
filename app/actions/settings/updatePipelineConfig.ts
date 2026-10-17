@@ -43,9 +43,11 @@ export async function updatePipelineConfig(
   const hdrs = await headers();
   const requestId = hdrs.get("x-request-id");
 
-  // A mesclagem e a escrita vivem em `lib/pipelines/aplicar-config.ts`: a rota
-  // `PATCH /api/v1/pipelines/[id]/config` (Bearer `dsk_…`) grava pelo MESMO caminho.
-  const resultado = await aplicarConfigDoFunil(supabase, activeOrg.orgId, pipelineId, parsed.data);
+  // A mesclagem, a recusa do gatilho por data e a escrita vivem em `lib/pipelines/aplicar-config.ts`:
+  // a rota `PATCH /api/v1/pipelines/[id]/config` (Bearer `dsk_…`) grava pelo MESMO caminho.
+  const resultado = await aplicarConfigDoFunil(supabase, activeOrg.orgId, pipelineId, parsed.data, {
+    idioma: authUser.idioma,
+  });
   if (!resultado.ok) return { ok: false, error: resultado.error };
 
   await audit({

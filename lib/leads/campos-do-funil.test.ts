@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { camposDoFunil, camposPorEscopo, escopoDoCampo, settingsDoEmbed } from "./campos-do-funil";
+import {
+  campoEhDoContato,
+  camposDeDataDoNegocio,
+  camposDoFunil,
+  camposPorEscopo,
+  escopoDoCampo,
+  settingsDoEmbed,
+} from "./campos-do-funil";
 import { customFieldSchema } from "@/lib/schemas/settings";
 
 describe("camposDoFunil", () => {
@@ -84,5 +91,29 @@ describe("customFieldSchema: o escopo (issue #2791)", () => {
     expect(
       customFieldSchema.safeParse({ key: "k", label: "K", type: "text", escopo: "empresa" }).success,
     ).toBe(false);
+  });
+});
+
+describe("camposDeDataDoNegocio: o que o gatilho por data pode usar (achado na prova do #2852)", () => {
+  const settings = {
+    fields: [
+      { key: "nascimento", label: "Nascimento", type: "date", escopo: "contato" },
+      { key: "entrega", label: "Entrega", type: "date", escopo: "negocio" },
+      { key: "casamento", label: "Casamento", type: "date" },
+      { key: "endereco", label: "Endereço", type: "text" },
+    ],
+  };
+
+  it("oferece só data do NEGÓCIO (declarada ou sem escopo) — o campo do contato fica de fora", () => {
+    expect(camposDeDataDoNegocio(settings).map((c) => c.key)).toEqual(["entrega", "casamento"]);
+  });
+
+  it("campoEhDoContato: a recusa do servidor reconhece só a chave declarada como do contato", () => {
+    expect(campoEhDoContato(settings, "nascimento")).toBe(true);
+    expect(campoEhDoContato(settings, "entrega")).toBe(false);
+    expect(campoEhDoContato(settings, "casamento")).toBe(false);
+    // Chave não declarada é livre no custom_fields do negócio, e a varredura a lê.
+    expect(campoEhDoContato(settings, "nao_declarada")).toBe(false);
+    expect(campoEhDoContato(null, "nascimento")).toBe(false);
   });
 });

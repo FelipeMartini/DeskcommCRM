@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { camposDoFunil, camposPorEscopo } from "@/lib/leads/campos-do-funil";
+import { camposDeDataDoNegocio, camposDoFunil, camposPorEscopo } from "@/lib/leads/campos-do-funil";
 import {
   chaveDoDia,
   diasDaSemana,
@@ -94,10 +94,7 @@ export function CalendarioDoFunil({ pipelineId, pipeline: funil, stages, leads }
   );
 
   const campos = useMemo(
-    () =>
-      camposPorEscopo(camposDoFunil(funil.settings), "negocio").filter(
-        (campo) => campo.type === "date",
-      ),
+    () => camposDeDataDoNegocio(funil.settings),
     [funil.settings],
   );
 

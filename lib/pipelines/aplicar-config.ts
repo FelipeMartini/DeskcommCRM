@@ -20,6 +20,11 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  mensagemDasRegrasQuePerdemOCampo,
+  regrasDeDataQuePerdemOCampo,
+} from "@/lib/automation/campo-do-gatilho-de-data";
+import type { Idioma } from "@/lib/i18n/idiomas";
 import type { PipelineConfigPatch } from "@/lib/schemas/settings";
 
 export type ResultadoDaConfig = { ok: true } | { ok: false; error: string };
@@ -60,11 +65,16 @@ export function mesclarConfig(
   return { vocabulary, settings };
 }
 
+/**
+ * `idioma` é o de quem salva: a recusa do gatilho por data (abaixo) é lida por uma pessoa.
+ * Quem chama sem idioma (nenhum hoje) recebe o texto em português.
+ */
 export async function aplicarConfigDoFunil(
   supabase: SupabaseClient,
   orgId: string,
   pipelineId: string,
   patch: PipelineConfigPatch,
+  opcoes: { idioma?: Idioma } = {},
 ): Promise<ResultadoDaConfig> {
   const { data: row, error: readErr } = await supabase
     .from("crm_pipelines")
@@ -80,6 +90,25 @@ export async function aplicarConfigDoFunil(
     (row.settings as Record<string, unknown> | null) ?? null,
     patch,
   );
+
+  // Campo que passa a ser do Contato e que uma regra ativa do gatilho por data lê (#2791): a regra
+  // seguiria ligada e pararia de disparar em silêncio. Vale nas duas portas (tela e rota).
+  if (patch.fields !== undefined) {
+    const perdem = await regrasDeDataQuePerdemOCampo(
+      supabase,
+      orgId,
+      pipelineId,
+      (row.settings as Record<string, unknown> | null) ?? {},
+      proxima.settings,
+    );
+    if ("erro" in perdem) return { ok: false, error: perdem.erro };
+    if (perdem.nomes.length > 0) {
+      return {
+        ok: false,
+        error: mensagemDasRegrasQuePerdemOCampo(perdem.nomes, opcoes.idioma ?? "pt-BR"),
+      };
+    }
+  }
 
   const { error } = await supabase
     .from("crm_pipelines")
