@@ -13,6 +13,28 @@ export function camposDoFunil(settings: Record<string, unknown> | null | undefin
   return out;
 }
 
+/** A que pertence o campo (issue #2791): ao negócio ou ao contato. */
+export type EscopoDoCampo = "negocio" | "contato";
+
+/**
+ * O escopo do campo, com a ausência valendo `negocio`.
+ *
+ * A chave é opcional no `settings` de propósito: toda definição que já existe
+ * não a tem, e a leitura dela é `negocio` — sem isto, funil antigo mudaria de
+ * comportamento no dia em que a propriedade nasceu.
+ */
+export function escopoDoCampo(campo: Pick<CustomFieldDef, "escopo">): EscopoDoCampo {
+  return campo.escopo === "contato" ? "contato" : "negocio";
+}
+
+/** Os campos de UM escopo, na ordem em que o funil os declara. */
+export function camposPorEscopo(
+  campos: CustomFieldDef[],
+  escopo: EscopoDoCampo,
+): CustomFieldDef[] {
+  return campos.filter((campo) => escopoDoCampo(campo) === escopo);
+}
+
 /**
  * O embed `crm_pipelines(settings)` do PostgREST vem objeto (FK to-one) ou,
  * se a relação vacilar, array. Os dois caem aqui — lixo vira `null`.

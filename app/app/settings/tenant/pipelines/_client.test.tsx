@@ -432,3 +432,53 @@ describe("escreveMostrarQuando — o item 'ainda não escolhi' não vira valor",
     expect(normalizaMostrarQuando(meio)).toBeUndefined();
   });
 });
+
+describe("'Este campo pertence a' só no funil padrão (#2791)", () => {
+  // A ficha do contato lê as definições SÓ do funil padrão (/api/v1/pipelines/default).
+  // Marcar "Contato" num funil secundário tiraria o campo do card sem levá-lo à
+  // ficha: ele sumiria de toda tela. A régua é a da rota: `is_default`, senão o
+  // primeiro da lista (que a página entrega por `position`).
+  const campo = (escopo?: "contato") => ({
+    fields: [{ key: "cpf", label: "CPF", type: "text", ...(escopo ? { escopo } : {}) }],
+  });
+  const funil = (id: string, nome: string, extra: Partial<PipelineRow> = {}): PipelineRow => ({
+    id,
+    name: nome,
+    slug: nome.toLowerCase(),
+    vocabulary: null,
+    settings: campo(),
+    ...extra,
+  });
+  const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+  it("sem nenhum funil marcado, o padrão é o primeiro — o seletor aparece só nele", () => {
+    render(<PipelinesClient pipelines={[funil(A, "Vendas"), funil(B, "Pos")]} podeEditarConfig />);
+    expect(screen.getAllByLabelText(/Escopo do campo 1/i)).toHaveLength(1);
+    expect(screen.getAllByText("Este campo pertence a:")).toHaveLength(1);
+  });
+
+  it("com is_default no segundo, o seletor sai do primeiro e vai para ele", () => {
+    const { container } = render(
+      <PipelinesClient
+        pipelines={[funil(A, "Vendas", { is_default: false }), funil(B, "Pos", { is_default: true })]}
+        podeEditarConfig
+      />,
+    );
+    const cards = container.querySelectorAll("h2");
+    expect(cards[0]?.textContent).toBe("Vendas");
+    expect(screen.getAllByLabelText(/Escopo do campo 1/i)).toHaveLength(1);
+    const cardDoPos = cards[1]?.closest("div.space-y-6");
+    expect(cardDoPos?.textContent).toContain("Este campo pertence a:");
+  });
+
+  it("num funil secundário, um campo JÁ marcado Contato mantém o seletor para desfazer", () => {
+    render(
+      <PipelinesClient
+        pipelines={[funil(A, "Vendas"), funil(B, "Pos", { settings: campo("contato") })]}
+        podeEditarConfig
+      />,
+    );
+    expect(screen.getAllByLabelText(/Escopo do campo 1/i)).toHaveLength(2);
+  });
+});

@@ -11817,6 +11817,8 @@ export const DICIONARIO: Traducoes = {
   "Nenhuma pendência. Ou tudo que veio de anúncio foi reportado, ou ainda não fechou nenhuma venda com origem em anúncio.":
     { es: "No hay pendientes. Todo lo que llegó de anuncios ya se reportó, o todavía no se ha cerrado ninguna venta que venga de un anuncio." },
   "Negócio": { es: "Negocio" },
+  "Escopo do campo": { es: "Ámbito del campo" },
+  "Este campo pertence a:": { es: "Este campo pertenece a:" },
   "O que houve": { es: "Qué pasó" },
   "(sem título)": { es: "(sin título)" },
 
