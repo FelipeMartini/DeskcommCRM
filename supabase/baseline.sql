@@ -54823,6 +54823,37 @@ end; $$;
 revoke execute on function public.fn_mark_conversation_message(uuid,text,text,timestamptz) from public,anon,authenticated;
 grant execute on function public.fn_mark_conversation_message(uuid,text,text,timestamptz) to service_role;
 
+-- ---- Claude Haiku 5.5 padrão: a função do seed das organizações (migration 0687, passo 2) ----
+-- Só a função da 0687 mora aqui; os outros passos (desmarcar o padrão, inserir o Haiku 5.5, atualizar as
+-- organizações) estão no bloco da 0687 mais abaixo, na ordem da migration. A função não depende deles: só lê
+-- `ai_models` quando uma organização nasce. Fica ACIMA da varredura de anon (migration 0116) porque nenhuma
+-- função pode ser criada depois dela. Idêntica ao passo 2 da migration.
+create or replace function public.fn_seed_org_llm_defaults() returns trigger
+    language plpgsql
+    set search_path to 'public', 'pg_temp'
+    as $$
+begin
+  if coalesce(new.settings->'llm'->>'default_model', '') = '' then
+    new.settings := jsonb_set(
+      coalesce(new.settings, '{}'::jsonb),
+      '{llm}',
+      coalesce(new.settings->'llm', '{}'::jsonb)
+        || jsonb_build_object(
+             'provider', 'anthropic',
+             'default_model', coalesce(
+               (select m.model_id from public.ai_models m
+                where m.provider = 'anthropic' and m.is_default_for_provider
+                  and m.deprecated_at is null limit 1),
+               'claude-haiku-5-5'
+             )
+           ),
+      true
+    );
+  end if;
+  return new;
+end;
+$$;
+
 -- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----
 --
 -- ⚠️ DE PROPÓSITO, NENHUMA FUNÇÃO É CRIADA DEPOIS DESTE BLOCO. Apêndice que cria
@@ -57648,32 +57679,8 @@ on conflict (provider, model_id) do update set
   is_default_for_provider = true,
   supports_tools = true;
 
--- 2. Atualiza o trigger seed para que novas organizações usem 'claude-haiku-5-5'
-create or replace function public.fn_seed_org_llm_defaults() returns trigger
-    language plpgsql
-    set search_path to 'public', 'pg_temp'
-    as $$
-begin
-  if coalesce(new.settings->'llm'->>'default_model', '') = '' then
-    new.settings := jsonb_set(
-      coalesce(new.settings, '{}'::jsonb),
-      '{llm}',
-      coalesce(new.settings->'llm', '{}'::jsonb)
-        || jsonb_build_object(
-             'provider', 'anthropic',
-             'default_model', coalesce(
-               (select m.model_id from public.ai_models m
-                where m.provider = 'anthropic' and m.is_default_for_provider
-                  and m.deprecated_at is null limit 1),
-               'claude-haiku-5-5'
-             )
-           ),
-      true
-    );
-  end if;
-  return new;
-end;
-$$;
+-- 2. A função `fn_seed_org_llm_defaults()` (passo 2 da migration) está ACIMA, antes da varredura de anon
+--    (migration 0116): apêndice que cria função entra antes dela, senão a função nasce exposta a `anon`.
 
 -- 3. Atualiza organizações existentes que utilizam Sonnet ou versões anteriores para Haiku 5.5
 update public.organizations
