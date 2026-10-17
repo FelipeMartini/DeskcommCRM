@@ -108,7 +108,7 @@ export interface LlmEdgeConfig {
  * ninguém preenche é pior que um campo ausente: faz quem lê o código concluir que
  * o caminho existe.
  */
-export function llmEdgeConfigFromEnv(env: {
+export function llmEdgeConfigFromEnv(fonte: {
   ANTHROPIC_API_KEY?: string;
   OPENAI_API_KEY?: string;
   OPENROUTER_API_KEY?: string;
@@ -119,22 +119,22 @@ export function llmEdgeConfigFromEnv(env: {
   AI_BUDGET_ENFORCEMENT?: string;
   DEEPSEEK_THINKING?: string;
 }): LlmEdgeConfig {
-  const ttl = env.LLM_CACHE_TTL ?? '1h';
+  const ttl = fonte.LLM_CACHE_TTL ?? '1h';
   if (ttl !== '5m' && ttl !== '1h') {
     throw new Error("LLM_CACHE_TTL inválido — use '5m' ou '1h' (default 1h)");
   }
-  const raciocinio = env.DEEPSEEK_THINKING ?? 'provider';
+  const raciocinio = fonte.DEEPSEEK_THINKING ?? 'provider';
   if (raciocinio !== 'provider' && raciocinio !== 'disabled') {
     throw new Error("DEEPSEEK_THINKING inválido — use 'provider' ou 'disabled' (default provider)");
   }
   return {
-    ...(env.ANTHROPIC_API_KEY ? { anthropicApiKey: env.ANTHROPIC_API_KEY } : {}),
-    ...(env.OPENAI_API_KEY ? { openaiApiKey: env.OPENAI_API_KEY } : {}),
-    ...(env.OPENROUTER_API_KEY ? { openrouterApiKey: env.OPENROUTER_API_KEY } : {}),
+    ...(fonte.ANTHROPIC_API_KEY ? { anthropicApiKey: fonte.ANTHROPIC_API_KEY } : {}),
+    ...(fonte.OPENAI_API_KEY ? { openaiApiKey: fonte.OPENAI_API_KEY } : {}),
+    ...(fonte.OPENROUTER_API_KEY ? { openrouterApiKey: fonte.OPENROUTER_API_KEY } : {}),
     // O PISO do OmniRouter: só entra quando o `.env` diz alguma coisa. Ausente NÃO quer dizer "sem
     // OmniRouter": o valor que vale pode estar no banco (gravado pela tela), e é lido a cada chamada.
-    ...(CHAVES_DO_OMNIROUTER.some((nome) => (env[nome] ?? '').trim() !== '')
-      ? { omnirouter: variaveisDoOmniRouter(env) }
+    ...(CHAVES_DO_OMNIROUTER.some((nome) => (fonte[nome] ?? '').trim() !== '')
+      ? { omnirouter: variaveisDoOmniRouter(fonte) }
       : {}),
     cacheTtl: ttl,
     deepseekThinking: raciocinio,
@@ -142,7 +142,7 @@ export function llmEdgeConfigFromEnv(env: {
     // TEM um significado ('on'), e o normalizador é quem o dá. Um campo
     // opcional que some faria o seam ter de repetir o default, e dois defaults
     // é como um dos dois fica para trás.
-    budgetEnforcement: normalizarChaveDeOrcamento(env.AI_BUDGET_ENFORCEMENT),
+    budgetEnforcement: normalizarChaveDeOrcamento(fonte.AI_BUDGET_ENFORCEMENT),
   };
 }
 
@@ -339,11 +339,41 @@ async function omniRouterDaInstalacao(
   return omniRouterDaOrganizacao(variaveis, escolha);
 }
 
+/** O nome da chave da instalação de cada provedor que a tela de Credenciais guarda. */
+const CHAVE_DA_INSTALACAO_DO_PROVEDOR: Readonly<Record<string, string>> = {
+  anthropic: 'ANTHROPIC_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+};
+
+/**
+ * A chave que a INSTALAÇÃO tem para o provedor, ou `null` quando não tem (nem no banco nem no `.env`).
+ *
+ * Banco primeiro, piso depois — a mesma regra do app (`lib/ai/chaves-da-instalacao.ts`), por
+ * `valoresDaInstalacaoNoMotor`. Chave vazia ou só de espaços não conta como chave. Provedor sem chave de
+ * instalação (`custom`, DeepSeek...) devolve `null` sem ir ao banco.
+ */
+async function chaveDaInstalacaoDoProvedor(
+  db: pg.Pool,
+  cfg: LlmEdgeConfig,
+  provider: string,
+): Promise<string | null> {
+  if (!Object.hasOwn(CHAVE_DA_INSTALACAO_DO_PROVEDOR, provider)) return null;
+  const nome = CHAVE_DA_INSTALACAO_DO_PROVEDOR[provider]!;
+  const valores = await valoresDaInstalacaoNoMotor(db, [nome], {
+    ANTHROPIC_API_KEY: cfg.anthropicApiKey,
+    OPENAI_API_KEY: cfg.openaiApiKey,
+    OPENROUTER_API_KEY: cfg.openrouterApiKey,
+  });
+  const limpo = (valores[nome] ?? '').trim();
+  return limpo === '' ? null : limpo;
+}
+
 /**
  * Resolve a config LLM da org: knobs de organizations.settings->'llm' + credencial
  * BYOK mais recente ativa/validada de ai_provider_credentials (decifrada com
  * aes_gcm). Sem BYOK → o OmniRouter da instalação (só anthropic, e só para a organização escolhida)
- * → fallback cfg.anthropicApiKey (só anthropic). Sem nada →
+ * → a chave da instalação do provedor (painel, e o `.env` como piso). Sem nada →
  * LlmNotConfiguredError. Chamada a cada run — troca de config vale no run seguinte.
  */
 /**
@@ -520,17 +550,14 @@ export async function resolveOrgLlmConfig(
     // de chave.
     apiKey = omnirouter.apiKey;
     origemDaChave = 'chave_da_instalacao';
-  } else if (provider === 'anthropic' && cfg.anthropicApiKey) {
-    apiKey = cfg.anthropicApiKey;
-    origemDaChave = 'chave_da_instalacao';
-  } else if (provider === 'openai' && cfg.openaiApiKey) {
-    apiKey = cfg.openaiApiKey;
-    origemDaChave = 'chave_da_instalacao';
-  } else if (provider === 'openrouter' && cfg.openrouterApiKey) {
-    apiKey = cfg.openrouterApiKey;
-    origemDaChave = 'chave_da_instalacao';
   } else {
-    throw new LlmNotConfiguredError();
+    // A chave da INSTALAÇÃO do provedor: o que o admin gravou em Credenciais (`platform_config`) vence,
+    // e o `.env` (que `cfg` carrega como piso) responde quando o banco não tem a chave. Lida a cada
+    // chamada, como o OmniRouter, para a troca valer no turno seguinte sem reiniciar o worker.
+    const daInstalacao = await chaveDaInstalacaoDoProvedor(db, cfg, provider);
+    if (daInstalacao === null) throw new LlmNotConfiguredError();
+    apiKey = daInstalacao;
+    origemDaChave = 'chave_da_instalacao';
   }
 
   // O ENDEREÇO do provedor personalizado (#1642), na mesma linha da chave que

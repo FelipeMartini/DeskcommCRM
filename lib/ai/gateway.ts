@@ -15,6 +15,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 
+import { chavesDeIaDaInstalacao } from "@/lib/ai/chaves-da-instalacao";
 import { env } from "@/lib/env";
 
 /** Endpoint da OpenRouter. Compatível com a API da OpenAI, então o provider
@@ -70,36 +71,40 @@ export const DEFAULT_EMBEDDING_MODEL: ModelId = "openai/text-embedding-3-small";
  * Devolve null quando nada está configurado, para o chamador PULAR com motivo
  * claro em vez de estourar com erro de rede lá dentro.
  */
-export function resolveLanguageModel(model: ModelId): LanguageModel | null {
+export async function resolveLanguageModel(model: ModelId): Promise<LanguageModel | null> {
   const id = String(model);
 
   if (gatewayConfig()) return id as LanguageModel;
 
-  if (env.OPENROUTER_API_KEY) {
+  // As chaves de provedor da instalação vêm do painel (Credenciais), com o `.env` como piso: lidas a
+  // cada chamada, para que uma troca na tela valha no pedido seguinte sem reiniciar nada.
+  const chaves = await chavesDeIaDaInstalacao();
+
+  if (chaves.openrouter) {
     return createOpenAI({
-      apiKey: env.OPENROUTER_API_KEY,
+      apiKey: chaves.openrouter,
       baseURL: env.OPENROUTER_BASE_URL || OPENROUTER_BASE_URL,
     }).chat(id); // chat/completions, como o registry do worker (providers.ts)
   }
 
-  if (id.startsWith("anthropic/") && env.ANTHROPIC_API_KEY) {
-    return createAnthropic({ apiKey: env.ANTHROPIC_API_KEY })(
-      id.slice("anthropic/".length),
-    );
+  if (id.startsWith("anthropic/") && chaves.anthropic) {
+    return createAnthropic({ apiKey: chaves.anthropic })(id.slice("anthropic/".length));
   }
 
-  if (id.startsWith("openai/") && env.OPENAI_API_KEY) {
-    return createOpenAI({ apiKey: env.OPENAI_API_KEY })(id.slice("openai/".length));
+  if (id.startsWith("openai/") && chaves.openai) {
+    return createOpenAI({ apiKey: chaves.openai })(id.slice("openai/".length));
   }
 
   return null;
 }
 
-export function isEmbeddingProviderConfigured(): boolean {
+export async function isEmbeddingProviderConfigured(): Promise<boolean> {
   // Embeddings go through the gateway when `AI_GATEWAY_API_KEY` is set;
   // otherwise the worker uses an OpenAI or OpenRouter key from the installation.
   // Tenant credentials are resolved by temChaveDeEmbedding(organizationId).
-  return Boolean(env.AI_GATEWAY_API_KEY || env.OPENAI_API_KEY || env.OPENROUTER_API_KEY);
+  if (env.AI_GATEWAY_API_KEY) return true;
+  const chaves = await chavesDeIaDaInstalacao();
+  return Boolean(chaves.openai || chaves.openrouter);
 }
 
 /**

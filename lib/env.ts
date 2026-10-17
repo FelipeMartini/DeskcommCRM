@@ -721,7 +721,9 @@ if (env.NODE_ENV === "production") {
 
 // Este processo só conhece as chaves do AMBIENTE. As credenciais cadastradas em
 // IA › Credenciais moram no banco e são resolvidas mais tarde, no contexto da
-// organização; por isso ausência aqui nunca pode virar diagnóstico de "IA muda".
+// organização — e as três chaves de provedor da instalação também podem ter sido
+// gravadas em Admin › Configuração › Credenciais (o `.env` é só o piso). Por isso
+// ausência aqui nunca pode virar diagnóstico de "IA muda".
 // `OPENROUTER_API_KEY` entra na condição porque `resolveLanguageModel`
 // (lib/ai/gateway.ts) a trata como configuração válida no ambiente, assim como
 // gateway e Anthropic.
@@ -739,8 +741,9 @@ if (
   console.warn(
     "[env] Nenhuma chave de IA configurada no ambiente " +
       "(AI_GATEWAY_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY ou OPENAI_API_KEY). " +
-      "Isto não prova que o agente está sem credencial: cada organização pode ter uma chave " +
-      "cadastrada em IA › Credenciais. A falta real só é conhecida quando a resolução completa " +
+      "Isto não prova que o agente está sem credencial: a chave da instalação pode estar gravada em " +
+      "Admin › Configuração › Credenciais, e cada organização pode ter uma chave cadastrada em " +
+      "IA › Credenciais. A falta real só é conhecida quando a resolução completa " +
       "do turno não encontra chave em nenhum degrau.",
   );
 }
@@ -760,10 +763,11 @@ if (
 // houver chave em lugar nenhum.
 if (!env.OPENAI_API_KEY) {
   console.warn(
-    "[env] OPENAI_API_KEY ausente — ela é o ÚLTIMO degrau da escada de chave da OpenAI " +
-      "(preparo de material do acervo e transcrição de áudio). Se alguma organização já " +
-      "cadastrou a chave em IA › Credenciais, os dois seguem funcionando por ela; se não " +
-      "cadastrou nenhuma, ambos ficam parados até que alguém cadastre — pela tela ou aqui.",
+    "[env] OPENAI_API_KEY ausente do ambiente — ela é o ÚLTIMO degrau da escada de chave da OpenAI " +
+      "(preparo de material do acervo e transcrição de áudio). Se a chave estiver gravada em Admin › " +
+      "Configuração › Credenciais, ou se alguma organização já a cadastrou em IA › Credenciais, os dois " +
+      "seguem funcionando por ela; se não houver nenhuma, ambos ficam parados até que alguém cadastre — " +
+      "pela tela ou aqui.",
   );
 }
 if (!env.IMPERSONATE_COOKIE_SECRET || env.IMPERSONATE_COOKIE_SECRET.length < 32) {

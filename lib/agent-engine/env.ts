@@ -47,7 +47,7 @@ const envSchema = z.object({
   // A TERCEIRA irmã, e a que mais doía faltar: OpenRouter é a opção **[1]** do
   // menu do instalador, a que ele chama de caminho mais simples. O ramo
   // `provider === 'openrouter'` existe em `resolveOrgLlmConfig` e
-  // `llmEdgeConfigFromEnv` já lia `env.OPENROUTER_API_KEY` — mas o parâmetro
+  // `llmEdgeConfigFromEnv` já lia a `OPENROUTER_API_KEY` — mas o parâmetro
   // declara a chave como opcional (typecheck passa sem ela) e `loadEnv` devolve
   // `parsed.data`, e o Zod remove o que o schema não declara. A chave estava no
   // `.env`, sumia no boot do worker, e TODO turno morria em

@@ -9,6 +9,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { ambienteComAsChavesDoPainel } from "@/lib/ai/chaves-da-instalacao";
 import { PROVEDOR_POR_ID } from "@/lib/ai/pontos/provedores";
 import { lerAmbiente, nomeAindaEhPlaceholder, type FonteDeAmbiente } from "@/lib/instalacao/ambiente";
 
@@ -59,7 +60,7 @@ export async function lerRetratoDaInstalacao(
   deps: DependenciasDoRetrato,
 ): Promise<RetratoDaInstalacao> {
   const { supabase, orgId } = deps;
-  const ambiente = lerAmbiente(deps.ambiente);
+  const ambiente = lerAmbiente(await ambienteComAsChavesDoPainel(deps.ambiente));
 
   const { data: orgRow } = await supabase
     .from("organizations")

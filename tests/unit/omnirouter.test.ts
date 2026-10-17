@@ -377,8 +377,10 @@ interface Rascunho {
 /** Pool que responde POR SQL (a ordem das consultas não importa) e anota o que foi perguntado. */
 function poolFake(r: Rascunho) {
   const consultas: string[] = [];
-  const query = vi.fn(async (sql: string) => {
-    consultas.push(sql);
+  const query = vi.fn(async (sql: string, params?: unknown[]) => {
+    // Guarda também as chaves pedidas ao painel: a chave do PROVEDOR da instalação passou a morar lá,
+    // então "consultou `platform_config`" já não diz se foi a config do OmniRouter que se foi buscar.
+    consultas.push(`${sql} /* chaves: ${JSON.stringify(params?.[0] ?? null)} */`);
     if (sql.includes("settings->'llm'")) return { rows: [{ llm: r.llm, omnirouter: r.omnirouter }] };
     if (sql.includes("from platform_config")) {
       if (r.configFalha) throw new Error("relation platform_config does not exist");
@@ -390,8 +392,9 @@ function poolFake(r: Rascunho) {
   return { pool: { query } as never, consultas };
 }
 
+/** Foi buscar a config do OMNIROUTER (endereço, chave, oferta geral) no painel? A chave do provedor não conta. */
 const consultouAConfigDaInstalacao = (consultas: string[]) =>
-  consultas.some((sql) => sql.includes("from platform_config"));
+  consultas.some((sql) => sql.includes("from platform_config") && sql.includes("OMNIROUTER_"));
 
 /** Uma linha de `platform_config` já em claro (knob não secreto: o que importa aqui é a precedência). */
 function linhaDaConfig(chave: string, valor: string | null): Record<string, unknown> {

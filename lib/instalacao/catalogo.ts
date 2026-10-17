@@ -167,6 +167,40 @@ export const CATALOGO_DA_INSTALACAO: readonly ChaveDaInstalacao[] = [
     controle: "edita",
   },
 
+  // ── IA: as chaves de provedor da instalação ───────────────────────────────
+  // O degrau "chave da instalação" da escada de `resolveOrgLlmConfig`: vale para a organização que
+  // não tem credencial própria e que o OmniRouter não atende. Lidas por `valorDaInstalacao` em
+  // `lib/ai/chaves-da-instalacao.ts` (app) e por `valoresDaInstalacaoNoMotor` em
+  // `lib/agent-engine/edge/llm/credentials.ts` (worker): o que a tela grava vale nos dois, e o
+  // `.env` é só o piso. O gateway de IA (`AI_GATEWAY_*`) e a transcrição de áudio seguem no arquivo.
+  {
+    chave: "ANTHROPIC_API_KEY",
+    rotulo: "Chave da Anthropic (Claude)",
+    explicacao:
+      "Usada pelas organizações que não cadastraram uma chave de IA própria e que o OmniRouter não atende. Fica cifrada; trocar aqui vale na próxima conversa, sem reiniciar.",
+    grupo: "ia",
+    natureza: "segredo",
+    controle: "edita",
+  },
+  {
+    chave: "OPENAI_API_KEY",
+    rotulo: "Chave da OpenAI",
+    explicacao:
+      "Usada para os agentes e embeddings da OpenAI e para as ligações de voz das organizações sem chave própria. Fica cifrada; trocar aqui vale na próxima conversa, sem reiniciar.",
+    grupo: "ia",
+    natureza: "segredo",
+    controle: "edita",
+  },
+  {
+    chave: "OPENROUTER_API_KEY",
+    rotulo: "Chave da OpenRouter",
+    explicacao:
+      "Usada pelas organizações sem chave própria que escolheram um modelo da OpenRouter. Fica cifrada; trocar aqui vale na próxima conversa, sem reiniciar.",
+    grupo: "ia",
+    natureza: "segredo",
+    controle: "edita",
+  },
+
   // ── IA: o OmniRouter da instalação ────────────────────────────────────────
   // Lidos por `valorDaInstalacao` em `lib/ai/omnirouter-ativo.ts` (app) e por
   // `valoresDaInstalacaoNoMotor` em `lib/instalacao/config-sql.ts` (worker): o que a

@@ -48,6 +48,14 @@ export function recusaDoValor(chave: string, valor: string): string | null {
       return /\s/.test(limpo)
         ? "A chave do OmniRouter não pode ter espaços nem quebras de linha. Cole só a chave."
         : null;
+    case "ANTHROPIC_API_KEY":
+    case "OPENAI_API_KEY":
+    case "OPENROUTER_API_KEY":
+      // Chave com espaço ou quebra de linha é lixo de colagem: o cabeçalho de autenticação sairia
+      // quebrado e o provedor responderia 401, sem relação aparente com o campo.
+      return /\s/.test(limpo)
+        ? "A chave não pode ter espaços nem quebras de linha. Cole só a chave."
+        : null;
     case "OMNIROUTER_PARA_TODAS": {
       const v = limpo.toLowerCase();
       return v === "true" || v === "false"

@@ -61,6 +61,14 @@ vi.mock("@/lib/auth/server", () => ({
   resolveActiveOrg: vi.fn(async () => ({ orgId: ORG, name: "QA", role: "admin" })),
 }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => clienteFalso() }));
+// A chave da instalação vem do resolvedor do painel (`valorDaInstalacao`), com o `.env` como piso. Aqui o
+// "painel" está vazio e o `process.env` é o piso: é o que o teste liga e desliga em `chaveDaInstalacao`.
+vi.mock("@/lib/instalacao/config", () => ({
+  valorDaInstalacao: async (chave: string) => {
+    const valor = process.env[chave];
+    return valor ? { valor, fonte: "ambiente" as const } : { valor: null, fonte: "ausente" as const };
+  },
+}));
 
 import { createDefaultAgent, type CreateAgentResult } from "@/app/actions/onboarding/createDefaultAgent";
 import { audit } from "@/lib/audit";
@@ -273,7 +281,7 @@ function montarBanco(mundo: Mundo = {}): Estado {
     };
   };
 
-  // A chave da instalação é lida do `process.env` por `chaveDePlataforma`. O
+  // A chave da instalação é lida por `chaveDePlataforma` (painel, com o `process.env` como piso). O
   // default é TER a chave, que é o retrato de quem instalou pelo kit — e é a
   // precondição dos casos que exercitam OUTRA coisa. Um teste que rodasse sem
   // ela mediria "publicação sem chave" achando que mede o canal.

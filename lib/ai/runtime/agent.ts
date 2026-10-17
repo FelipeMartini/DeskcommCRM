@@ -59,6 +59,7 @@ import { mintEphemeralToken, revokeEphemeralToken } from "./mcp_token";
 import { carregarServidorMcpExternoDoTurno } from "@/lib/mcp/servidor-externo/carregar";
 import { pickToolsFromMcp, type RuntimeHandoffSignal } from "./tools";
 import { modulosLigados } from "@/lib/instalacao/modulos";
+import { chaveDeIaDaInstalacao } from "@/lib/ai/chaves-da-instalacao";
 import { capacidadesDaOrganizacao } from "@/lib/organizacao/capacidades";
 import { serializeSteps } from "./serialize";
 import {
@@ -163,18 +164,14 @@ function buildSentinelRegex(keywords: string[]): RegExp | null {
  * executa.
  */
 /**
- * A chave de plataforma do provedor — as mesmas variáveis que
- * `llmEdgeConfigFromEnv` lê no turno de produção. Google não tem: o runtime
- * real também não tem ramo de fallback para ele, e prometer aqui um caminho que
- * lá não existe faria o ensaio passar e a mensagem real falhar.
+ * A chave de plataforma do provedor — a MESMA que o turno de produção usa (`resolveOrgLlmConfig`): o que o
+ * admin gravou em Credenciais primeiro, e o `.env` como piso. Google não tem: o runtime real também não tem
+ * ramo de fallback para ele, e prometer aqui um caminho que lá não existe faria o ensaio passar e a
+ * mensagem real falhar.
  */
-export function chaveDePlataforma(provider: string): string | null {
-  const nome = { anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY", openrouter: "OPENROUTER_API_KEY" }[
-    provider
-  ];
-  if (!nome) return null;
-  const v = (process.env[nome] ?? "").trim();
-  return v === "" ? null : v;
+export async function chaveDePlataforma(provider: string): Promise<string | null> {
+  if (provider !== "anthropic" && provider !== "openai" && provider !== "openrouter") return null;
+  return chaveDeIaDaInstalacao(provider);
 }
 
 export function buildModel(
@@ -397,7 +394,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
         // Sem linha utilizável (ou `loadCredential` recusou): a escada cai no
         // `.env`, exatamente como o turno de produção cai.
       }
-      const daInstalacao = chaveDePlataforma(PROVEDOR_DE_RESERVA_DA_ASSINATURA);
+      const daInstalacao = await chaveDePlataforma(PROVEDOR_DE_RESERVA_DA_ASSINATURA);
       return { apiKey: daInstalacao };
     }
 
@@ -438,7 +435,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
         return await failRun(run, `credential_${reason}`, "credential unavailable", startedAt);
       }
     } else {
-      const daInstalacao = chaveDePlataforma(version.provider);
+      const daInstalacao = await chaveDePlataforma(version.provider);
       if (!daInstalacao) {
         return await failRun(
           run,

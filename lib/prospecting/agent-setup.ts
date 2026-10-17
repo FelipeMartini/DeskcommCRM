@@ -93,7 +93,7 @@ export async function resolveSetupModel(
     if (
       !PROVIDERS.includes(row.provider) ||
       !oferece(row.provider) ||
-      (!row.credential_id && !chaveDePlataforma(row.provider))
+      (!row.credential_id && !(await chaveDePlataforma(row.provider)))
     ) {
       continue;
     }
@@ -126,7 +126,7 @@ export async function resolveSetupModel(
   for (const provider of providers) {
     if (!PROVIDERS.includes(provider) || !oferece(provider)) continue;
     const credential = credentials.rows.find((c) => c.provider === provider);
-    if (!credential && !chaveDePlataforma(provider)) continue;
+    if (!credential && !(await chaveDePlataforma(provider))) continue;
     if (provider === "openai-assinatura") {
       const models = await catalogoDaAssinatura();
       const selected = escolherModeloDoProvedor(models);

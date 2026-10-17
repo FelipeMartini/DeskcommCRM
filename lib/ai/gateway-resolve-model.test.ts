@@ -26,6 +26,17 @@ vi.mock("@/lib/env", () => ({
   },
 }));
 
+// As chaves de IA da instalação passaram a vir do resolvedor do painel (`valorDaInstalacao`), com o `.env`
+// como piso. Aqui o "painel" é o próprio `envMock`: a chave que o teste põe nele é a que o resolvedor devolve.
+vi.mock("@/lib/instalacao/config", () => ({
+  valorDaInstalacao: async (chave: string) => {
+    const valor = envMock[chave];
+    return valor === undefined
+      ? { valor: null, fonte: "ausente" as const }
+      : { valor, fonte: "ambiente" as const };
+  },
+}));
+
 import { resolveLanguageModel } from "@/lib/ai/gateway";
 
 beforeEach(() => {
@@ -33,47 +44,47 @@ beforeEach(() => {
 });
 
 describe("resolveLanguageModel", () => {
-  it("com gateway da Vercel devolve a STRING (o gateway roteia e fatura)", () => {
+  it("com gateway da Vercel devolve a STRING (o gateway roteia e fatura)", async () => {
     envMock.AI_GATEWAY_API_KEY = "gw-key";
-    expect(resolveLanguageModel("anthropic/claude-haiku-4-5")).toBe(
+    expect(await resolveLanguageModel("anthropic/claude-haiku-4-5")).toBe(
       "anthropic/claude-haiku-4-5",
     );
   });
 
-  it("só com ANTHROPIC_API_KEY devolve PROVIDER, não string — o bug do worker", () => {
+  it("só com ANTHROPIC_API_KEY devolve PROVIDER, não string — o bug do worker", async () => {
     envMock.ANTHROPIC_API_KEY = "sk-ant-xxx";
-    const model = resolveLanguageModel("anthropic/claude-haiku-4-5");
+    const model = await resolveLanguageModel("anthropic/claude-haiku-4-5");
     expect(model).not.toBeNull();
     expect(typeof model).not.toBe("string");
   });
 
-  it("com OPENROUTER_API_KEY devolve provider (ids da OpenRouter são provider/modelo)", () => {
+  it("com OPENROUTER_API_KEY devolve provider (ids da OpenRouter são provider/modelo)", async () => {
     envMock.OPENROUTER_API_KEY = "sk-or-xxx";
-    const model = resolveLanguageModel("anthropic/claude-haiku-4-5");
+    const model = await resolveLanguageModel("anthropic/claude-haiku-4-5");
     expect(model).not.toBeNull();
     expect(typeof model).not.toBe("string");
   });
 
-  it("gateway da Vercel tem precedência sobre OpenRouter", () => {
+  it("gateway da Vercel tem precedência sobre OpenRouter", async () => {
     envMock.AI_GATEWAY_API_KEY = "gw-key";
     envMock.OPENROUTER_API_KEY = "sk-or-xxx";
-    expect(typeof resolveLanguageModel("anthropic/claude-haiku-4-5")).toBe("string");
+    expect(typeof (await resolveLanguageModel("anthropic/claude-haiku-4-5"))).toBe("string");
   });
 
-  it("id openai/* cai no provider OpenAI quando só há OPENAI_API_KEY", () => {
+  it("id openai/* cai no provider OpenAI quando só há OPENAI_API_KEY", async () => {
     envMock.OPENAI_API_KEY = "sk-openai";
-    const model = resolveLanguageModel("openai/gpt-4o-mini");
+    const model = await resolveLanguageModel("openai/gpt-4o-mini");
     expect(model).not.toBeNull();
     expect(typeof model).not.toBe("string");
   });
 
-  it("sem chave nenhuma devolve null, para o chamador PULAR com motivo claro", () => {
-    expect(resolveLanguageModel("anthropic/claude-haiku-4-5")).toBeNull();
+  it("sem chave nenhuma devolve null, para o chamador PULAR com motivo claro", async () => {
+    expect(await resolveLanguageModel("anthropic/claude-haiku-4-5")).toBeNull();
   });
 
-  it("chave errada para o prefixo do id também é null (não inventa provider)", () => {
+  it("chave errada para o prefixo do id também é null (não inventa provider)", async () => {
     // Só OpenAI configurada, mas o id pede Anthropic: não dá para atender.
     envMock.OPENAI_API_KEY = "sk-openai";
-    expect(resolveLanguageModel("anthropic/claude-haiku-4-5")).toBeNull();
+    expect(await resolveLanguageModel("anthropic/claude-haiku-4-5")).toBeNull();
   });
 });

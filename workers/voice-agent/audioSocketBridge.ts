@@ -169,7 +169,9 @@ export class AudioSocketCallBridge {
     private ctx: AudioSocketCallContext,
   ) {
     this.realtimeModel = ctx.voiceModel ?? REALTIME_MODEL_FALLBACK;
-    const apiKey = ctx.apiKey || process.env.OPENAI_API_KEY!;
+    // A chave já vem resolvida por `getActiveVoiceAgent` (credencial da organização, ou a da instalação:
+    // o painel primeiro e o `.env` como piso). Sem ela a OpenAI recusa a sessão com 401, que é a frase certa.
+    const apiKey = ctx.apiKey ?? "";
     const realtimeUrl = `wss://api.openai.com/v1/realtime?model=${this.realtimeModel}`;
     this.realtimeWs = new WebSocket(realtimeUrl, {
       headers: { Authorization: `Bearer ${apiKey}` },

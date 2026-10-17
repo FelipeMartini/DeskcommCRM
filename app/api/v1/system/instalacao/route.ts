@@ -21,6 +21,7 @@ import { requireRole } from "@/lib/auth/require-role";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { listSelectableChannels } from "@/lib/channels/selectable";
+import { chaveDeIaDaInstalacao } from "@/lib/ai/chaves-da-instalacao";
 import { lerRetratoDaInstalacao } from "@/lib/instalacao/retrato";
 import { provarSaldo } from "@/lib/instalacao/prova-de-credito";
 import { loadCredential, CredentialUnavailableError } from "@/lib/ai/credentials";
@@ -117,7 +118,7 @@ export async function GET(req: NextRequest) {
       });
     }
   } else {
-    apiKey = process.env[chaveDoAmbiente(provedor)] ?? "";
+    apiKey = await chaveDaInstalacaoDoProvedor(provedor);
   }
 
   if (!apiKey) {
@@ -131,10 +132,10 @@ export async function GET(req: NextRequest) {
   return ok({ ...retrato, prova: { feita: true, ...r } });
 }
 
-function chaveDoAmbiente(provider: string): string {
-  return (
-    { anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY", openrouter: "OPENROUTER_API_KEY" }[
-      provider
-    ] ?? "__inexistente__"
-  );
+/** A chave da instalação deste provedor: a que o painel gravou, e senão a do `.env`. Vazia = não há. */
+async function chaveDaInstalacaoDoProvedor(provider: string): Promise<string> {
+  if (provider === "anthropic" || provider === "openai" || provider === "openrouter") {
+    return (await chaveDeIaDaInstalacao(provider)) ?? "";
+  }
+  return "";
 }
