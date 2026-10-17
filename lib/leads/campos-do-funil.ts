@@ -47,3 +47,31 @@ export function settingsDoEmbed(embed: unknown): Record<string, unknown> | null 
   return settings as Record<string, unknown>;
 }
 
+
+/**
+ * Os campos que o gatilho "N dias até uma data do funil" pode usar: DATA e do
+ * NEGÓCIO.
+ *
+ * A varredura (`app/api/v1/cron/lead-date-field-due`) lê `crm_leads.custom_fields`,
+ * e o valor de um campo do CONTATO (#2791) mora em `contacts.custom_fields` — uma
+ * regra apontada para ele é salva, o dia chega, e nada dispara. É a lista que
+ * os seletores (editor de regras, Designer, calendário do funil) oferecem.
+ */
+export function camposDeDataDoNegocio(
+  settings: Record<string, unknown> | null | undefined,
+): CustomFieldDef[] {
+  return camposPorEscopo(camposDoFunil(settings), "negocio").filter((campo) => campo.type === "date");
+}
+
+/**
+ * A chave está declarada neste funil como campo do CONTATO? É a recusa do
+ * servidor para o gatilho por data — a mesma regra do seletor, pela porta da API.
+ * Chave não declarada não é recusada: o `custom_fields` do negócio aceita chave
+ * livre, e a varredura a lê.
+ */
+export function campoEhDoContato(
+  settings: Record<string, unknown> | null | undefined,
+  chave: string,
+): boolean {
+  return camposDoFunil(settings).some((campo) => campo.key === chave && escopoDoCampo(campo) === "contato");
+}

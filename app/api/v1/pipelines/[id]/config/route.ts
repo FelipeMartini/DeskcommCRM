@@ -81,7 +81,9 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx): Promise<Response> 
     return fail("unprocessable_entity", t("Nada para alterar."), 422, { requestId });
   }
 
-  const resultado = await aplicarConfigDoFunil(authz.supabase, orgId, pipelineId, parsed.data);
+  const resultado = await aplicarConfigDoFunil(authz.supabase, orgId, pipelineId, parsed.data, {
+    idioma: authz.idioma,
+  });
   if (!resultado.ok) {
     if (resultado.error === "not_found") {
       return fail("not_found", t("Funil não encontrado."), 404, { requestId });
