@@ -65,6 +65,7 @@ import {
 } from "@/lib/channels/retencao-do-arquivo";
 import { podarHistoricoDeCaptacao } from "@/lib/webhooks/retencao-da-captacao";
 import { env } from "@/lib/env";
+import { valorDaInstalacao } from "@/lib/instalacao/config";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { autorizaCron } from "@/lib/auth/cron-auth";
@@ -156,7 +157,8 @@ export async function GET(req: NextRequest): Promise<Response> {
       // A STRING crua, e não um número já coagido: quem interpreta é
       // `lib/retencao/politica.ts`, que sabe resolver lixo para o lado seguro E
       // devolver a frase de aviso. Coagir antes jogaria o aviso fora.
-      diasBrutos: env.LEAD_CAPTURE_RETENTION_DAYS,
+      // Lida da instalação: o que a tela de Configuração gravou vence, e o `.env` é o valor de partida.
+      diasBrutos: (await valorDaInstalacao("LEAD_CAPTURE_RETENTION_DAYS")).valor ?? undefined,
       lote,
     });
   } catch (err) {

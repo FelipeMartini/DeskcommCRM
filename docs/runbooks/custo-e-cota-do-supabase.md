@@ -114,7 +114,12 @@ além de esperar (ou disparar o `curl` acima algumas vezes).
 
 ### 4.2. As alavancas, e o que cada uma custa
 
-Todas são opcionais e vivem no `.env`; os defaults funcionam sem editar nada.
+Todas são opcionais; os defaults funcionam sem editar nada. Mudam-se de dois jeitos: no `.env` (o valor de
+partida, que exige reiniciar) ou em **Admin › Configuração › Retenção de dados**, sem reiniciar — o que a tela
+grava vence o `.env`, e "Voltar ao padrão" devolve a palavra a ele. A tela só aceita número inteiro de dias, não
+abaixo do piso de cada prazo e não acima de 36 500; a auditoria registra quem trocou o quê e para quantos dias.
+São 15 chaves de retenção, as mesmas nos dois lugares (as das tabelas abaixo e as de casos, passagens, leads
+captados, prospecção e demais); só `WEBHOOK_LOG_*` e a mídia (por organização) ficam de fora.
 
 | chave | default | o que faz |
 |---|---|---|

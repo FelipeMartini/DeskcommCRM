@@ -113,6 +113,10 @@ export async function salvarConfiguracaoDaInstalacao(
       // NUNCA o valor. Os últimos 4 caracteres identificam QUAL credencial ficou
       // lá sem revelá-la — mesma decisão de `ai_provider_credentials`.
       last4: doCatalogo.natureza === "segredo" ? limpo.slice(-4) : undefined,
+      // Exceção, só para o NÚMERO: um prazo de retenção não é segredo, e "quem encurtou a guarda do registro de
+      // auditoria de 1825 para 30 dias" é justamente o que a trilha precisa responder. O catálogo valida o
+      // formato antes (`recusaDoPrazo`), então só dígitos chegam aqui.
+      valor: doCatalogo.natureza === "numero" ? limpo : undefined,
       natureza: doCatalogo.natureza,
     },
   });

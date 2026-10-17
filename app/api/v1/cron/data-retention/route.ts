@@ -53,7 +53,6 @@ import type { NextRequest } from "next/server";
 import { ok, fail } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { autorizaCron } from "@/lib/auth/cron-auth";
-import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import {
   RETENCAO_AUDITORIA_DIAS_PADRAO,
@@ -87,6 +86,7 @@ import {
   RETENCAO_RASCUNHO_DIAS_PISO,
   interpretarRetencao,
 } from "@/lib/retencao/politica";
+import { prazosDaInstalacao } from "@/lib/retencao/prazos-da-instalacao";
 import {
   varrerRedacoesIncompletas,
   type ClienteDaCascata,
@@ -825,21 +825,10 @@ async function handle(req: NextRequest): Promise<Response> {
         return { data: (data ?? null) as RetornoDaFilaDeMidia | null, error };
       },
     };
-    resultado = await podarHistorico(db, {
-      JOB_QUEUE_RETENTION_DAYS: env.JOB_QUEUE_RETENTION_DAYS,
-      AUDIT_LOG_RETENTION_DAYS: env.AUDIT_LOG_RETENTION_DAYS,
-      CASE_CHAT_RETENTION_DAYS: env.CASE_CHAT_RETENTION_DAYS,
-      PASSAGEM_RETENTION_DAYS: env.PASSAGEM_RETENTION_DAYS,
-      CASE_ALERT_RETENTION_DAYS: env.CASE_ALERT_RETENTION_DAYS,
-      PROSPECCAO_RETENTION_DAYS: env.PROSPECCAO_RETENTION_DAYS,
-      JEV_OBSERVACOES_RETENTION_DAYS: env.JEV_OBSERVACOES_RETENTION_DAYS,
-      DRAFT_RETENTION_DAYS: env.DRAFT_RETENTION_DAYS,
-      GOLDEN_CANDIDATES_RETENTION_DAYS: env.GOLDEN_CANDIDATES_RETENTION_DAYS,
-      AI_TELEMETRY_RETENTION_DAYS: env.AI_TELEMETRY_RETENTION_DAYS,
-      PACING_LEDGER_RETENTION_DAYS: env.PACING_LEDGER_RETENTION_DAYS,
-      OUTBOUND_COPIES_RETENTION_DAYS: env.OUTBOUND_COPIES_RETENTION_DAYS,
-      LEAD_CHECKPOINT_RETENTION_DAYS: env.LEAD_CHECKPOINT_RETENTION_DAYS,
-    });
+    // Os prazos vêm do resolvedor da instalação: o que a tela de Configuração gravou vence, e o `.env` é
+    // o valor de partida. `interpretarRetencao` (dentro de `podarHistorico`) segue sendo a porta do número:
+    // piso, teto e lixo continuam resolvidos ali, qualquer que seja a origem.
+    resultado = await podarHistorico(db, await prazosDaInstalacao());
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     logger.error("[data-retention] poda falhou", { error: detail, requestId });

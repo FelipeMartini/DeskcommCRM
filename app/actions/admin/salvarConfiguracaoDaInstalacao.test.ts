@@ -128,3 +128,53 @@ describe("as chaves do OmniRouter: gravam o que presta e recusam o que não pres
     expect(deps.audit).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * Os prazos globais de retenção (ordem do dono, 16/10/2026: modelo misto) são editáveis pela tela. A ação
+ * confere o número ANTES de gravar, e a auditoria leva o prazo (não é segredo) para responder "quem
+ * encurtou a guarda de quê".
+ */
+describe("os prazos globais de retenção: gravam o que presta e recusam o que não presta", () => {
+  it("prazo válido: grava como número (não como segredo) e a auditoria leva a chave e o prazo", async () => {
+    const r = await salvarConfiguracaoDaInstalacao("AUDIT_LOG_RETENTION_DAYS", "  730  ");
+    expect(r.ok).toBe(true);
+    expect(deps.gravar).toHaveBeenCalledWith(
+      "AUDIT_LOG_RETENTION_DAYS",
+      "730",
+      expect.objectContaining({ ehSegredo: false }),
+    );
+    expect(deps.audit).toHaveBeenCalledTimes(1);
+    expect(deps.audit.mock.calls[0]![0]).toMatchObject({
+      action: "platform.config_changed",
+      metadata: { chave: "AUDIT_LOG_RETENTION_DAYS", valor: "730", natureza: "numero" },
+    });
+  });
+
+  it("⭐ só o NÚMERO leva o valor à auditoria: texto e segredo continuam sem ele", async () => {
+    await salvarConfiguracaoDaInstalacao("SUPPORT_EMAIL", "ajuda@exemplo.com");
+    expect(deps.audit.mock.calls[0]![0].metadata.valor).toBeUndefined();
+    deps.audit.mockClear();
+    await salvarConfiguracaoDaInstalacao("OMNIROUTER_API_KEY", "chave-sintetica-do-omnirouter-9876");
+    expect(deps.audit.mock.calls[0]![0].metadata.valor).toBeUndefined();
+  });
+
+  it.each([
+    ["AUDIT_LOG_RETENTION_DAYS", "dois anos"],
+    ["AUDIT_LOG_RETENTION_DAYS", "-1"],
+    ["AUDIT_LOG_RETENTION_DAYS", "1"],
+    ["JOB_QUEUE_RETENTION_DAYS", "0"],
+    ["LEAD_CAPTURE_RETENTION_DAYS", "99999"],
+  ])("⭐ %s com valor torto (%j): recusa SEM gravar nem auditar", async (chave, valor) => {
+    const r = await salvarConfiguracaoDaInstalacao(chave, valor);
+    expect(r.ok).toBe(false);
+    expect(deps.gravar).not.toHaveBeenCalled();
+    expect(deps.audit).not.toHaveBeenCalled();
+  });
+
+  it("voltar ao padrão apaga a linha e audita só o nome (o valor antigo não é lido)", async () => {
+    const r = await voltarConfiguracaoAoPadrao("PASSAGEM_RETENTION_DAYS");
+    expect(r.ok).toBe(true);
+    expect(deps.voltar).toHaveBeenCalledWith("PASSAGEM_RETENTION_DAYS");
+    expect(deps.audit.mock.calls[0]![0].metadata).toEqual({ chave: "PASSAGEM_RETENTION_DAYS" });
+  });
+});

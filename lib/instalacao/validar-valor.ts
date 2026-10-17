@@ -12,6 +12,7 @@
  * repete o valor digitado na mensagem — pode ser um segredo, ou uma URL com senha dentro.
  */
 import { OmniRouterInvalidoError, lerEnderecoDoOmniRouter } from "@/lib/ai/omnirouter";
+import { recusaDoPrazo } from "@/lib/retencao/prazos-globais";
 
 const EXEMPLO_DO_ENDERECO = "https://omnirouter.example.com";
 
@@ -63,6 +64,7 @@ export function recusaDoValor(chave: string, valor: string): string | null {
         : "Escreva true para oferecer o OmniRouter a todas as organizações, ou false para só as que você escolher.";
     }
     default:
-      return null;
+      // Os prazos de retenção (`lib/retencao/prazos-globais.ts`); chave sem regra própria passa direto.
+      return recusaDoPrazo(chave, limpo);
   }
 }
