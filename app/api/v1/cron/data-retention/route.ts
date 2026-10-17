@@ -41,6 +41,13 @@
  * o comando que separa "não havia nada vencido" de "o cron não está rodando" —
  * as duas leituras possíveis da ausência de linhas, que sem isso se confundem.
  *
+ * PRAZO POR ORGANIZAÇÃO (migration 0693): depois das podas globais, uma passada
+ * (`lib/retencao/poda-por-organizacao.ts`) apaga o dado pessoal da captação, da
+ * conversa do caso, da prospecção e do espelho da agenda pelo prazo PRÓPRIO de
+ * cada organização, que só encurta o global. Cada par (organização, tipo) que
+ * apagou algo deixa uma linha `retention.organization_sweep` na própria
+ * organização; a linha global só leva o resumo.
+ *
  * Auth: mesmo contrato dos demais crons (Bearer INTERNAL_CRON_SECRET|
  * INTERNAL_SECRET, fail-closed).
  *
@@ -87,6 +94,8 @@ import {
   interpretarRetencao,
 } from "@/lib/retencao/politica";
 import { prazosDaInstalacao } from "@/lib/retencao/prazos-da-instalacao";
+import { podarPorOrganizacao } from "@/lib/retencao/poda-por-organizacao";
+import { podaPorOrganizacaoDb } from "@/lib/retencao/poda-por-organizacao-db";
 import {
   varrerRedacoesIncompletas,
   type ClienteDaCascata,
@@ -847,6 +856,18 @@ async function handle(req: NextRequest): Promise<Response> {
     return fail("internal_error", "Failed to prune history.", 500, { requestId });
   }
 
+  // ── A passada por organização (migration 0693, retenção MISTA) ─────────
+  //
+  // Roda DEPOIS das podas globais e apaga, para cada organização com prazo
+  // próprio, o dado pessoal mais velho que esse prazo — a organização só
+  // encurta, então o que vale é o menor dos dois prazos. Não lança: cada par
+  // (organização, tipo) falha sozinho e a falha vem NOMEADA em
+  // `por_organizacao_falhas`, como as podas irmãs (#2508).
+  const porOrganizacao = await podarPorOrganizacao(podaPorOrganizacaoDb(admin), {
+    tamanhoDoLote: TAMANHO_DO_LOTE,
+    maxLotes: MAX_LOTES,
+  });
+
   // ── A cascata de anonimização que ficou pela metade ──────────────────
   //
   // Mora AQUI, e não numa rota de cron própria, por uma razão de packaging: o
@@ -892,18 +913,51 @@ async function handle(req: NextRequest): Promise<Response> {
   // quebrou precisa ser distinguível, na trilha, da rodada que não tinha nada
   // a fazer. E o metadata leva as contagens do que JÁ foi apagado — antes, o
   // catch registrava só `{falhou, erro}` e o trabalho que aconteceu sumia.
-  const houveFalhaParcial = resultado.falhas.length > 0;
+  const falhasDaRodada = [...resultado.falhas, ...porOrganizacao.por_organizacao_falhas];
+  const houveFalhaParcial = falhasDaRodada.length > 0;
+  const houveEfeitoPorOrganizacao = porOrganizacao.por_organizacao_apagadas > 0;
   if (houveEfeito(resultado) || houveFalhaParcial) {
     void audit({
       action: "retention.sweep_run",
       organizationId: null,
       bypassedRls: true,
-      metadata: { ...(houveFalhaParcial ? { falhou: true } : {}), ...resultado },
+      metadata: {
+        ...(houveFalhaParcial ? { falhou: true } : {}),
+        ...resultado,
+        // A passada por organização entra na linha global SÓ como resumo: o
+        // detalhe de quem apagou o quê vai nas linhas por organização (abaixo),
+        // senão a metadata cresceria com o número de organizações.
+        por_organizacao_pares: porOrganizacao.por_organizacao_pares,
+        por_organizacao_apagadas: porOrganizacao.por_organizacao_apagadas,
+        por_organizacao_tem_resto: porOrganizacao.por_organizacao_tem_resto,
+        falhas: falhasDaRodada,
+      },
       requestId,
     });
   }
 
-  for (const falha of resultado.falhas) {
+  // Uma linha POR ORGANIZAÇÃO e tipo que apagou algo, na própria organização: é
+  // a trilha que o admin dela consegue ler em `/app/audit`. Rodada que não
+  // apagou nada não ocupa linha (mesmo critério da global).
+  if (houveEfeitoPorOrganizacao) {
+    for (const apagado of porOrganizacao.por_organizacao) {
+      void audit({
+        action: "retention.organization_sweep",
+        organizationId: apagado.organization_id,
+        bypassedRls: true,
+        metadata: {
+          tipo: apagado.tipo,
+          prazo_proprio_dias: apagado.dias,
+          apagadas: apagado.apagadas,
+          lotes: apagado.lotes,
+          tem_resto: apagado.tem_resto,
+        },
+        requestId,
+      });
+    }
+  }
+
+  for (const falha of falhasDaRodada) {
     logger.error("[data-retention] poda parcial falhou", { falha, requestId });
   }
 
@@ -940,6 +994,8 @@ async function handle(req: NextRequest): Promise<Response> {
 
   const corpo = {
     ...resultado,
+    ...porOrganizacao,
+    falhas: falhasDaRodada,
     anonimizacoes_examinadas: varredura.examinados,
     anonimizacoes_completadas: varredura.completados.length,
     anonimizacoes_tem_resto: varredura.temResto,

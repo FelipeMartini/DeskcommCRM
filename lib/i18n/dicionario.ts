@@ -16143,6 +16143,28 @@ export const DICIONARIO: Traducoes = {
   "atualizado": { es: "actualizado" },
   "recusado": { es: "rechazado" },
   "Recusado.": { es: "Rechazado." },
+  // Retenção de dados pessoais POR ORGANIZAÇÃO (migration 0693): o cartão de Configurações › Empresa.
+  "Captação de leads": { es: "Captación de leads" },
+  "Contatos que chegaram por formulário, anúncio ou webhook.": { es: "Contactos que llegaron por formulario, anuncio o webhook." },
+  "Conversa do caso": { es: "Conversación del caso" },
+  "Mensagens da conversa de cada caso atendido pelo agente de IA.": { es: "Mensajes de la conversación de cada caso atendido por el agente de IA." },
+  "Empresas e contatos levantados nas campanhas de prospecção. Os que estão na fila ou em envio ficam.": { es: "Empresas y contactos recopilados en las campañas de prospección. Los que están en la cola o en envío se conservan." },
+  "Espelho da agenda": { es: "Espejo de la agenda" },
+  "Cópia dos eventos da agenda externa, contada a partir do fim de cada evento.": { es: "Copia de los eventos de la agenda externa, contada desde el fin de cada evento." },
+  "O mínimo é de {piso} dias.": { es: "El mínimo es de {piso} días." },
+  "O máximo é de {max} dias.": { es: "El máximo es de {max} días." },
+  "Use um número inteiro de dias.": { es: "Usa un número entero de días." },
+  "Algum prazo está fora do permitido. Confira os campos em vermelho.": { es: "Algún plazo está fuera de lo permitido. Revisa los campos en rojo." },
+  "Prazos de retenção salvos.": { es: "Plazos de retención guardados." },
+  "Só quem administra a empresa pode mudar a retenção.": { es: "Solo quien administra la empresa puede cambiar la retención." },
+  "Confirme o segundo fator de autenticação para continuar.": { es: "Confirma el segundo factor de autenticación para continuar." },
+  "Não consegui salvar. Tente novamente.": { es: "No pude guardar. Inténtalo de nuevo." },
+  "Retenção de dados pessoais": { es: "Retención de datos personales" },
+  "Por quanto tempo esta empresa guarda o dado pessoal de terceiros. Cada prazo só pode encurtar o da instalação: o da instalação continua valendo para todas as empresas, e o desta apaga mais cedo. Em branco, vale o da instalação.": { es: "Por cuánto tiempo esta empresa conserva los datos personales de terceros. Cada plazo solo puede acortar el de la instalación: el de la instalación sigue vigente para todas las empresas, y el de esta borra antes. En blanco, vale el de la instalación." },
+  "Prazo da instalação: {n} dias. Mínimo: {piso} dias.": { es: "Plazo de la instalación: {n} días. Mínimo: {piso} días." },
+  "Sem efeito: a instalação já apaga em {n} dias, e esta empresa só pode encurtar.": { es: "Sin efecto: la instalación ya borra en {n} días, y esta empresa solo puede acortar." },
+  "Continuam iguais para todas as empresas: auditoria, fila, telemetria e registros de webhook. A mídia tem o prazo dela no campo «Retenção de mídia», acima.": { es: "Siguen iguales para todas las empresas: auditoría, cola, telemetría y registros de webhook. Los archivos multimedia tienen su plazo en el campo «Retención de archivos multimedia», arriba." },
+  "Seguir a instalação em todos": { es: "Seguir la instalación en todos" },
 };
 
 /**

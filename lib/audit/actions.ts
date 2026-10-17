@@ -532,6 +532,13 @@ export const AUDIT_ACTIONS = [
   // declarou as alíneas que o relatório de acesso imprimiu?" — e o metadata
   // guarda a declaração como ela foi gravada, que é o que a CNPD pode pedir.
   "org.art15_updated",
+  // O prazo de retenção do dado pessoal de terceiros que a ORGANIZAÇÃO escolheu
+  // (`organizations.settings.retencao`, migration 0693) — mutação de TENANT, com
+  // `organization_id` + `resource_id` = uuid da org. Outra ação, e não
+  // `org.updated`, porque a pergunta da trilha é "quem encurtou o prazo em que
+  // esta empresa guarda o dado dos clientes dela?" — e o metadata guarda os
+  // prazos como foram gravados, que é o que um titular ou a autoridade pode pedir.
+  "org.retention_updated",
 
   // ── Vindos da `main` durante a continuação do épico ──────────────────
   // Chegaram pelo painel (`action-codes.ts`) no mesmo intervalo em que este
@@ -1167,6 +1174,11 @@ export const AUDIT_ACTIONS = [
   // `removidas` no metadata) ou dentro do `template.deleted`, que são os atos
   // em que a imagem sai de fato.
   "template.media_added",
+  // A poda por ORGANIZAÇÃO (migration 0693, retenção mista): uma linha por
+  // (organização, tipo) que apagou dado pessoal pelo prazo PRÓPRIO dela, gravada
+  // na própria organização para o admin dela ler. A linha global
+  // `retention.sweep_run` continua existindo e só leva o resumo.
+  "retention.organization_sweep",
 ] as const;
 
 /** Um código de auditoria. Derivado de `AUDIT_ACTIONS` — não redigite a lista. */
