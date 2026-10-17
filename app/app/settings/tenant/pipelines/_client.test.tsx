@@ -212,6 +212,41 @@ describe("o input de opções de um campo de lista fechada", () => {
   });
 });
 
+describe("lista pesquisável: editar as opções à mão depois de importar (#2521)", () => {
+  const FUNIL_DESTINO: PipelineRow = {
+    id: "33333333-3333-4333-8333-333333333333",
+    name: "Viagens",
+    slug: "viagens",
+    vocabulary: null,
+    settings: { fields: [{ key: "destino", label: "Destino", type: "searchable_select" }] },
+  };
+
+  it("acrescentar uma opção não troca o `value` nem apaga os apelidos da que veio do CSV", async () => {
+    vi.mocked(updatePipelineConfig).mockClear();
+    render(<PipelinesClient pipelines={[FUNIL_DESTINO]} podeEditarConfig />);
+
+    fireEvent.change(screen.getByLabelText(/Importar opções \(CSV\) 1/i), {
+      target: { value: "maceio-al,Maceió (AL),maceio;mcz" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Importar opções do campo 1/i }));
+
+    // Rótulo exato: o botão "Importar opções do campo 1" também casaria com a regex.
+    const opcoes = screen.getByLabelText("Opções do campo 1") as HTMLInputElement;
+    expect(opcoes).toHaveValue("Maceió (AL)");
+    // Cada tecla reconstrói a lista a partir dos rótulos: é aqui que `maceio-al`
+    // virava `Maceió (AL)` e os apelidos sumiam.
+    digitar(opcoes, ", Recife");
+    fireEvent.click(screen.getByRole("button", { name: /Salvar vocabulário e campos/i }));
+
+    await vi.waitFor(() => expect(updatePipelineConfig).toHaveBeenCalledTimes(1));
+    const patch = vi.mocked(updatePipelineConfig).mock.calls[0]?.[1];
+    expect(patch?.fields?.[0]?.options).toEqual([
+      { value: "maceio-al", label: "Maceió (AL)", aliases: ["maceio", "mcz"] },
+      { value: "Recife", label: "Recife" },
+    ]);
+  });
+});
+
 /* ────────────────────────────────────────────────────────────────────────── */
 
 /**

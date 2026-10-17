@@ -1,5 +1,5 @@
 import type { FlowGraph, FlowEdge, FlowNode, NodeType } from './graph-schema';
-import type { FollowupFlowSurface } from './api-schemas';
+import type { FollowupFlowSurface, TriggerConfig } from './api-schemas';
 import { branchIdForCondition, nodeBranches } from './graph-schema';
 import { rotuloDoRamo } from './rotulo-do-ramo';
 import type { NomesDeValor } from './vocabulario';
@@ -47,6 +47,9 @@ export const PUBLISH_ERROR_CODES = [
   'motivo_da_perda_ausente',
   'motivo_da_perda_invalido',
   'tag_ausente',
+  // Regra de data (item 14): sem o campo do negócio ela não tem o que comparar
+  // e responderia `false` para sempre, sem dizer por quê.
+  'campo_de_data_ausente',
 ] as const;
 export type PublishErrorCode = (typeof PUBLISH_ERROR_CODES)[number];
 
@@ -58,9 +61,40 @@ export type PublishValidationError = {
   branch_id?: string;
 };
 
+/**
+ * AVISOS DE SEGURANÇA DA PUBLICAÇÃO — o que não reprova, mas quem publica
+ * precisa ler antes de clicar.
+ *
+ * Por que aviso e não erro: estes três são decisões legítimas em algum fluxo
+ * (um toque único de "10 minutos depois" não quer teto de silêncio), e virar
+ * erro duro REPROVARIA o re-publish de fluxos de silêncio que já existem em
+ * outras instalações. Reprovar o que já está publicado e funcionando é quebrar
+ * dado alheio para dar uma lição.
+ */
+export const PUBLISH_WARNING_CODES = [
+  /** Fluxo de silêncio sem teto: alcança todo contato calado além do mínimo, de uma vez, ao ser ligado. */
+  'silencio_sem_teto',
+  /** Fluxo de silêncio sem teto de repetições: a pausa só espaça, e quem nunca responde recomeça para sempre. */
+  'silencio_sem_limite_de_repeticoes',
+  /** Fluxo de silêncio que alcança quem a EQUIPE não respondeu. */
+  'silencio_alcanca_nao_atendido',
+] as const;
+export type PublishWarningCode = (typeof PUBLISH_WARNING_CODES)[number];
+
+export type PublishValidationWarning = {
+  code: PublishWarningCode;
+  message: string;
+};
+
+/**
+ * `warnings` é OPCIONAL nos dois braços de propósito: todo consumidor atual lê
+ * `ok` e, no `false`, `errors`. Acrescentar campo opcional não quebra nenhum —
+ * e o braço `ok: true` passa a poder carregar recado, que antes não tinha onde
+ * caber.
+ */
 export type PublishValidationResult =
-  | { ok: true }
-  | { ok: false; errors: PublishValidationError[] };
+  | { ok: true; warnings?: PublishValidationWarning[] }
+  | { ok: false; errors: PublishValidationError[]; warnings?: PublishValidationWarning[] };
 
 /**
  * O que só o banco sabe, lido por quem chama (a rota de publish). Ausente, a
@@ -87,6 +121,44 @@ export interface ContextoDoPublish {
    * canal não os tem. Ausente = exige (o comportamento de antes).
    */
   exigeModeloForaDaJanela?: boolean;
+  /**
+   * O gatilho que vai armar este fluxo. Só os AVISOS o leem — nenhuma recusa
+   * depende dele —, e ausente significa "não há o que avisar sobre o gatilho".
+   */
+  trigger?: TriggerConfig;
+}
+
+/**
+ * Os avisos que o gatilho de silêncio rende. Nenhum reprova; todos são coisas
+ * medidas em instalação real que quem publica não tinha como ver na tela.
+ */
+export function avisosDoGatilho(trigger: TriggerConfig | undefined): PublishValidationWarning[] {
+  if (!trigger || trigger.kind !== 'silence') return [];
+  const avisos: PublishValidationWarning[] = [];
+  const p = trigger.params;
+
+  if (!p.max_silence_minutes) {
+    avisos.push({
+      code: 'silencio_sem_teto',
+      message:
+        'Sem “silêncio máximo”, o fluxo alcança TODO contato calado há mais que o mínimo — inclusive quem sumiu há meses — e começa para todos eles na primeira varredura, um minuto depois de publicar.',
+    });
+  }
+  if (!p.max_enrollments_por_contato) {
+    avisos.push({
+      code: 'silencio_sem_limite_de_repeticoes',
+      message:
+        'Sem limite de repetições, a pausa só ESPAÇA os reinícios: quem nunca responde volta a receber o fluxo a cada pausa, indefinidamente.',
+    });
+  }
+  if (!p.exige_resposta_da_equipe) {
+    avisos.push({
+      code: 'silencio_alcanca_nao_atendido',
+      message:
+        'O silêncio conta da última mensagem do CLIENTE, e mensagem da equipe não zera essa conta: quem escreveu e não foi atendido também entra no fluxo. Ligue “Só começar se a equipe já respondeu a última mensagem do cliente” se o fluxo é para quem sumiu, não para quem está esperando.',
+    });
+  }
+  return avisos;
 }
 
 /**
@@ -522,51 +594,156 @@ function byId(a: { id: string }, b: { id: string }): number {
 }
 
 /**
- * O custo, em ticks do MOTOR (ver `custo-no-motor.ts`), do caminho LINEAR mais
- * caro a partir do trigger (#2965) — o que o `steps_taken` gastaria até o fim do
- * fluxo na hipótese mais custosa sem repetição.
- *
- * SÓ o caminho linear: nó que está dentro de um ciclo fica de fora, porque o
- * custo dele depende de quantas voltas o lead faz na resposta e não cabe numa
- * soma. Esse caso — o `repeat` — já existia antes do #2896 e é da issue #2977;
- * aqui a régua para na fronteira do que ela consegue medir.
- *
- * O subgrafo que sobra depois de tirar os nós de ciclo é ACÍCLICO (todo ciclo
- * seria componente própria de Tarjan e teria saído), então a recursão com memo
- * termina sem precisar de guarda de visitação.
+ * Trava da multiplicação das voltas de um ciclo com `repeat` (#2977). O número
+ * EXATO não muda veredito nenhum — qualquer coisa acima do teto do motor já
+ * recusa — e sem a trava um desenho patológico (muitos `repeat` dentro do MESMO
+ * ciclo) poria `Infinity` na mensagem do 422 em vez de um número que a pessoa lê.
  */
-export function custoDoCaminhoLinear(graph: FlowGraph): number {
+const TETO_DAS_VOLTAS = 1_000_000;
+
+export interface CustoNoMotorDoFluxo {
+  /** Ticks que o motor gasta no caminho mais caro a partir do gatilho. */
+  total: number;
+  /** O ciclo com `repeat` que mais pesa no caminho MAIS CARO — o que a recusa nomeia. `null` se esse caminho não passa por `repeat`. */
+  cicloDeRepeat: { node_id: string; voltas: number; peso: number } | null;
+}
+
+/**
+ * O custo, em ticks do MOTOR (ver `custo-no-motor.ts`), do caminho mais caro a
+ * partir do gatilho — o que o `steps_taken` gasta até o fim do fluxo (#2965).
+ *
+ * O ciclo entra nesta soma, e entra de duas formas (#2977):
+ *
+ * - cada componente de ciclo vale no MÍNIMO uma volta completa (o piso: uma
+ *   volta que o lead faz) e a soma SEGUE pelos sucessores do ciclo. Antes, a
+ *   aresta que entrava num ciclo era descartada e tudo o que só se alcançava
+ *   DEPOIS dele nunca era somado — o mantenedor mediu isso na issue: `repeat` +
+ *   cauda linear de 86 ticks publicava, porque o custo linear dava 1;
+ * - o ciclo que tem `repeat` vale as voltas que ele permite. O motor lê o número
+ *   de voltas da resposta do lead (`node-handlers.ts`, caso `repeat`), limitado
+ *   por `max_count`, e o teto do motor tem de aguentar o PIOR caso: `max_count`
+ *   voltas vezes o peso do ciclo, mais UMA passada pelo próprio `repeat` — a que
+ *   acha `taken >= total` e sai pela saída `done`. Dois `repeat` no mesmo ciclo
+ *   (aninhados) MULTIPLICAM as voltas entre si; nunca somam.
+ *
+ * O peso de uma volta é a soma dos nós do componente — upper bound, a mesma
+ * doutrina conservadora do `ponytail` de `analyzeCondensedPaths`: nunca aceita um
+ * grafo que morre; pode recusar um a mais.
+ *
+ * Ciclo SEM `repeat` continua valendo só o piso: quantas voltas ele dá não está
+ * declarado em lugar nenhum (depende da resposta), e o teto prefere não inventar
+ * número.
+ */
+export function custoNoMotorDoFluxo(graph: FlowGraph): CustoNoMotorDoFluxo {
+  const semCiclo: CustoNoMotorDoFluxo = { total: 0, cicloDeRepeat: null };
   const nodesById = new Map(graph.nodes.map((n) => [n.id, n]));
   const outEdges = buildOutEdges(graph.edges);
   const trigger = graph.nodes.find((n) => n.type === 'trigger');
-  if (!trigger) return 0;
+  if (!trigger) return semCiclo;
 
   const components = stronglyConnectedComponents(
     graph.nodes.map((n) => n.id),
     outEdges
   );
-  const emCiclo = new Set<string>();
-  for (const component of components) {
-    if (isCycleComponent(component, outEdges)) component.forEach((id) => emCiclo.add(id));
-  }
-  if (emCiclo.has(trigger.id)) return 0;
+  const componentIndexById = new Map<string, number>();
+  components.forEach((comp, idx) => comp.forEach((id) => componentIndexById.set(id, idx)));
 
-  const memo = new Map<string, number>();
-  const custo = (id: string): number => {
-    const cache = memo.get(id);
-    if (cache !== undefined) return cache;
-    const node = nodesById.get(id);
-    const proprio = node ? CUSTO_NO_MOTOR[node.type] : 0;
-    let maiorSucessor = 0;
-    for (const edge of outEdges.get(id) ?? []) {
-      if (emCiclo.has(edge.target)) continue;
-      maiorSucessor = Math.max(maiorSucessor, custo(edge.target));
+  const emCiclo = components.map((comp) => isCycleComponent(comp, outEdges));
+
+  /** O que uma volta pelo componente custa: todos os nós dele, contados uma vez. */
+  const peso = components.map((comp) =>
+    comp.reduce((sum, id) => {
+      const node = nodesById.get(id);
+      return sum + (node ? CUSTO_NO_MOTOR[node.type] : 0);
+    }, 0)
+  );
+
+  const voltas = components.map((comp, idx) => {
+    if (!emCiclo[idx]) return 1;
+    let voltasDeclaradas = 1;
+    for (const id of comp) {
+      const node = nodesById.get(id);
+      if (node?.type === 'repeat') {
+        voltasDeclaradas = Math.min(voltasDeclaradas * node.config.max_count, TETO_DAS_VOLTAS);
+      }
     }
-    const total = proprio + maiorSucessor;
-    memo.set(id, total);
-    return total;
-  };
-  return custo(trigger.id);
+    return voltasDeclaradas;
+  });
+
+  /**
+   * A passada EXTRA do `repeat`: além das `max_count` voltas pelo corpo, ele
+   * ainda decide uma vez que `taken >= total` e segue pela saída `done`.
+   */
+  const passadaDoRepeat = components.map((comp, idx) => {
+    if (!emCiclo[idx]) return 0;
+    return comp.reduce((sum, id) => {
+      const node = nodesById.get(id);
+      return node?.type === 'repeat' ? sum + CUSTO_NO_MOTOR.repeat : sum;
+    }, 0);
+  });
+
+  const custoDoComponente = components.map((_, idx) => peso[idx]! * voltas[idx]! + passadaDoRepeat[idx]!);
+
+  const detalheDoCiclo = components.map((comp, idx) => {
+    if (!emCiclo[idx]) return null;
+    const repeatId = comp.filter((id) => nodesById.get(id)?.type === 'repeat').sort()[0];
+    if (repeatId === undefined) return null;
+    return { node_id: repeatId, voltas: voltas[idx]!, peso: peso[idx]! };
+  });
+
+  const condOut = new Map<number, Set<number>>();
+  for (const edgeList of outEdges.values()) {
+    for (const edge of edgeList) {
+      const cu = componentIndexById.get(edge.source);
+      const cv = componentIndexById.get(edge.target);
+      if (cu === undefined || cv === undefined || cu === cv) continue;
+      const succs = condOut.get(cu);
+      if (succs) succs.add(cv);
+      else condOut.set(cu, new Set([cv]));
+    }
+  }
+
+  const startComp = componentIndexById.get(trigger.id);
+  if (startComp === undefined) return semCiclo;
+  // Gatilho DENTRO de um ciclo: o motor não produz esse desenho (o gatilho é a
+  // entrada) e somar voltas por ele não diria nada. Fica fora, como no #2965.
+  if (emCiclo[startComp]) return semCiclo;
+
+  const chegaEm = new Map<number, number>([[startComp, 0]]);
+  // O ciclo com `repeat` que mais pesa no caminho MAIS CARO até cada componente:
+  // a recusa cita o repeat do caminho que estoura, não o de um ramo paralelo.
+  const cicloNoCaminho = new Map<number, CustoNoMotorDoFluxo['cicloDeRepeat']>([[startComp, null]]);
+  let total = 0;
+  let cicloDeRepeat: CustoNoMotorDoFluxo['cicloDeRepeat'] = null;
+
+  // `components[]` está em ordem reversa de topologia (fim do Tarjan): varrer de
+  // trás para frente visita todo componente ANTES dos seus sucessores.
+  for (let idx = components.length - 1; idx >= 0; idx--) {
+    const chegou = chegaEm.get(idx);
+    if (chegou === undefined) continue; // não é alcançável a partir do gatilho
+    const custoAqui = chegou + custoDoComponente[idx]!;
+
+    const herdado = cicloNoCaminho.get(idx) ?? null;
+    const detalhe = detalheDoCiclo[idx];
+    const cicloAqui =
+      detalhe && (herdado === null || detalhe.peso * detalhe.voltas > herdado.peso * herdado.voltas)
+        ? detalhe
+        : herdado;
+
+    if (custoAqui > total) {
+      total = custoAqui;
+      cicloDeRepeat = cicloAqui;
+    }
+
+    for (const succ of condOut.get(idx) ?? []) {
+      if (custoAqui > (chegaEm.get(succ) ?? -Infinity)) {
+        chegaEm.set(succ, custoAqui);
+        cicloNoCaminho.set(succ, cicloAqui);
+      }
+    }
+  }
+
+  return { total, cicloDeRepeat };
 }
 
 
@@ -714,6 +891,32 @@ function conferirRegras(
     };
     const valor = String(check.value).trim();
 
+    // A regra de DATA é conferida antes: o "valor" dela é um prazo em dias, e
+    // `0` — o caso mais comum, "hoje ou já passou" — não pode cair no
+    // `empty_check_value` nem no `check_value_not_number`.
+    if (check.field === 'lead_date') {
+      const chave = (check.key ?? '').trim();
+      if (chave === '') {
+        errors.push({
+          ...ancora,
+          code: 'campo_de_data_ausente',
+          message: `${regra}: escolha o campo do negócio que guarda a data.`,
+        });
+        return;
+      }
+      // `valor` vazio NAO pode virar 0: `Number("")` e 0, e um prazo em branco
+      // publicaria como "inclui hoje" sem ninguem ver. Achado pela prova de tela.
+      const dias = valor === "" ? Number.NaN : Number(valor);
+      if (!Number.isInteger(dias) || dias < 0) {
+        errors.push({
+          ...ancora,
+          code: 'check_value_not_number',
+          message: `${regra}: o prazo em dias é um número de 0 para cima (0 inclui hoje).`,
+        });
+      }
+      return;
+    }
+
     if (valor === '') {
       errors.push({ ...ancora, code: 'empty_check_value', message: `${regra} sem valor: preencha ou remova a regra.` });
       return;
@@ -844,18 +1047,33 @@ export function validateFlowForPublish(
     // chegar ao fim (medido pelo mantenedor: 14 toques × mensagem+tag+tag+espera
     // somam 86 ticks e o teto do motor é 80).
     //
-    // O caso do `repeat` fica FORA de propósito: o custo de um ciclo não é uma
-    // soma (depende das voltas que o lead pedir) e a régua dele é a #2977, que já
-    // existia antes deste PR — `custoDoCaminhoLinear` exclui os nós de ciclo.
-    // O roteiro de atendimento também fica fora: quem o conduz é o motor do TURNO
+    // A #2977 fechou a fronteira que este PR tinha deixado: o custo de um ciclo
+    // de `repeat` não é "depende das voltas do lead" — é `max_count` vezes o peso
+    // do ciclo, e o teto do motor tem de aguentar o pior caso (o número de voltas
+    // sai da resposta do lead, `node-handlers.ts`, e o publish não manda nele).
+    // A soma também SEGUE pelos sucessores do ciclo, então a cauda que só se
+    // alcança depois do `repeat` volta a contar.
+    // O roteiro de atendimento continua fora: quem o conduz é o motor do TURNO
     // (`atendimento.ts`, com o teto próprio), não o relógio.
     if (surface !== 'atendimento') {
-      const custoNoMotor = custoDoCaminhoLinear(graph);
+      const { total: custoNoMotor, cicloDeRepeat } = custoNoMotorDoFluxo(graph);
       if (custoNoMotor > TETO_DE_PASSOS_DO_MOTOR) {
+        // A caixa é nomeada pelo RÓTULO que a pessoa vê no editor, não pelo id
+        // interno (`repeat-3`). E só cita o repeat que está no caminho que estoura
+        // e dá mais de uma volta: com 1 volta, "reduza as voltas" é um conselho
+        // impossível — quem estoura é a cadência.
+        const repeatQuePesa = cicloDeRepeat && cicloDeRepeat.voltas > 1 ? cicloDeRepeat : null;
+        const rotuloDoRepeat = repeatQuePesa
+          ? graph.nodes.find((n) => n.id === repeatQuePesa.node_id)?.label ?? repeatQuePesa.node_id
+          : null;
         errors.push({
           node_id: null,
           code: 'max_engine_steps_exceeded',
-          message: `O caminho mais longo deste fluxo custa ${custoNoMotor} passos no motor (o relógio conta cada tick: gatilho, mensagem, espera e registro) e ele desiste da inscrição depois de ${TETO_DE_PASSOS_DO_MOTOR} — a retomada morreria no meio, sem chegar ao fim. Encurte a cadência.`,
+          message: `O caminho mais longo deste fluxo custa ${custoNoMotor} passos no motor (o relógio conta cada tick: gatilho, mensagem, espera e registro) e ele desiste da inscrição depois de ${TETO_DE_PASSOS_DO_MOTOR} — a retomada morreria no meio, sem chegar ao fim.${
+            repeatQuePesa
+              ? ` O trecho que a caixa "${rotuloDoRepeat}" repete custa ${repeatQuePesa.peso} passos por volta e ela permite até ${repeatQuePesa.voltas} voltas — reduza as voltas ou tire um toque de dentro do repetir.`
+              : ' Encurte a cadência.'
+          }`,
         });
       }
     }
@@ -983,7 +1201,11 @@ export function validateFlowForPublish(
     });
   }
 
-  if (errors.length === 0) return { ok: true };
+  const warnings = avisosDoGatilho(contexto.trigger);
+
+  if (errors.length === 0) {
+    return warnings.length > 0 ? { ok: true, warnings } : { ok: true };
+  }
 
   errors.sort((a, b) => {
     const rankDiff = PUBLISH_ERROR_CODES.indexOf(a.code) - PUBLISH_ERROR_CODES.indexOf(b.code);
@@ -991,5 +1213,5 @@ export function validateFlowForPublish(
     return (a.node_id ?? '').localeCompare(b.node_id ?? '');
   });
 
-  return { ok: false, errors };
+  return warnings.length > 0 ? { ok: false, errors, warnings } : { ok: false, errors };
 }
