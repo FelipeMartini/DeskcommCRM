@@ -243,8 +243,66 @@ export function fetchContidoDoOmniRouter(origem: string, interno?: typeof fetch)
       interno ?? ((i: Parameters<typeof fetch>[0], n?: RequestInit) => globalThis.fetch(i, n));
     const res = await chamar(input, { ...init, redirect: "manual" });
     if (res.status >= 300 && res.status < 400) throw new Error("omnirouter_redirect_bloqueado");
-    return res;
+    return limparAvisoDoModeloReal(res);
   };
+}
+
+/**
+ * O aviso que o OmniRouter pode escrever NO INÍCIO do texto da resposta de `/chat/completions`
+ * (`> 🤖 **[Modelo Real: <modelo> (<rota>)]**`, medido pela ProjetoMylab em 16/10/2026; o formato
+ * Anthropic `/messages` vem limpo, mas o CRM fala Chat Completions, ver `FABRICA_DO_OMNIROUTER`).
+ * É informação para quem opera o roteador, e o texto do agente vira mensagem de WhatsApp para o
+ * cliente: sem este filtro o cliente leria o nome do modelo e da rota. Só o início do texto, só
+ * este formato, e as quebras de linha que o seguem.
+ */
+const AVISO_DO_MODELO_REAL =
+  /^\s*>[ \t]*(?:🤖[ \t]*)?\*\*\[Modelo Real:[^\]\n]*\]\*\*[ \t]*(?:\r?\n)*/;
+
+/** Tira o aviso do começo do texto. Idempotente; texto sem o aviso volta igual. */
+export function tirarAvisoDoModeloReal(texto: string): string {
+  return texto.replace(AVISO_DO_MODELO_REAL, "");
+}
+
+/**
+ * Limpa o aviso das respostas JSON bem-sucedidas (o agente chama sem streaming). Resposta de erro,
+ * fluxo de eventos (`text/event-stream`), corpo que não é JSON ou sem `choices` passam INTACTOS: este
+ * filtro nunca derruba uma chamada nem reescreve o que não conhece. Corpo grande demais não é lido.
+ */
+async function limparAvisoDoModeloReal(res: Response): Promise<Response> {
+  try {
+    if (!res.ok) return res;
+    if (!(res.headers.get("content-type") ?? "").toLowerCase().includes("application/json"))
+      return res;
+    const tamanho = Number(res.headers.get("content-length") ?? "0");
+    if (tamanho > 5_000_000) return res;
+    const texto = await res.clone().text();
+    const corpo: unknown = JSON.parse(texto);
+    const escolhas = (corpo as { choices?: unknown } | null)?.choices;
+    if (!Array.isArray(escolhas)) return res;
+    let mudou = false;
+    for (const escolha of escolhas) {
+      const mensagem = (escolha as { message?: { content?: unknown } } | null)?.message;
+      if (mensagem && typeof mensagem.content === "string") {
+        const limpo = tirarAvisoDoModeloReal(mensagem.content);
+        if (limpo !== mensagem.content) {
+          mensagem.content = limpo;
+          mudou = true;
+        }
+      }
+    }
+    if (!mudou) return res;
+    const cabecalhos = new Headers(res.headers);
+    // O corpo novo tem outro tamanho e já chegou decodificado: os dois cabeçalhos antigos passam a mentir.
+    cabecalhos.delete("content-length");
+    cabecalhos.delete("content-encoding");
+    return new Response(JSON.stringify(corpo), {
+      status: res.status,
+      statusText: res.statusText,
+      headers: cabecalhos,
+    });
+  } catch {
+    return res;
+  }
 }
 
 /**
