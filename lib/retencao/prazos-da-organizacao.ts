@@ -25,10 +25,15 @@
  * duas tabelas, para elas não divergirem em silêncio.
  */
 import {
+  RETENCAO_CAPTACAO_DIAS_PADRAO,
   RETENCAO_CAPTACAO_DIAS_PISO,
+  RETENCAO_CONVERSA_DO_CASO_DIAS_PADRAO,
   RETENCAO_CONVERSA_DO_CASO_DIAS_PISO,
+  RETENCAO_ESPELHO_AGENDA_DIAS_PADRAO,
   RETENCAO_ESPELHO_AGENDA_DIAS_PISO,
+  RETENCAO_PROSPECCAO_DIAS_PADRAO,
   RETENCAO_PROSPECCAO_DIAS_PISO,
+  interpretarRetencao,
 } from "@/lib/retencao/politica";
 
 /** Os tipos que aceitam prazo próprio. A ORDEM é a da tela e a da lista do SQL. */
@@ -160,6 +165,61 @@ export function validarPrazosDaOrganizacao(entrada: unknown): ResultadoDaValidac
  */
 export function prazoSemEfeito(prazoDaOrganizacao: number, prazoGlobal: number): boolean {
   return prazoDaOrganizacao >= prazoGlobal;
+}
+
+/**
+ * A variável de retenção GLOBAL de cada tipo — a mesma que o cron (e a captação,
+ * em `lib/webhooks/retencao-da-captacao.ts`) lê, com o mesmo padrão e o mesmo
+ * piso. É o teto da organização.
+ */
+const GLOBAL_DO_TIPO = {
+  captacao: {
+    chave: "LEAD_CAPTURE_RETENTION_DAYS",
+    padrao: RETENCAO_CAPTACAO_DIAS_PADRAO,
+    piso: RETENCAO_CAPTACAO_DIAS_PISO,
+  },
+  conversa_do_caso: {
+    chave: "CASE_CHAT_RETENTION_DAYS",
+    padrao: RETENCAO_CONVERSA_DO_CASO_DIAS_PADRAO,
+    piso: RETENCAO_CONVERSA_DO_CASO_DIAS_PISO,
+  },
+  prospeccao: {
+    chave: "PROSPECCAO_RETENTION_DAYS",
+    padrao: RETENCAO_PROSPECCAO_DIAS_PADRAO,
+    piso: RETENCAO_PROSPECCAO_DIAS_PISO,
+  },
+  espelho_da_agenda: {
+    chave: "CALENDAR_MIRROR_RETENTION_DAYS",
+    padrao: RETENCAO_ESPELHO_AGENDA_DIAS_PADRAO,
+    piso: RETENCAO_ESPELHO_AGENDA_DIAS_PISO,
+  },
+} as const satisfies Record<
+  TipoDePrazoDaOrganizacao,
+  { chave: string; padrao: number; piso: number }
+>;
+
+type ChaveGlobalDoTipo = (typeof GLOBAL_DO_TIPO)[TipoDePrazoDaOrganizacao]["chave"];
+
+/**
+ * O prazo GLOBAL em vigor de cada um dos quatro tipos, já interpretado como o
+ * cron o interpreta (`interpretarRetencao`: lixo vira o padrão, abaixo do piso
+ * vira o piso). A tela usa isto para mostrar o teto da organização e avisar
+ * quando o prazo digitado não terá efeito. `instalacao` é o texto cru que
+ * `prazosDaInstalacao()` devolve.
+ */
+export function prazosGlobaisDosTipos(
+  instalacao: Readonly<Partial<Record<ChaveGlobalDoTipo, string>>>,
+): Record<TipoDePrazoDaOrganizacao, number> {
+  const saida = {} as Record<TipoDePrazoDaOrganizacao, number>;
+  for (const tipo of TIPOS_DE_PRAZO_DA_ORGANIZACAO) {
+    const regra = GLOBAL_DO_TIPO[tipo];
+    saida[tipo] = interpretarRetencao(instalacao[regra.chave], {
+      chave: regra.chave,
+      padrao: regra.padrao,
+      piso: regra.piso,
+    }).dias;
+  }
+  return saida;
 }
 
 /** O objeto que `fn_definir_retencao_da_organizacao` espera (`<tipo>_dias`). */

@@ -6,11 +6,17 @@ import { normalizarIdioma } from "@/lib/i18n/idiomas";
 import { traduzir } from "@/lib/i18n/dicionario";
 import { alineasDoArt15Visiveis, art15DoControlador } from "@/lib/legal/art15";
 import { moedaServidaOu } from "@/lib/money";
+import { prazosDaInstalacao } from "@/lib/retencao/prazos-da-instalacao";
+import {
+  lerPrazosDaOrganizacao,
+  prazosGlobaisDosTipos,
+} from "@/lib/retencao/prazos-da-organizacao";
 import { createClient } from "@/lib/supabase/server";
 import { Art15Form } from "./_art15";
 import { ZonaDePerigoDaOrganizacao } from "./_danger-zone";
 import { TenantForm } from "./_form";
 import { InterfaceDaEmpresaForm } from "./_interface";
+import { RetencaoDaOrganizacaoForm } from "./_retencao";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +61,10 @@ export default async function TenantSettingsPage() {
   // o que a tela mostra é o que o PDF vai imprimir, inclusive o `null` de quem
   // deixou a alínea em branco.
   const alineas = row ? art15DoControlador(row.settings) : null;
+  // Os prazos que a empresa escolheu (lidos como o banco os lê: elevados ao piso) e o
+  // prazo da instalação de cada tipo, que é o teto dela. Nenhum dos dois é segredo.
+  const prazosProprios = row ? lerPrazosDaOrganizacao(row.settings) : {};
+  const prazosGlobais = prazosGlobaisDosTipos(await prazosDaInstalacao());
 
   return (
     <div className="flex h-full flex-col gap-6 p-6">
@@ -98,6 +108,7 @@ export default async function TenantSettingsPage() {
           }}
         />
       )}
+      {row && <RetencaoDaOrganizacaoForm initial={prazosProprios} globais={prazosGlobais} />}
       {row && (
         <InterfaceDaEmpresaForm
           initial={row.interface_settings}

@@ -532,6 +532,13 @@ export const AUDIT_ACTIONS = [
   // declarou as alíneas que o relatório de acesso imprimiu?" — e o metadata
   // guarda a declaração como ela foi gravada, que é o que a CNPD pode pedir.
   "org.art15_updated",
+  // O prazo de retenção do dado pessoal de terceiros que a ORGANIZAÇÃO escolheu
+  // (`organizations.settings.retencao`, migration 0693) — mutação de TENANT, com
+  // `organization_id` + `resource_id` = uuid da org. Outra ação, e não
+  // `org.updated`, porque a pergunta da trilha é "quem encurtou o prazo em que
+  // esta empresa guarda o dado dos clientes dela?" — e o metadata guarda os
+  // prazos como foram gravados, que é o que um titular ou a autoridade pode pedir.
+  "org.retention_updated",
 
   // ── Vindos da `main` durante a continuação do épico ──────────────────
   // Chegaram pelo painel (`action-codes.ts`) no mesmo intervalo em que este
