@@ -6,10 +6,20 @@
 -- completa de raciocínio e execução de ferramentas (tool calling).
 --
 -- O QUE FAZ
--- 1. Insere e marca 'claude-haiku-5-5' (Claude Haiku 5.5) como o modelo padrão do provedor Anthropic em public.ai_models.
+-- 1. Desmarca o padrão anterior da Anthropic (antes, por causa do índice único de um padrão por provedor),
+--    insere e marca 'claude-haiku-5-5' (Claude Haiku 5.5) como o modelo padrão do provedor Anthropic em public.ai_models.
 -- 2. Atualiza a função fn_seed_org_llm_defaults() para que novas organizações nasçam com
 --    'claude-haiku-5-5' como default_model.
 -- 3. Atualiza as organizações existentes para usarem 'claude-haiku-5-5'.
+
+-- 0. Desmarca o padrão anterior da Anthropic ANTES de marcar o novo.
+-- O índice `ai_models_one_default_per_provider` é UNIQUE parcial e IMEDIATO (um padrão por provedor):
+-- marcar `claude-haiku-5-5` enquanto outro modelo da Anthropic ainda é o padrão quebra a migration no
+-- meio (violação de unicidade). Foi o que aconteceu na janela de 16/10/2026, que precisou de um prelúdio
+-- à mão. Idempotente: com o Haiku 5.5 já padrão, nenhuma linha casa.
+update public.ai_models
+set is_default_for_provider = false
+where provider = 'anthropic' and model_id <> 'claude-haiku-5-5' and is_default_for_provider;
 
 -- 1. Insere ou atualiza o modelo Claude Haiku 5.5 no catálogo global da Anthropic
 insert into public.ai_models (
@@ -38,11 +48,6 @@ on conflict (provider, model_id) do update set
   description = excluded.description,
   is_default_for_provider = true,
   supports_tools = true;
-
--- Garante que nenhum outro modelo da Anthropic fique marcado como padrão concorrente
-update public.ai_models
-set is_default_for_provider = false
-where provider = 'anthropic' and model_id <> 'claude-haiku-5-5';
 
 -- 2. Atualiza o trigger seed para que novas organizações usem 'claude-haiku-5-5'
 create or replace function public.fn_seed_org_llm_defaults() returns trigger
