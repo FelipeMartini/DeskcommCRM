@@ -52,6 +52,7 @@ import { generateObject } from "ai";
 
 import { getRequestPool } from "@/lib/agent-engine/db/request-pool";
 import { NIVEIS_DE_CLIMA } from "@/lib/ai/decisao/clima";
+import { DEFAULT_CLASSIFIER_MODEL } from "@/lib/ai/gateway";
 import { registrarFalha } from "@/lib/ai/decisao/disjuntor";
 import { AVISOS_DOS_PEDIDOS } from "@/lib/ai/decisao/pedidos";
 import { AVISO_DO_JEV, O_QUE_FAZER_DO_JEV } from "@/lib/ai/decisao/textos";
@@ -400,7 +401,7 @@ describe("D12 — o clima roda com a chave colada pela tela", () => {
     expect(banco.llm_calls[0]).toMatchObject({
       purpose: "sentiment_classify",
       provider: "anthropic",
-      model: "anthropic/claude-haiku-4-5",
+      model: DEFAULT_CLASSIFIER_MODEL,
       status: "ok",
     });
     expect(banco.messages[0]!.metadata).toMatchObject({ sentiment_score: 0.2 });
