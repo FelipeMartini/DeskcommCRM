@@ -19,8 +19,8 @@ import type pg from 'pg';
 
 import { embedText } from '@/lib/ai/embed';
 import {
-  MODELO_DE_EMBEDDING_DO_GOOGLE,
   ehBuscaPorTexto,
+  legadoNaoServeAoModelo,
   limiarDoModelo,
 } from '@/lib/ai/embeddings/chave';
 import type { Citation } from '@/lib/ai/citations/types';
@@ -107,10 +107,10 @@ export async function searchKnowledge(
            from fn_buscar_trechos_das_fontes($1, $2::uuid[], $3::vector, $4, $5, $6)`,
           [args.organizationId, fontes, vec, args.topK, PISO_SIMILARIDADE, model],
         )
-      : model === MODELO_DE_EMBEDDING_DO_GOOGLE || porTexto
+      : legadoNaoServeAoModelo(model)
         ? // O legado (`retrieve_top_k_chunks`) não filtra por modelo, e toda versão
-          // legada foi calculada com a OpenAI: comparar uma pergunta do Google
-          // com ela devolveria trechos errados com nota alta. Nada é melhor.
+          // legada foi calculada com a OpenAI: comparar uma pergunta do Google ou do
+          // OmniRouter com ela devolveria trechos errados com nota alta. Nada é melhor.
           { rows: [] as KnowledgeHit[] }
         : await pool.query<KnowledgeHit>(
           `select chunk_id, knowledge_source_id, content, similarity, metadata

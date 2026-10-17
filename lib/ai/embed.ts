@@ -3,7 +3,8 @@
  *
  * A chave vem de `lib/ai/embeddings/chave.ts`, que resolve pela organização:
  * binding do ponto → credencial OpenAI/OpenRouter da org → gateway da instalação
- * → chave da instalação. Até a 0181 este arquivo lia SÓ `process.env`, e o efeito era o
+ * → chave da instalação (ou, na família que a organização escolheu, a busca por palavras ou o
+ * OmniRouter da instalação). Até a 0181 este arquivo lia SÓ `process.env`, e o efeito era o
  * pior possível para quem instala: cadastrar a chave da OpenAI pela tela não
  * habilitava a base de conhecimento, enquanto duas telas do produto prometiam
  * que sim.
@@ -16,12 +17,15 @@ import { embed } from "ai";
 import {
   DIMENSOES_DO_EMBEDDING,
   MODELO_DE_EMBEDDING_DA_BUSCA_POR_TEXTO,
+  MODELO_NO_OMNIROUTER,
   modeloDeEmbedding,
   resolverChaveDeEmbedding,
   type ChaveDeEmbedding,
   type PontoDeEmbedding,
 } from "@/lib/ai/embeddings/chave";
+import { ajustarVetorDoGemini } from "@/lib/ai/embeddings/dimensoes";
 import { gatewayHeaders, type ModelId } from "@/lib/ai/gateway";
+import { opcoesDoOmniRouter } from "@/lib/ai/omnirouter";
 import { logger } from "@/lib/logger";
 // O par (provedor, modelo): a mesma régua dos demais caminhos (issue #2377).
 import { ParProvedorModeloInvalidoError, validarParProvedorModelo } from "@/lib/ai/par-provedor-modelo";
@@ -114,18 +118,27 @@ export async function embedText(
   // pelo gateway da Vercel mesmo sem chave, entrando no plano anônimo, cujo teto
   // devolve `GatewayRateLimitError`. OpenAI direto usa id sem prefixo; OpenRouter
   // recebe o slug completo que a API de embeddings dela exige.
+  //
+  // OMNIROUTER: fala a API da OpenAI, então é o mesmo provider explícito, mas pelas opções DELE
+  // (`opcoesDoOmniRouter`: endereço revalidado, só a origem da instalação e sem seguir redirect —
+  // a chave do roteador nunca vai a outro host). O modelo que o roteador conhece é
+  // `MODELO_NO_OMNIROUTER`; `modelId` (o marcador `omnirouter/…`) é só o nome do mapa de vetores.
   const resolvido = chave.viaGateway
     ? modelId
-    : chave.provedor === "google"
-      ? createGoogleGenerativeAI({ apiKey: chave.apiKey ?? "" }).embeddingModel(
-          modelId.replace(/^google\//, ""),
+    : chave.provedor === "omnirouter"
+      ? createOpenAI(opcoesDoOmniRouter(chave.apiKey ?? "", chave.baseUrl ?? undefined)).textEmbeddingModel(
+          MODELO_NO_OMNIROUTER,
         )
-      : createOpenAI({
-        apiKey: chave.apiKey ?? "",
-        ...(chave.baseUrl ? { baseURL: chave.baseUrl } : {}),
-      }).textEmbeddingModel(
-        chave.provedor === "openrouter" ? modelId : modelId.replace(/^openai\//, ""),
-      );
+      : chave.provedor === "google"
+        ? createGoogleGenerativeAI({ apiKey: chave.apiKey ?? "" }).embeddingModel(
+            modelId.replace(/^google\//, ""),
+          )
+        : createOpenAI({
+          apiKey: chave.apiKey ?? "",
+          ...(chave.baseUrl ? { baseURL: chave.baseUrl } : {}),
+        }).textEmbeddingModel(
+          chave.provedor === "openrouter" ? modelId : modelId.replace(/^openai\//, ""),
+        );
 
   const result = await embed({
     model: resolvido,
@@ -150,12 +163,19 @@ export async function embedText(
       : {}),
   });
 
+  // O OmniRouter devolve as 3072 dimensões nativas do Gemini (não repassa o parâmetro de tamanho):
+  // corta nas 1536 da coluna e normaliza. Qualquer outro tamanho segue intacto para a asserção abaixo.
+  const vetor =
+    chave.provedor === "omnirouter"
+      ? ajustarVetorDoGemini(result.embedding, DIMENSOES_DO_EMBEDDING)
+      : result.embedding;
+
   // Dimensão asserida a cada chamada: divergir de modelo quebra o recall em
   // SILÊNCIO (os vetores deixam de ser comparáveis), e uma chamada recusada é
   // infinitamente melhor que um acervo que responde errado com nota alta.
-  if (result.embedding.length !== DIMENSOES_DO_EMBEDDING) {
+  if (vetor.length !== DIMENSOES_DO_EMBEDDING) {
     throw new Error(
-      `embedding com ${result.embedding.length} dimensões, esperado ${DIMENSOES_DO_EMBEDDING} ` +
+      `embedding com ${vetor.length} dimensões, esperado ${DIMENSOES_DO_EMBEDDING} ` +
         `(pin de contrato ${modelId}) — recall quebraria em silêncio`,
     );
   }
@@ -166,5 +186,5 @@ export async function embedText(
     (result.usage as { tokens?: number; promptTokens?: number } | undefined)?.promptTokens ??
     0;
 
-  return { embedding: result.embedding, promptTokens, model: modelId };
+  return { embedding: vetor, promptTokens, model: modelId };
 }

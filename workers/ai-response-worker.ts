@@ -23,8 +23,8 @@ import { generateText, type LanguageModel } from "ai";
 import { gatewayConfig, gatewayHeaders } from "@/lib/ai/gateway";
 import { embedText } from "@/lib/ai/embed";
 import {
-  MODELO_DE_EMBEDDING_DO_GOOGLE,
   ehBuscaPorTexto,
+  legadoNaoServeAoModelo,
   limiarDoModelo,
 } from "@/lib/ai/embeddings/chave";
 import { getBudgetStatus, type BudgetStatus } from "@/lib/ai/budget/check";
@@ -1098,7 +1098,7 @@ async function retrieveContext(input: RetrieveInput): Promise<RagHit[]> {
             p_embedding_model: modelo,
           } as never,
         )
-      : modelo === MODELO_DE_EMBEDDING_DO_GOOGLE || porTexto
+      : legadoNaoServeAoModelo(modelo)
         ? // Legado sem filtro de modelo e só com vetores OpenAI (ver search-knowledge.ts).
           { data: [], error: null }
         : await admin.rpc(

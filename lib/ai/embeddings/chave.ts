@@ -50,6 +50,13 @@
  *  9. Nada, para quem tem família e perdeu a chave dela. E "nada" é uma resposta
  *     legítima que o chamador precisa saber mostrar, não um erro para engolir.
  *
+ * **O OmniRouter (família `omnirouter`) NÃO está na escada.** Ele só vale quando a organização o
+ * ESCOLHEU na tela (`PUT /api/v1/ai/knowledge/provedor`): o texto do material sai para o roteador da
+ * instalação e para o provedor que ele usa, e cair nele em silêncio no lugar da busca por palavras
+ * (que não envia nada a ninguém) trocaria o destino do dado sem a pessoa saber. Escolhida, a família
+ * não percorre credencial nenhuma: usa o endereço e a chave do OmniRouter da instalação (Admin ›
+ * Credenciais), se a organização é atendida por ele (`lib/ai/omnirouter.ts`, a mesma regra do chat).
+ *
  * ## A escada só percorre os degraus da FAMÍLIA da base
  *
  * A família (OpenAI ou Google) decide o modelo, e o modelo decide se a busca
@@ -89,9 +96,11 @@
  * ## O modelo NÃO é escolha solta — é consequência do provedor
  *
  * OpenAI (direta, gateway ou OpenRouter) indexa com `text-embedding-3-small`;
- * Google indexa com `gemini-embedding-001`. Os dois em 1536 dimensões — o Google
- * a pedido (`outputDimensionality`, `lib/ai/embed.ts`) —, então a coluna
- * `ai_chunks.embedding vector(1536)` serve aos dois sem migration.
+ * Google indexa com `gemini-embedding-001`; o OmniRouter indexa com o mesmo
+ * `gemini-embedding-001`, mas pelo roteador (que devolve 3072 dimensões e não repassa o
+ * parâmetro de tamanho: `lib/ai/embeddings/dimensoes.ts` corta nas 1536 e normaliza). Todos em
+ * 1536 dimensões — o Google a pedido (`outputDimensionality`, `lib/ai/embed.ts`) —, então a
+ * coluna `ai_chunks.embedding vector(1536)` serve a todos sem migration.
  *
  * Indexação e busca são coordenadas de um mesmo mapa: trocar só um lado não dá
  * erro nenhum — o agente simplesmente para de achar o seu conteúdo. Por isso a
@@ -102,6 +111,11 @@
 import { byteaToBuffer, decryptKey } from "@/lib/crypto/aes_gcm";
 import { chaveDeIaDaInstalacao } from "@/lib/ai/chaves-da-instalacao";
 import { OPENROUTER_BASE_URL } from "@/lib/ai/gateway";
+import { OmniRouterInvalidoError, omniRouterDaOrganizacao } from "@/lib/ai/omnirouter";
+import {
+  escolhaDoOmniRouterDaOrganizacao,
+  variaveisDoOmniRouterDaInstalacao,
+} from "@/lib/ai/omnirouter-ativo";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -112,6 +126,16 @@ export type PontoDeEmbedding = "embedding_indexar" | "embedding_consultar";
 /** Pin de contrato: o mesmo modelo dos dois lados, com a mesma dimensão. */
 export const MODELO_DE_EMBEDDING = "openai/text-embedding-3-small";
 export const MODELO_DE_EMBEDDING_DO_GOOGLE = "google/gemini-embedding-001";
+/**
+ * A família do OMNIROUTER: o `gemini-embedding-001` do Google, mas pedido ao roteador da
+ * instalação (`POST <omnirouter>/embeddings`). É o MARCADOR que a versão de índice grava em
+ * `embedding_model`, e é diferente do marcador do Google de propósito: o vetor sai do mesmo
+ * modelo, mas por outro caminho (sem o par documento×pergunta do Google, cortado de 3072 para
+ * 1536 aqui), e a busca só compara trechos preparados da mesma maneira.
+ */
+export const MODELO_DE_EMBEDDING_DO_OMNIROUTER = "omnirouter/gemini-embedding-001";
+/** O id que o OmniRouter conhece para esse modelo (medido em 17/10/2026, `GET /v1/models`). */
+export const MODELO_NO_OMNIROUTER = "gemini/gemini-embedding-001";
 /**
  * A terceira família: busca por PALAVRAS, feita no próprio Postgres
  * (`fn_buscar_trechos_por_texto`, migration 0647). Não é um modelo de embedding —
@@ -130,22 +154,44 @@ export const DIMENSOES_DO_EMBEDDING = 1536;
 export const LIMIAR_MAXIMO_DA_BUSCA_POR_TEXTO = 0.25;
 
 /** Quem prepara a base, do ponto de vista de quem escolhe na tela. */
-export type ProvedorDaBase = "openai" | "google" | "texto";
+export type ProvedorDaBase = "openai" | "google" | "omnirouter" | "texto";
 
 /** O modelo é função do provedor: OpenAI direta, gateway e OpenRouter dão o mesmo vetor. */
 export function modeloDeEmbedding(provedor: ChaveDeEmbedding["provedor"]): string {
   if (provedor === "texto") return MODELO_DE_EMBEDDING_DA_BUSCA_POR_TEXTO;
+  if (provedor === "omnirouter") return MODELO_DE_EMBEDDING_DO_OMNIROUTER;
   return provedor === "google" ? MODELO_DE_EMBEDDING_DO_GOOGLE : MODELO_DE_EMBEDDING;
 }
 
 export function provedorDaBase(chave: Pick<ChaveDeEmbedding, "provedor">): ProvedorDaBase {
   if (chave.provedor === "texto") return "texto";
+  if (chave.provedor === "omnirouter") return "omnirouter";
   return chave.provedor === "google" ? "google" : "openai";
+}
+
+/** A família que um marcador de `embedding_model` anuncia (o que a versão ativa diz). */
+function familiaDoMarcador(modelo: string): ProvedorDaBase {
+  if (modelo === MODELO_DE_EMBEDDING_DA_BUSCA_POR_TEXTO) return "texto";
+  if (modelo === MODELO_DE_EMBEDDING_DO_OMNIROUTER) return "omnirouter";
+  return modelo === MODELO_DE_EMBEDDING_DO_GOOGLE ? "google" : "openai";
 }
 
 /** O modelo que a pergunta usou é o da busca por palavras? Então não há vetor a comparar. */
 export function ehBuscaPorTexto(modelo: string): boolean {
   return modelo === MODELO_DE_EMBEDDING_DA_BUSCA_POR_TEXTO;
+}
+
+/**
+ * O caminho LEGADO da busca (`retrieve_top_k_chunks`, versão do agente) não filtra por modelo, e toda
+ * versão legada foi calculada com a OpenAI: perguntar com o Google, o OmniRouter ou por palavras
+ * devolveria trechos errados com nota alta. Para essas famílias o legado não responde nada.
+ */
+export function legadoNaoServeAoModelo(modelo: string): boolean {
+  return (
+    modelo === MODELO_DE_EMBEDDING_DO_GOOGLE ||
+    modelo === MODELO_DE_EMBEDDING_DO_OMNIROUTER ||
+    ehBuscaPorTexto(modelo)
+  );
 }
 
 /** O limiar que vale para o modelo: o da busca por palavras nunca passa do teto dela. */
@@ -190,7 +236,12 @@ export async function familiaDaBase(organizationId: string): Promise<FamiliaDaBa
   if (erroDaOrg) throw new FamiliaDaBaseIlegivelError(organizationId, erroDaOrg.message);
   const gravada = (org as { settings?: { base_de_conhecimento?: { familia?: unknown } } } | null)
     ?.settings?.base_de_conhecimento?.familia;
-  if (gravada === "openai" || gravada === "google" || gravada === "texto") {
+  if (
+    gravada === "openai" ||
+    gravada === "google" ||
+    gravada === "omnirouter" ||
+    gravada === "texto"
+  ) {
     return { familia: gravada, origem: "escolha" };
   }
 
@@ -206,20 +257,13 @@ export async function familiaDaBase(organizationId: string): Promise<FamiliaDaBa
   if (erroDaVersao) throw new FamiliaDaBaseIlegivelError(organizationId, erroDaVersao.message);
   const modelo = (versao as { embedding_model?: unknown } | null)?.embedding_model;
   if (typeof modelo !== "string") return null;
-  return {
-    familia:
-      modelo === MODELO_DE_EMBEDDING_DA_BUSCA_POR_TEXTO
-        ? "texto"
-        : modelo === MODELO_DE_EMBEDDING_DO_GOOGLE
-          ? "google"
-          : "openai",
-    origem: "indice",
-  };
+  return { familia: familiaDoMarcador(modelo), origem: "indice" };
 }
 
 const NOME_DA_FAMILIA: Record<ProvedorDaBase, string> = {
   openai: "OpenAI",
   google: "Google",
+  omnirouter: "OmniRouter",
   texto: "a busca por palavras",
 };
 
@@ -228,6 +272,7 @@ export type OrigemDaChave =
   | "credencial_da_organizacao"
   | "gateway_da_instalacao"
   | "chave_da_instalacao"
+  | "omnirouter_da_instalacao"
   | "busca_por_palavras";
 
 export const EXPLICACAO_DA_ORIGEM: Record<OrigemDaChave, string> = {
@@ -235,6 +280,8 @@ export const EXPLICACAO_DA_ORIGEM: Record<OrigemDaChave, string> = {
   credencial_da_organizacao: "Usando uma chave da organização cadastrada em Credenciais.",
   gateway_da_instalacao: "Usando o gateway de IA configurado nesta instalação.",
   chave_da_instalacao: "Usando a chave que veio na instalação.",
+  omnirouter_da_instalacao:
+    "Usando o OmniRouter da instalação (modelo gemini-embedding-001, do Google, pelo roteador).",
   busca_por_palavras:
     "Busca por palavras, feita no próprio sistema: não usa chave de IA e não tem custo.",
 };
@@ -244,7 +291,7 @@ export interface ChaveDeEmbedding {
   apiKey: string | null;
   /** `null` = falar direto com a OpenAI, quando não houver gateway. */
   baseUrl: string | null;
-  provedor: "openai" | "openrouter" | "gateway" | "google" | "texto";
+  provedor: "openai" | "openrouter" | "gateway" | "google" | "omnirouter" | "texto";
   /** Quando true, a chamada vai pelo gateway (o SDK lê a chave do process.env). */
   viaGateway: boolean;
   origem: OrigemDaChave;
@@ -281,6 +328,10 @@ export async function resolverChaveDeEmbedding(
 
   // A busca por palavras não tem chave nem binding: é a família que sempre pode ser servida.
   if (familia === "texto") return chaveDaBuscaPorTexto(avisos);
+
+  // O OmniRouter também não percorre credencial nem binding: é o roteador da instalação, e só vale
+  // quando a organização o escolheu e é atendida por ele (a mesma regra do chat).
+  if (familia === "omnirouter") return chaveDoOmniRouter(organizationId, avisos);
 
   // 1 · A escolha explícita do painel — se for da família da base.
   const binding = await lerBindingDeEmbedding(ponto, organizationId);
@@ -404,6 +455,45 @@ export async function resolverChaveDeEmbedding(
   // família calado faria a pergunta sair com outro mapa e achar zero trechos. A troca é
   // explícita (`PUT /api/v1/ai/knowledge/provedor`), e a tela a oferece.
   return familia === null ? chaveDaBuscaPorTexto(avisos) : null;
+}
+
+/**
+ * A "chave" da família OmniRouter: o endereço e a chave do roteador da INSTALAÇÃO, quando a organização
+ * é atendida por ele (`settings.omnirouter.habilitado`, ou a oferta geral). `null` quando não é, quando a
+ * instalação não o configurou ou quando a configuração está torta — e "nada" é resposta legítima, como na
+ * família que perdeu a chave: a tela diz qual família ficou sem ela e a base não cai noutra calada.
+ * Configuração torta vira `null` aqui (e não exceção) porque este resolvedor alimenta a tela de
+ * informação (`estado.ts`); o motivo exato continua aparecendo no log da instalação.
+ */
+async function chaveDoOmniRouter(
+  organizationId: string,
+  avisos: string[],
+): Promise<ChaveDeEmbedding | null> {
+  const [variaveis, escolha] = await Promise.all([
+    variaveisDoOmniRouterDaInstalacao(),
+    escolhaDoOmniRouterDaOrganizacao(createAdminClient(), organizationId),
+  ]);
+  try {
+    const rota = omniRouterDaOrganizacao(variaveis, escolha);
+    if (!rota) return null;
+    return {
+      apiKey: rota.apiKey,
+      baseUrl: rota.baseURL,
+      provedor: "omnirouter",
+      viaGateway: false,
+      origem: "omnirouter_da_instalacao",
+      rotulo: null,
+      avisos,
+    };
+  } catch (err) {
+    if (!(err instanceof OmniRouterInvalidoError)) throw err;
+    // Sem o valor: a mensagem do erro já não repete endereço nem chave.
+    logger.warn("[embedding] o OmniRouter da instalação está mal configurado", {
+      organization_id: organizationId,
+      motivo: err.motivo,
+    });
+    return null;
+  }
 }
 
 /** A "chave" da busca por palavras: não há segredo nenhum, só a decisão de buscar no Postgres. */

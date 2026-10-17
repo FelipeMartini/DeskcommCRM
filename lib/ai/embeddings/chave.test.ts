@@ -7,6 +7,8 @@ const state = vi.hoisted(() => ({
   versions: [] as Array<Record<string, unknown>>,
   /** Tabelas cuja leitura devolve `error` — o supabase-js não lança. */
   falhas: new Set<string>(),
+  /** O que a tela de Credenciais da instalação guarda do OmniRouter (`valorDaInstalacao`). */
+  omni: {} as Record<string, string>,
   env: {
     AI_GATEWAY_API_KEY: "",
     AI_GATEWAY_BASE_URL: "",
@@ -18,6 +20,16 @@ const state = vi.hoisted(() => ({
 
 vi.mock("@/lib/env", () => ({ env: state.env }));
 vi.mock("@/lib/ai/gateway", () => ({ OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1" }));
+// O endereço, a chave e a oferta geral do OmniRouter são da instalação; a ESCOLHA da organização vem do
+// banco dublado abaixo (`organizations.settings.omnirouter.habilitado`), pelo leitor de verdade.
+vi.mock("@/lib/instalacao/config", () => ({
+  // O piso é o `.env` dublado (`state.env`), como no módulo de verdade; a tela (`state.omni`) vence.
+  valorDaInstalacao: async (chave: string) => {
+    const doEnv = (state.env as Record<string, string>)[chave];
+    const valor = state.omni[chave] ?? (doEnv ? doEnv : null);
+    return { valor, fonte: valor === null ? "nenhuma" : state.omni[chave] !== undefined ? "painel" : "env" };
+  },
+}));
 vi.mock("@/lib/logger", () => ({ logger: { warn: vi.fn() } }));
 // A chamada de rede do AI SDK é a única parte dublada do caminho da pergunta:
 // resolvedor, `embedText` e `buscarConhecimento` rodam de verdade no cenário
@@ -68,8 +80,10 @@ import { embedText } from "@/lib/ai/embed";
 import {
   FamiliaDaBaseIlegivelError,
   ehBuscaPorTexto,
+  legadoNaoServeAoModelo,
   limiarDoModelo,
   modeloDeEmbedding,
+  provedorDaBase,
   resolverChaveDeEmbedding,
   temChaveDeEmbedding,
 } from "@/lib/ai/embeddings/chave";
@@ -97,6 +111,7 @@ beforeEach(() => {
   state.organizations = [];
   state.versions = [];
   state.falhas = new Set();
+  state.omni = {};
   state.env.AI_GATEWAY_API_KEY = "";
   state.env.OPENAI_API_KEY = "";
   state.env.OPENROUTER_API_KEY = "";
@@ -578,5 +593,167 @@ describe("a base preparada por palavras (família texto)", () => {
     expect(limiarDoModelo(MARCADOR, 0.4)).toBe(0.25);
     expect(limiarDoModelo(MARCADOR, 0.1)).toBe(0.1);
     expect(limiarDoModelo("google/gemini-embedding-001", 0.4)).toBe(0.4);
+  });
+});
+
+/**
+ * A quarta família: a base preparada pelo OMNIROUTER da instalação (`gemini/gemini-embedding-001`, o
+ * Gemini do Google pelo roteador). Não é credencial de ninguém: o endereço e a chave são da instalação
+ * e quem o OmniRouter atende é escolha da organização. Fica FORA da escada — só entra quando a base
+ * da organização já foi preparada por ele (escolha gravada ou índice gravado).
+ */
+describe("a base preparada pelo OmniRouter (família omnirouter)", () => {
+  const MARCADOR = "omnirouter/gemini-embedding-001";
+  const configurado = () => {
+    state.omni = {
+      OMNIROUTER_BASE_URL: "https://omnirouter.example.com/v1",
+      OMNIROUTER_API_KEY: "chave-ficticia-omnirouter",
+    };
+  };
+  // `base_de_conhecimento.familia` diz QUAL família prepara a base; quem o OmniRouter atende é outra
+  // escolha (`omnirouter.habilitado`, do administrador da plataforma) ou a oferta geral da instalação.
+  const escolheu = (
+    familia = "omnirouter",
+    extra: Record<string, unknown> = { omnirouter: { habilitado: true } },
+  ) => {
+    state.organizations = [
+      { id: "org-1", settings: { base_de_conhecimento: { familia }, ...extra } },
+    ];
+  };
+  const google = () =>
+    credential({ id: "cred-google", provider: "google", api_key_encrypted: "chave-ficticia-google" });
+  const openai = () =>
+    credential({
+      id: "cred-openai",
+      provider: "openai",
+      api_key_encrypted: "chave-ficticia-openai",
+      created_at: "2026-09-28T10:00:00Z",
+    });
+
+  it("o marcador é próprio: não se confunde com o do Google, que é o mesmo modelo por outro caminho", () => {
+    expect(modeloDeEmbedding("omnirouter")).toBe(MARCADOR);
+    expect(MARCADOR).not.toBe(modeloDeEmbedding("google"));
+    expect(provedorDaBase({ provedor: "omnirouter" })).toBe("omnirouter");
+    expect(ehBuscaPorTexto(MARCADOR)).toBe(false);
+  });
+
+  it("a escolha gravada entrega a rota do OmniRouter da instalação, sem olhar as credenciais", async () => {
+    configurado();
+    escolheu();
+    state.credentials = [google(), openai()];
+    state.env.OPENAI_API_KEY = "chave-ficticia-env-openai";
+
+    for (const ponto of ["embedding_indexar", "embedding_consultar"] as const) {
+      expect(await resolverChaveDeEmbedding("org-1", ponto)).toMatchObject({
+        provedor: "omnirouter",
+        apiKey: "chave-ficticia-omnirouter",
+        baseUrl: "https://omnirouter.example.com/v1",
+        viaGateway: false,
+        origem: "omnirouter_da_instalacao",
+      });
+    }
+  });
+
+  it("a família lida do índice (versão ativa com o marcador) também vale, sem escolha gravada", async () => {
+    configurado();
+    state.versions = [
+      {
+        organization_id: "org-1",
+        is_active: true,
+        embedding_model: MARCADOR,
+        activated_at: "2026-10-17T09:00:00Z",
+      },
+    ];
+    // Com chaves de outras famílias cadastradas depois: a base não muda sozinha.
+    state.credentials = [google(), openai()];
+    state.organizations = [{ id: "org-1", settings: { omnirouter: { habilitado: true } } }];
+
+    expect(await resolverChaveDeEmbedding("org-1", "embedding_indexar")).toMatchObject({
+      provedor: "omnirouter",
+    });
+  });
+
+  it("a organização que RECUSOU o OmniRouter não o recebe, nem com a oferta geral ligada", async () => {
+    configurado();
+    state.omni.OMNIROUTER_PARA_TODAS = "true";
+    escolheu("omnirouter", { omnirouter: { habilitado: false } });
+    state.credentials = [google()];
+
+    expect(await resolverChaveDeEmbedding("org-1", "embedding_indexar")).toBeNull();
+  });
+
+  it("sem escolha própria, a oferta geral da instalação atende; sem ela, não", async () => {
+    configurado();
+    escolheu("omnirouter", {});
+    expect(await resolverChaveDeEmbedding("org-1", "embedding_indexar")).toBeNull();
+
+    state.omni.OMNIROUTER_PARA_TODAS = "true";
+    expect(await resolverChaveDeEmbedding("org-1", "embedding_indexar")).toMatchObject({
+      provedor: "omnirouter",
+    });
+  });
+
+  it("a instalação sem OmniRouter configurado: nenhuma chave, e a família gravada NÃO cai em outra", async () => {
+    escolheu();
+    state.credentials = [google(), openai()];
+    state.env.OPENAI_API_KEY = "chave-ficticia-env-openai";
+
+    expect(await resolverChaveDeEmbedding("org-1", "embedding_consultar")).toBeNull();
+    expect(await temChaveDeEmbedding("org-1")).toBe(false);
+  });
+
+  it("endereço torto na instalação: sem chave (e um aviso), nunca uma rota para outro host", async () => {
+    state.omni = {
+      OMNIROUTER_BASE_URL: "https://usuario:senha@omnirouter.example.com/v1",
+      OMNIROUTER_API_KEY: "chave-ficticia-omnirouter",
+    };
+    escolheu();
+    const { logger } = await import("@/lib/logger");
+
+    expect(await resolverChaveDeEmbedding("org-1", "embedding_indexar")).toBeNull();
+    expect(logger.warn).toHaveBeenCalledWith(
+      "[embedding] o OmniRouter da instalação está mal configurado",
+      expect.objectContaining({ organization_id: "org-1", motivo: "credenciais_na_url" }),
+    );
+    // A senha da URL não vai ao log.
+    expect(JSON.stringify(vi.mocked(logger.warn).mock.calls)).not.toContain("senha");
+  });
+
+  it("FORA da escada: com o OmniRouter configurado e nenhuma família, a base cai nas palavras, não nele", async () => {
+    configurado();
+    state.omni.OMNIROUTER_PARA_TODAS = "true";
+
+    expect(await resolverChaveDeEmbedding("org-1", "embedding_indexar")).toMatchObject({
+      provedor: "texto",
+    });
+  });
+
+  it("pedir a família pela tela (restrita) só devolve a rota quando o OmniRouter atende a organização", async () => {
+    configurado();
+    expect(
+      await resolverChaveDeEmbedding("org-1", "embedding_indexar", { familia: "omnirouter" }),
+    ).toBeNull();
+
+    state.organizations = [{ id: "org-1", settings: { omnirouter: { habilitado: true } } }];
+    expect(
+      await resolverChaveDeEmbedding("org-1", "embedding_indexar", { familia: "omnirouter" }),
+    ).toMatchObject({ provedor: "omnirouter", origem: "omnirouter_da_instalacao" });
+  });
+
+  it("a leitura de `organizations` falhou: nem o OmniRouter sai (não se chuta a família)", async () => {
+    configurado();
+    escolheu();
+    state.falhas.add("organizations");
+
+    await expect(resolverChaveDeEmbedding("org-1", "embedding_indexar")).rejects.toBeInstanceOf(
+      FamiliaDaBaseIlegivelError,
+    );
+  });
+
+  it("o caminho antigo (`retrieve_top_k_chunks`) não serve ao modelo do Google, do OmniRouter nem às palavras", () => {
+    expect(legadoNaoServeAoModelo(MARCADOR)).toBe(true);
+    expect(legadoNaoServeAoModelo("google/gemini-embedding-001")).toBe(true);
+    expect(legadoNaoServeAoModelo("texto/postgres-fts")).toBe(true);
+    expect(legadoNaoServeAoModelo("openai/text-embedding-3-small")).toBe(false);
   });
 });

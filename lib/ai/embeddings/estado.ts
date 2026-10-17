@@ -35,7 +35,8 @@ export interface EstadoDaChave {
   pode_trocar_para: ProvedorDaBase | null;
   /**
    * Todas as famílias para as quais dá para trocar AGORA, menos a atual: a busca por palavras
-   * (sem chave, sem custo) está sempre aí; OpenAI e Google, só com chave utilizável.
+   * (sem chave, sem custo) está sempre aí; OpenAI e Google, só com chave utilizável; o OmniRouter,
+   * só se a instalação o configurou e a organização é atendida por ele.
    */
   trocas_possiveis: ProvedorDaBase[];
   credenciais_embedding: Array<{
@@ -90,7 +91,7 @@ export async function montarEstadoDaChave(
   // atende. A família atual não é oferecida como troca; sem saber qual é (família ilegível), nada.
   const trocasPossiveis: ProvedorDaBase[] = [];
   if (!familiaIlegivel) {
-    for (const candidata of ["openai", "google"] as const) {
+    for (const candidata of ["openai", "google", "omnirouter"] as const) {
       if (candidata === provedor) continue;
       const chaveDela = await resolverChaveDeEmbedding(organizationId, "embedding_indexar", {
         familia: candidata,
