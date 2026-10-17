@@ -94,7 +94,7 @@ export async function GET(req: NextRequest, ctx: RouteCtx): Promise<Response> {
     .select(
       "id, name, position, is_won, is_lost, expected_duration_hours, win_probability, avisar_na_central",
     )
-    .eq("organization_id", authz.org.orgId)
+    .eq("organization_id", authz.organizationId)
     .eq("pipeline_id", id)
     .eq("is_archived", false)
     .order("position", { ascending: true });
