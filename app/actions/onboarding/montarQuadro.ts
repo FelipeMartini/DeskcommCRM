@@ -81,7 +81,7 @@ async function cerebroDoFuncionario(
     }
   }
 
-  const daInstalacao = chaveDePlataforma(provider);
+  const daInstalacao = await chaveDePlataforma(provider);
   if (!daInstalacao) return { erro: `esta instalação não tem chave de ${provider}` };
   return { provider, model, apiKey: daInstalacao };
 }

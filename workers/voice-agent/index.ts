@@ -479,7 +479,8 @@ function startAudioSocketServer() {
 // ---------- bootstrap ----------
 
 function assertEnv() {
-  const required = ["ARI_URL", "ARI_WS_URL", "ARI_USERNAME", "ARI_PASSWORD", "OPENAI_API_KEY"];
+  // A chave da OpenAI NÃO entra aqui: ela pode morar só no painel (Credenciais) e é lida a cada ligação.
+  const required = ["ARI_URL", "ARI_WS_URL", "ARI_USERNAME", "ARI_PASSWORD"];
   const missing = required.filter((k) => !process.env[k]);
   if (missing.length > 0) {
     throw new Error(`[voice-agent] env faltando: ${missing.join(", ")}`);

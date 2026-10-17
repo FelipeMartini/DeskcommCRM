@@ -464,14 +464,14 @@ async function padraoDaInstalacao(
   // é deste endereço: mandá-lo ao gateway ou ao OpenRouter assim seria trocar
   // um 400 do provedor por um 404 igualmente mudo.
   if (recusaDoProvider === null) {
-    const peloId = resolveLanguageModel(id);
+    const peloId = await resolveLanguageModel(id);
     if (peloId !== null) return peloId;
   }
   if (!ehBare) return cobrarRecusa();
 
   // Degrau 2 — a rota sintetizada com o provedor da configuração.
   if (recusaDoProvider === null && podeRotearPeloProvider) {
-    const peloProvider = resolveLanguageModel(`${provider}/${id}`);
+    const peloProvider = await resolveLanguageModel(`${provider}/${id}`);
     if (peloProvider !== null) return peloProvider;
   }
 
@@ -494,7 +494,7 @@ async function padraoDaInstalacao(
     // O mesmo provedor da configuração já foi tentado no degrau 2 — repetir é
     // custo de leitura sem resposta nova.
     if (provedorDoModelo !== provider) {
-      const peloCatalogo = resolveLanguageModel(`${provedorDoModelo}/${id}`);
+      const peloCatalogo = await resolveLanguageModel(`${provedorDoModelo}/${id}`);
       if (peloCatalogo !== null) return peloCatalogo;
     }
   }

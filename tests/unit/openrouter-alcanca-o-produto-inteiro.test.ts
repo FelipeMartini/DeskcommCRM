@@ -44,11 +44,12 @@ describe("a chave da OpenRouter chega ao seam", () => {
   });
 
   it("o resolvedor tem o ramo de fallback para openrouter", () => {
-    // Comportamental seria melhor, mas `resolveOrgLlmConfig` exige `pg.Pool` e
-    // decifragem AES — está coberto no invariante com Postgres real. Aqui o
-    // alvo é a existência do RAMO, que é o que faltava.
+    // O comportamento está provado em `chave-de-ia-da-instalacao-no-motor.test.ts` (pool falso, painel
+    // vencendo o `.env`). Aqui o alvo é a existência do RAMO, que é o que faltava: a chave do openrouter
+    // tem entrada no mapa do degrau da instalação, e o `.env` (`cfg.openrouterApiKey`) é o piso dela.
     const fonte = readFileSync("lib/agent-engine/edge/llm/credentials.ts", "utf8");
-    expect(fonte).toMatch(/provider === 'openrouter' && cfg\.openrouterApiKey/);
+    expect(fonte).toMatch(/openrouter: 'OPENROUTER_API_KEY'/);
+    expect(fonte).toMatch(/OPENROUTER_API_KEY: cfg\.openrouterApiKey/);
   });
 });
 

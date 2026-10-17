@@ -21,6 +21,17 @@ vi.mock("@/lib/env", () => ({
   },
 }));
 
+// As chaves de IA da instalação passaram a vir do resolvedor do painel (`valorDaInstalacao`), com o `.env`
+// como piso. Aqui o "painel" é o próprio `envMock`: a chave que o teste põe nele é a que o resolvedor devolve.
+vi.mock("@/lib/instalacao/config", () => ({
+  valorDaInstalacao: async (chave: string) => {
+    const valor = envMock[chave];
+    return valor === undefined
+      ? { valor: null, fonte: "ausente" as const }
+      : { valor, fonte: "ambiente" as const };
+  },
+}));
+
 // Só o 4º caso lê banco: binding da organização em openrouter, sem `base_url`
 // no painel. `@/lib/ai/gateway` fica REAL — é a constante dele que está em jogo.
 vi.mock("@/lib/supabase/admin", () => ({
@@ -174,7 +185,7 @@ describe("OpenRouter fala chat/completions em todo caminho", () => {
     try {
       vi.resetModules();
       const { resolveLanguageModel } = await import("@/lib/ai/gateway");
-      await destinoDe(resolveLanguageModel("google/gemini-2.5-flash-lite")!);
+      await destinoDe((await resolveLanguageModel("google/gemini-2.5-flash-lite"))!);
       expect(caminhos).toEqual(["/api/v1/chat/completions"]);
     } finally {
       delete envMock.OPENROUTER_API_KEY;

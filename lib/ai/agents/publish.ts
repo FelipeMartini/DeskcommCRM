@@ -65,7 +65,7 @@ export async function publishAgentVersion(
   // organização (`lib/ai/omnirouter-ativo.ts`).
   if (
     platform &&
-    !chaveDePlataforma(version.provider) &&
+    !(await chaveDePlataforma(version.provider)) &&
     !(await omniRouterServeAOrganizacao(admin, version.provider, params.orgId))
   )
     return { ok: false, code: "credential_missing", message: "credential_missing" };

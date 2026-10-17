@@ -177,7 +177,7 @@ export async function publishFirstVersion(
 
     credentialId = (credencialDoProvedor?.id as string | undefined) ?? null;
 
-    if (!credentialId && !chaveDePlataforma(provider)) {
+    if (!credentialId && !(await chaveDePlataforma(provider))) {
       // Nada utilizável — mas pode haver uma chave colada esperando o provedor
       // confirmar. Nomear isso é o que separa "cole a chave" de "espere um
       // instante": são causas e conselhos diferentes, e sem o nome do provedor
@@ -253,7 +253,7 @@ export async function publishFirstVersion(
   // nenhum modelo utilizável é defeito de instalação que se resolve antes da
   // chave, e inverter isso mudaria a causa que a tela recebe para quem tem os
   // dois problemas — sem necessidade nenhuma para a #1007.
-  if (!credentialId && !chaveDePlataforma(provider) && !(await omniRouterServeAOrganizacao(admin, provider, orgId))) {
+  if (!credentialId && !(await chaveDePlataforma(provider)) && !(await omniRouterServeAOrganizacao(admin, provider, orgId))) {
     return {
       published: false,
       reason: "sem_chave",

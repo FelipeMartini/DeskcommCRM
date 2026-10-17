@@ -8,6 +8,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { idsDosProvedoresOferecidos } from "@/lib/ai/pontos/provedores-oferecidos";
 import type { CredentialRow } from "@/hooks/ai/useCredentials";
 
+import { ambienteComAsChavesDoPainel } from "@/lib/ai/chaves-da-instalacao";
 import { omniRouterServeAOrganizacao } from "@/lib/ai/omnirouter-ativo";
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 import { fusoUtilizavel } from "@/lib/tempo/fusos";
@@ -28,8 +29,8 @@ const CREDENTIAL_COLUMNS =
  * segunda lista de nomes de variável divergiria no dia em que um provedor novo
  * entrasse.
  */
-function provedoresDaInstalacao(anthropicViaOmniRouter: boolean): string[] {
-  const a = lerAmbiente(process.env, anthropicViaOmniRouter);
+async function provedoresDaInstalacao(anthropicViaOmniRouter: boolean): Promise<string[]> {
+  const a = lerAmbiente(await ambienteComAsChavesDoPainel(), anthropicViaOmniRouter);
   return Object.entries(a.chavesDeProvedor)
     .filter(([, tem]) => tem)
     .map(([id]) => id);
@@ -66,7 +67,7 @@ export default async function NewAgentPage() {
       <AgentForm
         mode="create"
         credentials={credentials}
-        provedoresDaInstalacao={provedoresDaInstalacao(
+        provedoresDaInstalacao={await provedoresDaInstalacao(
           await omniRouterServeAOrganizacao(createAdminClient(), "anthropic", activeOrg.orgId),
         )}
         provedoresOferecidos={await idsDosProvedoresOferecidos(createAdminClient())}

@@ -20,6 +20,7 @@ import {
 import { camadasEfetivas } from "@/lib/agent-engine/guardrails/camadas-da-org";
 import { DEFAULT_CLASSIFIER_MODEL } from "@/lib/ai/gateway";
 import { resolverModeloDoPonto } from "@/lib/ai/gateway-binding";
+import { ambienteComAsChavesDoPainel } from "@/lib/ai/chaves-da-instalacao";
 import { omniRouterServeAOrganizacao } from "@/lib/ai/omnirouter-ativo";
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 import { logger } from "@/lib/logger";
@@ -217,7 +218,7 @@ export default async function CredentialsPage() {
   // organização (`lib/ai/omnirouter-ativo.ts`): sem contá-lo, a lista acusaria falta de IA a quem
   // atende por ele.
   const omniRouterAtende = await omniRouterServeAOrganizacao(supabase, "anthropic", activeOrg.orgId);
-  const ambiente = lerAmbiente(process.env, omniRouterAtende);
+  const ambiente = lerAmbiente(await ambienteComAsChavesDoPainel(), omniRouterAtende);
   const instalacaoTemIa =
     ambiente.gateway || Object.values(ambiente.chavesDeProvedor).some(Boolean);
 

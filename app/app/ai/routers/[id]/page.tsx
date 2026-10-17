@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { requireAuth, resolveActiveOrg } from "@/lib/auth/server";
 import { ROLE_RANK } from "@/lib/auth/types";
+import { chavesDeIaDaInstalacao } from "@/lib/ai/chaves-da-instalacao";
 import { listClassifierModels } from "@/lib/ai/classifier-models";
 import { listSelectableChannels } from "@/lib/channels/selectable";
 import { createClient } from "@/lib/supabase/server";
@@ -56,9 +57,10 @@ export default async function RouterEditorPage({ params }: { params: Promise<{ i
 
   // Só os modelos que esta organização consegue usar de fato — ver a razão em
   // lib/ai/classifier-models.
+  const chavesDaInstalacao = await chavesDeIaDaInstalacao();
   const classifierModels = await listClassifierModels(supabase, activeOrg.orgId, {
-    anthropic: Boolean(process.env.ANTHROPIC_API_KEY),
-    openai: Boolean(process.env.OPENAI_API_KEY),
+    anthropic: chavesDaInstalacao.anthropic !== null,
+    openai: chavesDaInstalacao.openai !== null,
   });
 
   const initialState: RouterDetailState = {

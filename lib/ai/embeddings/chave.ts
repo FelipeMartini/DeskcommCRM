@@ -100,6 +100,7 @@
  * provedor (`PUT /api/v1/ai/knowledge/provedor`) refaz a base inteira.
  */
 import { byteaToBuffer, decryptKey } from "@/lib/crypto/aes_gcm";
+import { chaveDeIaDaInstalacao } from "@/lib/ai/chaves-da-instalacao";
 import { OPENROUTER_BASE_URL } from "@/lib/ai/gateway";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
@@ -358,10 +359,11 @@ export async function resolverChaveDeEmbedding(
       };
     }
 
-    // 4 · Chave OpenAI da instalação.
-    if (env.OPENAI_API_KEY) {
+    // 4 · Chave OpenAI da instalação (a que o painel gravou; o `.env` é o piso).
+    const openAiDaInstalacao = await chaveDeIaDaInstalacao("openai");
+    if (openAiDaInstalacao) {
       return {
-        apiKey: env.OPENAI_API_KEY,
+        apiKey: openAiDaInstalacao,
         baseUrl: null,
         provedor: "openai",
         viaGateway: false,
@@ -376,10 +378,11 @@ export async function resolverChaveDeEmbedding(
     const openRouterDaOrg = await credencialDaOrganizacao(organizationId, "openrouter");
     if (openRouterDaOrg) return daOrganizacao(openRouterDaOrg);
 
-    // 6 · Chave OpenRouter da instalação.
-    if (env.OPENROUTER_API_KEY) {
+    // 6 · Chave OpenRouter da instalação (a que o painel gravou; o `.env` é o piso).
+    const openRouterDaInstalacao = await chaveDeIaDaInstalacao("openrouter");
+    if (openRouterDaInstalacao) {
       return {
-        apiKey: env.OPENROUTER_API_KEY,
+        apiKey: openRouterDaInstalacao,
         baseUrl: OPENROUTER_BASE_URL,
         provedor: "openrouter",
         viaGateway: false,

@@ -19,6 +19,7 @@ import { audit } from "@/lib/audit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { codigoDoEscopo, mensagemDoEscopo, validarEscopoDaVersao } from "@/lib/ai/agents/escopo";
 import { versionCreateSchema } from "@/lib/ai/agents/validation";
+import { ambienteComAsChavesDoPainel } from "@/lib/ai/chaves-da-instalacao";
 import { omniRouterServeAOrganizacao } from "@/lib/ai/omnirouter-ativo";
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 import { traduzir } from "@/lib/i18n/dicionario";
@@ -137,7 +138,7 @@ export async function POST(req: NextRequest, ctx: Ctx): Promise<Response> {
     // OmniRouter, quando ele atende ESTA organização (escolhida pelo admin, ou oferta geral).
     if (
       v.credential_id === null &&
-      lerAmbiente(process.env, await omniRouterServeAOrganizacao(admin, v.provider, organizationId))
+      lerAmbiente(await ambienteComAsChavesDoPainel(), await omniRouterServeAOrganizacao(admin, v.provider, organizationId))
         .chavesDeProvedor[v.provider] !== true
     ) {
       return fail(

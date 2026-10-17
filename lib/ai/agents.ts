@@ -3,6 +3,7 @@
  * (ai_agents.channel = 'voice', coluna aditiva da migration 0347).
  */
 
+import { chaveDeIaDaInstalacao } from "@/lib/ai/chaves-da-instalacao";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { AGENT_CONFIG_DEFAULTS, agentConfigSchema } from "@/lib/ai/guardrails-schema";
 import { byteaToBuffer, decryptKey } from "@/lib/crypto/aes_gcm";
@@ -21,7 +22,8 @@ export interface VoiceAgentConfig {
   /**
    * Chave da OpenAI pra abrir a sessão Realtime (WebSocket cru, não passa
    * pelo AI Gateway). Vem, em ordem: credencial cadastrada em IA >
-   * Credenciais pra esta org, ou env OPENAI_API_KEY do servidor.
+   * Credenciais pra esta org, ou a chave OpenAI da instalação (o painel
+   * de Credenciais primeiro; o `.env` do servidor como piso).
    */
   apiKey: string;
 }
@@ -62,7 +64,8 @@ async function resolverChaveOpenAiDaVoz(organizationId: string): Promise<string>
     // aconteceu no INFO deste arquivo se aplicável; não vale a pena arriscar
     // ecoar detalhe de credencial no log do worker.
   }
-  return process.env.OPENAI_API_KEY ?? "";
+  // Sem credencial da organização: a chave OpenAI da instalação (a que o painel gravou; o `.env` é o piso).
+  return (await chaveDeIaDaInstalacao("openai")) ?? "";
 }
 
 export async function getActiveVoiceAgent(organizationId: string): Promise<VoiceAgentConfig | null> {

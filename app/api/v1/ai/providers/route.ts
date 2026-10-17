@@ -36,6 +36,7 @@ import {
 import { PAPEIS, PONTOS_DE_IA, PONTO_POR_ID } from "@/lib/ai/pontos/registro";
 import { PROVEDORES, ehProvedorSuportado, PROVEDOR_POR_ASSINATURA } from "@/lib/ai/pontos/provedores";
 import { listarModelosDaAssinaturaOuVazio } from "@/lib/ai/catalogo/modelos-da-assinatura";
+import { ambienteComAsChavesDoPainel } from "@/lib/ai/chaves-da-instalacao";
 import { validarBinding } from "@/lib/ai/pontos/validar-binding";
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 import { decidirTranscricao } from "@/lib/messaging/media/escada-de-transcricao";
@@ -173,7 +174,7 @@ export async function GET(): Promise<Response> {
   // de `resolveOrgLlmConfig` — credencial ATIVA e VALIDADA da organização, ou
   // a chave da instalação em `.env` (o Google não tem chave de instalação, e
   // `lerAmbiente` devolve `false` para ele, como o runtime recusa).
-  const ambienteDaInstalacao = lerAmbiente();
+  const ambienteDaInstalacao = lerAmbiente(await ambienteComAsChavesDoPainel());
   const credenciais = (credsRes.data ?? []) as { provider: string; validated_at: string | null }[];
   const chaveExiste = (provider: string): string | null =>
     credenciais.some((c) => c.provider === provider && c.validated_at) ||
@@ -310,7 +311,7 @@ export async function GET(): Promise<Response> {
     // Sem chave cadastrada, o aviso só pode dizer "o atendimento usa a chave que
     // veio na instalação" quando ela existe. A mesma conta de
     // `app/app/ai/credentials/page.tsx`.
-    instalacaoTemChave: instalacaoTemChaveDeIa(),
+    instalacaoTemChave: await instalacaoTemChaveDeIa(),
     modelos,
     podeEditar: roleAtLeast(org.role, "admin"),
   });
@@ -649,7 +650,7 @@ async function provedorDesligado(provider: string): Promise<Response | null> {
   return fail("provedor_desligado", MENSAGEM_PROVEDOR_DESLIGADO, 422);
 }
 
-function instalacaoTemChaveDeIa(): boolean {
-  const ambiente = lerAmbiente();
+async function instalacaoTemChaveDeIa(): Promise<boolean> {
+  const ambiente = lerAmbiente(await ambienteComAsChavesDoPainel());
   return ambiente.gateway || Object.values(ambiente.chavesDeProvedor).some(Boolean);
 }

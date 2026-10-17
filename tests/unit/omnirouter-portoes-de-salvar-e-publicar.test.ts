@@ -231,7 +231,7 @@ describe("quem pergunta 'a instalação tem chave?' passa a resposta do OmniRout
   it("a rota de versões confere a chave com a organização do chamador", () => {
     const fonte = ler("app/api/v1/ai/agents/[id]/versions/route.ts");
     expect(fonte).toMatch(
-      /lerAmbiente\(\s*process\.env,\s*await omniRouterServeAOrganizacao\(admin,\s*v\.provider,\s*organizationId\)/,
+      /lerAmbiente\(\s*await ambienteComAsChavesDoPainel\(\),\s*await omniRouterServeAOrganizacao\(admin,\s*v\.provider,\s*organizationId\)/,
     );
     expect(fonte).not.toMatch(/lerAmbiente\(\)\.chavesDeProvedor/);
   });
@@ -240,7 +240,7 @@ describe("quem pergunta 'a instalação tem chave?' passa a resposta do OmniRout
     "%s monta a lista de provedores da instalação para a organização ativa",
     (arquivo) => {
       const fonte = ler(arquivo);
-      expect(fonte).toMatch(/lerAmbiente\(process\.env,\s*anthropicViaOmniRouter\)/);
+      expect(fonte).toMatch(/lerAmbiente\(await ambienteComAsChavesDoPainel\(\),\s*anthropicViaOmniRouter\)/);
       expect(fonte).toMatch(
         /omniRouterServeAOrganizacao\(createAdminClient\(\),\s*"anthropic",\s*activeOrg\.orgId\)/,
       );
@@ -251,7 +251,7 @@ describe("quem pergunta 'a instalação tem chave?' passa a resposta do OmniRout
   it("a tela de Credenciais usa a mesma resposta para o retrato e para o aviso da organização", () => {
     const fonte = ler("app/app/ai/credentials/page.tsx");
     expect(fonte).toMatch(/omniRouterServeAOrganizacao\(supabase,\s*"anthropic",\s*activeOrg\.orgId\)/);
-    expect(fonte).toMatch(/lerAmbiente\(process\.env,\s*omniRouterAtende\)/);
+    expect(fonte).toMatch(/lerAmbiente\(await ambienteComAsChavesDoPainel\(\),\s*omniRouterAtende\)/);
     expect(fonte).toMatch(/<CartaoDoOmniRouter\b/);
   });
 });
