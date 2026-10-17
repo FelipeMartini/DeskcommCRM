@@ -32,7 +32,7 @@ import { devolverAtendimentoAoAgente } from "@/lib/escalacao/retomada";
 import { getWahaClient } from "@/lib/waha/client";
 import { acelerarPipelineDeEventos } from "@/lib/dev/kick-local-pipeline";
 import { canonicalPhoneBR } from "@/lib/channels/phone-variants";
-import { estamparAtribuicaoDoContato } from "@/lib/leads/atribuicao-de-anuncio";
+import { estamparAtribuicaoDoContato, metadataDoAnuncio } from "@/lib/leads/atribuicao-de-anuncio";
 import { extrairEEstamparAtribuicaoGoogle } from "@/lib/plataformas-de-anuncio/google/atribuicao";
 import { extrairAtribuicaoWaha } from "@/lib/waha/atribuicao-de-anuncio";
 import { criarIngestDeGrupoDb, gravarMensagemDeGrupo } from "@/lib/grupos/ingest";
@@ -49,7 +49,9 @@ import { nomeDeArquivoLimpo } from "@/lib/messaging/media/nome-de-arquivo";
 import {
   ehNumeroInternoDeAviso,
   registrarMensagemIgnorada,
+  type ChatIdentidade,
 } from "@/lib/escalacao/numero-interno-de-aviso";
+import { consumirRespostaDoSuporteNoWhatsApp } from "@/lib/escalacao/resposta-whatsapp-ao-caso";
 
 export type Admin = ReturnType<typeof createAdminClient>;
 
@@ -481,6 +483,16 @@ function bodyOf(p: WahaPayload): string | null {
  */
 export function telefoneAlternativoDe(p: WahaPayload): string | null {
   return telefoneDoJid(p._data?.key?.remoteJidAlt ?? p._data?.key?.participantAlt ?? null);
+}
+
+/**
+ * Quem escreveu, para o corte do número de avisos: o `@lid` leva junto o
+ * telefone de `telefoneAlternativoDe`. Sem ele, o número cadastrado em modo
+ * privacidade não é reconhecido — o transporte resolve o destino do aviso por
+ * telefone, e o `destino_jid` gravado nunca termina em `@lid`.
+ */
+export function identidadeDoRemetente(p: WahaPayload, parsed: ChatIdentity): ChatIdentidade {
+  return parsed.kind === "lid" ? { ...parsed, phone: telefoneAlternativoDe(p) } : parsed;
 }
 
 /**
@@ -941,11 +953,14 @@ async function handleInbound(
   // dispara o pedido de rodízio pelo banco. Cortar depois já teria criado
   // contato, conversa e uma "conversa do suporte" na fila de um atendente — e o
   // "cancelar" que alguém da equipe digitasse bloquearia esse contato.
-  if (await ehNumeroInternoDeAviso(admin, session.organization_id, parsed)) {
-    await registrarMensagemIgnorada(admin, session.organization_id, {
-      direction: "inbound",
-      sessionId: session.id,
-    });
+  if (await consumirRespostaDoSuporteNoWhatsApp(admin, {
+    organizationId: session.organization_id,
+    channelSessionId: session.id,
+    identidade: identidadeDoRemetente(p, parsed),
+    direction: "inbound",
+    texto,
+    externalId: p.id,
+  })) {
     return;
   }
 
@@ -1013,6 +1028,9 @@ async function handleInbound(
         // resolvida, a citada no banco é a fonte da verdade — uma edição
         // posterior mudaria o que a tela mostra, e a cópia ficaria velha.
         ...(citacao?.texto && !citadaId ? { reply_to_body: citacao.texto } : {}),
+        // O anúncio DESTA mensagem vai junto — o contato guarda só o primeiro, e
+        // quem volta por outro anúncio precisa deixar rastro. Ver `metadataDoAnuncio`.
+        ...metadataDoAnuncio(atribuicao),
         // Nome original do anexo (#2613). Só quando há nome: a chave nunca é
         // gravada vazia, e gravação é de linha NOVA (o INSERT é o único caminho
         // que escreve `metadata` aqui), então nada do que já está é sobrescrito.
