@@ -42,7 +42,7 @@ export type UpdateRetencaoDaOrganizacaoResult =
 
 /**
  * Grava os prazos de retenção do dado pessoal de terceiros que ESTA organização
- * escolheu (`organizations.settings.retencao`, migration 0693).
+ * escolheu (`organizations.settings.retencao`, migration 0695).
  *
  * ── O que a escolha significa ────────────────────────────────────────────────
  *
@@ -102,7 +102,7 @@ export async function updateRetencaoDaOrganizacao(
   // `null` como a mesma coisa; `{}` é o que a regra de domínio já devolve.
   //
   // A função é nova e não está em `lib/database.types.ts` (gerado de um projeto
-  // Supabase vivo) — o mesmo tratamento que o cron dá às irmãs da migration 0693.
+  // Supabase vivo) — o mesmo tratamento que o cron dá às irmãs da migration 0695.
   const { data, error } = await createAdminClient().rpc(
     "fn_definir_retencao_da_organizacao" as never,
     { p_org: activeOrg.orgId, p_actor: authUser.id, p_prazos: gravar } as never,

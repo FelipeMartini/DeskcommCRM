@@ -1,5 +1,5 @@
 /**
- * A PASSADA POR ORGANIZAÇÃO do cron `data-retention` (migration 0693).
+ * A PASSADA POR ORGANIZAÇÃO do cron `data-retention` (migration 0695).
  *
  * As podas globais continuam exatamente como eram; esta roda DEPOIS delas e
  * apaga, para cada organização que definiu um prazo próprio, o dado pessoal

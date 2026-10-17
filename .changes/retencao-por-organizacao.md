@@ -10,4 +10,4 @@ Até aqui o prazo de retenção do dado pessoal era um só para a instalação i
 
 Quem grava é administrador da empresa (ou da plataforma), com o segundo fator em dia, e cada mudança entra na trilha como `org.retention_updated`. Cada empresa que teve dado apagado pela passada própria ganha uma linha `retention.organization_sweep` na trilha dela. A prospecção mantém as três guardas de sempre: o que está na fila, em envio ou marcado como suprimido nunca é apagado. A poda de uma empresa não encosta nas outras, e uma empresa que falha deixa a rodada em 500 com a falha nomeada sem impedir as demais.
 
-Exige a migration 0693 (cinco funções novas, sem tabela nem coluna); o `update.sh` aplica pelo baseline. Quem não escolher prazo nenhum não percebe diferença: o comportamento de hoje é o mesmo.
+Exige a migration 0695 (cinco funções novas, sem tabela nem coluna); o `update.sh` aplica pelo baseline. Quem não escolher prazo nenhum não percebe diferença: o comportamento de hoje é o mesmo.

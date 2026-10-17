@@ -58,7 +58,7 @@ function requisicao(): Parameters<typeof GET>[0] {
   return { headers: new Headers({ authorization: "Bearer segredo" }) } as never;
 }
 
-describe("o cron data-retention aplica o prazo POR ORGANIZAÇÃO (migration 0693)", () => {
+describe("o cron data-retention aplica o prazo POR ORGANIZAÇÃO (migration 0695)", () => {
   beforeEach(() => {
     auditou.mockClear();
     rpcs = [];

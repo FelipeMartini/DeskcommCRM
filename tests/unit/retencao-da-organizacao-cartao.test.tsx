@@ -1,5 +1,5 @@
 /**
- * O CARTÃO "Retenção de dados pessoais" de Configurações › Empresa (migration 0693).
+ * O CARTÃO "Retenção de dados pessoais" de Configurações › Empresa (migration 0695).
  *
  * O que se prova, com o componente real montado no DOM: o teto (prazo da
  * instalação) aparece ao lado de cada campo; o número que não alcança o teto

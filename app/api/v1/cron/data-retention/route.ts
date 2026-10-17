@@ -41,7 +41,7 @@
  * o comando que separa "não havia nada vencido" de "o cron não está rodando" —
  * as duas leituras possíveis da ausência de linhas, que sem isso se confundem.
  *
- * PRAZO POR ORGANIZAÇÃO (migration 0693): depois das podas globais, uma passada
+ * PRAZO POR ORGANIZAÇÃO (migration 0695): depois das podas globais, uma passada
  * (`lib/retencao/poda-por-organizacao.ts`) apaga o dado pessoal da captação, da
  * conversa do caso, da prospecção e do espelho da agenda pelo prazo PRÓPRIO de
  * cada organização, que só encurta o global. Cada par (organização, tipo) que
@@ -856,7 +856,7 @@ async function handle(req: NextRequest): Promise<Response> {
     return fail("internal_error", "Failed to prune history.", 500, { requestId });
   }
 
-  // ── A passada por organização (migration 0693, retenção MISTA) ─────────
+  // ── A passada por organização (migration 0695, retenção MISTA) ─────────
   //
   // Roda DEPOIS das podas globais e apaga, para cada organização com prazo
   // próprio, o dado pessoal mais velho que esse prazo — a organização só

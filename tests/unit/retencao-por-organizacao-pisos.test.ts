@@ -9,7 +9,7 @@ import {
 } from "@/lib/retencao/prazos-da-organizacao";
 
 /**
- * A TABELA DE PISOS DO SQL E A DO TYPESCRIPT NÃO PODEM DIVERGIR — migration 0693.
+ * A TABELA DE PISOS DO SQL E A DO TYPESCRIPT NÃO PODEM DIVERGIR — migration 0695.
  *
  * O piso do prazo por organização mora DENTRO do SQL (`fn_piso_de_retencao_por_
  * organizacao`), porque só lá vale para qualquer chamador, inclusive um `psql`
@@ -26,7 +26,7 @@ import {
 
 const RAIZ = join(__dirname, "..", "..");
 const PASTA = join(RAIZ, "supabase", "migrations");
-const NOME = readdirSync(PASTA).find((f) => /_0693_retencao_por_organizacao\.sql$/.test(f));
+const NOME = readdirSync(PASTA).find((f) => /_0695_retencao_por_organizacao\.sql$/.test(f));
 const MIGRATION = NOME ? readFileSync(join(PASTA, NOME), "utf8") : "";
 const BASELINE = readFileSync(join(RAIZ, "supabase", "baseline.sql"), "utf8");
 
@@ -51,7 +51,7 @@ function corpoDa(sql: string, nome: string): string {
     .join("\n");
 }
 
-describe("0693 — a tabela de pisos do SQL é a do TypeScript", () => {
+describe("0695 — a tabela de pisos do SQL é a do TypeScript", () => {
   it("achou a migration (o gate não nasce vazio)", () => {
     expect(NOME).toBeDefined();
     expect(MIGRATION.length).toBeGreaterThan(1000);
@@ -90,7 +90,7 @@ describe("0693 — a tabela de pisos do SQL é a do TypeScript", () => {
   });
 });
 
-describe("0693 — a instalação nova recebe o que a existente recebe", () => {
+describe("0695 — a instalação nova recebe o que a existente recebe", () => {
   it("o apêndice do baseline carrega o corpo da migration (sem a linha de manifesto)", () => {
     const corpoDaMigration = MIGRATION.split("\n").slice(1).join("\n").trimEnd();
     expect(BASELINE).toContain(corpoDaMigration);
@@ -98,7 +98,7 @@ describe("0693 — a instalação nova recebe o que a existente recebe", () => {
 
   it("e fica ANTES do bloco da varredura anon (que é o último)", () => {
     const apendice = BASELINE.indexOf(
-      "-- ---- Retenção por organização: as funções (migration 0693) ----",
+      "-- ---- Retenção por organização: as funções (migration 0695) ----",
     );
     const varredura = BASELINE.indexOf(
       "-- ---- VARREDURA anon: função nova nasce exposta em quem ATUALIZA (migration 0116) ----",

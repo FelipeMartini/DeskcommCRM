@@ -1,7 +1,7 @@
 "use client";
 /**
  * O PRAZO EM QUE ESTA EMPRESA GUARDA O DADO PESSOAL DE TERCEIROS — o cartão de
- * `organizations.settings.retencao` em Configurações › Empresa (migration 0693,
+ * `organizations.settings.retencao` em Configurações › Empresa (migration 0695,
  * retenção MISTA, etapa 3).
  *
  * ─── O que o cartão promete, e só isso ──────────────────────────────────────
