@@ -297,6 +297,42 @@ describe('searchKnowledge — o modelo da pergunta decide com quais trechos comp
   });
 });
 
+// A quarta família: o gemini-embedding-001 pedido ao OmniRouter da instalação. O marcador é
+// próprio (`omnirouter/…`), distinto do `google/…`: mesmo modelo, caminho diferente, mapa tratado
+// como outro. A pergunta nunca é comparada com trecho preparado pelo outro caminho.
+describe('searchKnowledge — a base preparada pelo OmniRouter', () => {
+  const MARCADOR = 'omnirouter/gemini-embedding-001';
+  const embedOmni = () =>
+    vi.fn().mockResolvedValue({ embedding: [0.1, 0.2], promptTokens: 3, model: MARCADOR });
+
+  it('materiais: o marcador do OmniRouter vai à RPC de vetores como filtro (nunca a de palavras)', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [hit] });
+    await searchKnowledge(
+      { query } as unknown as pg.Pool,
+      { organizationId: 'org1', knowledgeSourceIds: ['s1'], query: 'frete', topK: 5, threshold: 0.72 },
+      { embed: embedOmni() },
+    );
+    const [sql, params] = query.mock.calls[0]!;
+    expect(String(sql)).toContain('fn_buscar_trechos_das_fontes');
+    expect(String(sql)).not.toContain('fn_buscar_trechos_por_texto');
+    expect(params[5]).toBe(MARCADOR);
+    // Vetor, não texto: a pergunta já virou os números do modelo.
+    expect(params[2]).toBe('[0.1,0.2]');
+  });
+
+  it('legado (kbVersionId, só vetores OpenAI) com pergunta do OmniRouter: não consulta e não inventa trecho', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [hit] });
+    const out = await searchKnowledge(
+      { query } as unknown as pg.Pool,
+      { organizationId: 'org1', kbVersionId: 'kb1', query: 'frete', topK: 5, threshold: 0.72 },
+      { embed: embedOmni() },
+    );
+    expect(out).toEqual({ ok: true, results: [] });
+    const sqls = query.mock.calls.map((c) => String(c[0]));
+    expect(sqls.some((s) => s.includes('retrieve_top_k_chunks'))).toBe(false);
+  });
+});
+
 // Migration 0647: a base preparada por PALAVRAS. Sem vetor: a pergunta vai como texto para a
 // função irmã, e o limiar é o das palavras (cobertura de termos, não cosseno).
 describe('searchKnowledge — a base preparada por palavras', () => {

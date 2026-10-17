@@ -1,6 +1,7 @@
 import { requireSupportWrite } from "@/lib/impersonate/support";
 /**
- * PUT /api/v1/ai/knowledge/provedor — quem prepara a base: OpenAI, Google ou a busca por palavras.
+ * PUT /api/v1/ai/knowledge/provedor — quem prepara a base: OpenAI, Google, o OmniRouter da instalação
+ * ou a busca por palavras.
  *
  * Contribuição de @vgamkt (#1130): a base de conhecimento exigia uma chave da
  * OpenAI, e quem só tinha a do Google ficava sem base.
@@ -18,7 +19,9 @@ import { requireSupportWrite } from "@/lib/impersonate/support";
  * 0647) não usa chave nem tem custo, então nunca é recusada por isso; e, como
  * ela também é o último degrau de quem não escolheu nada, pedi-la grava a
  * escolha mesmo quando já é o que está valendo (senão cadastrar uma chave depois
- * a trocaria sozinha).
+ * a trocaria sozinha). O OmniRouter não usa credencial da organização: vale se a
+ * instalação o configurou (Admin › Credenciais) e a organização é atendida por ele
+ * (`resolverChaveDeEmbedding` devolve a rota dele); senão, 422 com o caminho.
  *
  * Trocar REFAZ A BASE: a busca só compara trechos do mesmo modelo, e o indexador
  * reembeda toda fonte cujo modelo mudou. A fila sai neste mesmo pedido
@@ -53,7 +56,9 @@ import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-const corpoSchema = z.object({ provedor: z.enum(["openai", "google", "texto"]) }).strict();
+const corpoSchema = z
+  .object({ provedor: z.enum(["openai", "google", "omnirouter", "texto"]) })
+  .strict();
 
 export async function PUT(req: NextRequest): Promise<Response> {
   const supportDenied = await requireSupportWrite();
@@ -114,9 +119,13 @@ export async function PUT(req: NextRequest): Promise<Response> {
       "sem_chave_do_provedor",
       provedor === "google"
         ? t("Cadastre e valide uma chave do Google em IA › Credenciais antes de trocar.")
-        : t(
-            "Cadastre e valide uma chave da OpenAI ou OpenRouter em IA › Credenciais antes de trocar.",
-          ),
+        : provedor === "omnirouter"
+          ? t(
+              "O OmniRouter não está disponível para esta organização. O administrador da plataforma precisa configurar o endereço e a chave dele em Admin › Credenciais e liberar esta organização.",
+            )
+          : t(
+              "Cadastre e valide uma chave da OpenAI ou OpenRouter em IA › Credenciais antes de trocar.",
+            ),
       422,
       { requestId },
     );

@@ -514,3 +514,66 @@ describe("ChaveDeConhecimento — a busca por palavras (sem chave)", () => {
     );
   });
 });
+
+// A quarta família: o OmniRouter da instalação. Não há chave a cadastrar ali: o endereço e a chave são
+// do administrador da plataforma, e a organização só o escolhe quando ele a atende.
+describe("ChaveDeConhecimento — o OmniRouter da instalação", () => {
+  it("oferece a troca para o OmniRouter, avisa o que sai e que a base é refeita, e só então envia", async () => {
+    const spy = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({ data: { provedor: "omnirouter", mudou: true, fila: { total: 2, emitidos: 2 } } }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", spy);
+    render(
+      <ChaveDeConhecimento
+        estado={{ ...CHAVE_OK, trocas_possiveis: ["omnirouter"] }}
+        onChaveCadastrada={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("conhecimento-trocar-provedor")).toHaveTextContent("Trocar para o OmniRouter");
+    fireEvent.click(screen.getByTestId("conhecimento-trocar-provedor"));
+
+    const dialogo = await screen.findByTestId("conhecimento-trocar-provedor-dialogo");
+    expect(dialogo).toHaveTextContent("Trocar para o OmniRouter refaz a base inteira");
+    expect(dialogo).toHaveTextContent("gemini-embedding-001");
+    expect(dialogo).toHaveTextContent("enviado ao OmniRouter");
+    expect(spy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("conhecimento-trocar-provedor-confirmar"));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(String(spy.mock.calls[0]![1]?.body))).toEqual({ provedor: "omnirouter" });
+  });
+
+  it("quando a base é do OmniRouter, a tela diz quem a prepara", () => {
+    render(
+      <ChaveDeConhecimento
+        estado={{ ...CHAVE_OK, provedor: "omnirouter", chave_em_uso: null, trocas_possiveis: ["texto"] }}
+        onChaveCadastrada={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("conhecimento-provedor")).toHaveTextContent("OmniRouter");
+  });
+
+  it("o OmniRouter deixou de atender: a tela diz de quem é o conserto, sem pedir chave que não existe", () => {
+    render(
+      <ChaveDeConhecimento
+        estado={{
+          ...CHAVE_OK,
+          pode_indexar: false,
+          chave_em_uso: null,
+          provedor: "omnirouter",
+          familia_sem_chave: "omnirouter",
+          trocas_possiveis: ["texto"],
+        }}
+        onChaveCadastrada={() => {}}
+      />,
+    );
+    const aviso = screen.getByTestId("conhecimento-sem-chave");
+    expect(aviso).toHaveTextContent("A base é preparada pelo OmniRouter, e ele não está disponível para esta organização");
+    expect(aviso).toHaveTextContent("administrador da plataforma");
+  });
+});

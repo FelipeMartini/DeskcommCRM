@@ -36,7 +36,13 @@ vi.mock("@/lib/ai/embeddings/chave", () => ({
   FamiliaDaBaseIlegivelError: class FamiliaDaBaseIlegivelError extends Error {},
   // Cópia da função pura: o módulo real puxa env e banco no import.
   provedorDaBase: (c: { provedor: string }) =>
-    c.provedor === "google" ? "google" : c.provedor === "texto" ? "texto" : "openai",
+    c.provedor === "google"
+      ? "google"
+      : c.provedor === "omnirouter"
+        ? "omnirouter"
+        : c.provedor === "texto"
+          ? "texto"
+          : "openai",
 }));
 
 const ORG_ID = "22222222-2222-4222-8222-222222222222";
@@ -60,11 +66,11 @@ async function chamar(corpo: unknown): Promise<Response> {
 }
 
 /** Qual família tem chave: o resolvedor restrito a ela responde, ou não. */
-function chavesDisponiveis(...familias: Array<"openai" | "google" | "texto">) {
+function chavesDisponiveis(...familias: Array<"openai" | "google" | "omnirouter" | "texto">) {
   vi.mocked(resolverChaveDeEmbedding).mockImplementation((async (
     _org: string,
     _ponto: string,
-    opcoes?: { familia?: "openai" | "google" | "texto" | null },
+    opcoes?: { familia?: "openai" | "google" | "omnirouter" | "texto" | null },
   ) => {
     const f = opcoes?.familia;
     if (f) return familias.includes(f) ? { provedor: f } : null;
@@ -291,6 +297,76 @@ describe("PUT /api/v1/ai/knowledge/provedor", () => {
     expect(r.status).toBe(200);
     expect(updates[0]!.valores).toMatchObject({
       settings: { base_de_conhecimento: { familia: "texto" } },
+    });
+  });
+
+  // O OmniRouter da instalação: a chave é a dele (Admin › Credenciais), e a organização só pode escolhê-lo se
+  // ele a atender — o resolvedor restrito à família `omnirouter` responde, ou não.
+  it("para o OmniRouter: GRAVA a família omnirouter, em merge, refaz a base e audita", async () => {
+    chavesDisponiveis("openai", "omnirouter");
+    const r = await chamar({ provedor: "omnirouter" });
+    expect(r.status).toBe(200);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]!.filtros).toEqual([["id", ORG_ID]]);
+    expect(updates[0]!.valores).toEqual({
+      settings: {
+        branding: { name: "Clínica X" },
+        base_de_conhecimento: { outro: 1, familia: "omnirouter" },
+      },
+    });
+    expect(enfileirarTodosOsMateriais).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: ORG_ID, motivo: "troca_de_provedor" }),
+    );
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "ai.knowledge_provider_changed",
+        metadata: expect.objectContaining({ de: "openai", para: "omnirouter" }),
+      }),
+    );
+  });
+
+  it("para o OmniRouter quando ele não atende esta organização: 422 e nada muda", async () => {
+    chavesDisponiveis("openai", "google");
+    const r = await chamar({ provedor: "omnirouter" });
+    expect(r.status).toBe(422);
+    const corpo = (await r.json()) as { error: { code: string; message: string } };
+    expect(corpo.error.code).toBe("sem_chave_do_provedor");
+    expect(corpo.error.message).toContain("OmniRouter");
+    expect(updates).toHaveLength(0);
+    expect(enfileirarTodosOsMateriais).not.toHaveBeenCalled();
+    expect(audit).not.toHaveBeenCalled();
+  });
+
+  it("o resolvedor é perguntado SÓ pela família pedida: o OmniRouter não é aceito pela chave da OpenAI", async () => {
+    chavesDisponiveis("openai", "google");
+    await chamar({ provedor: "omnirouter" });
+    expect(resolverChaveDeEmbedding).toHaveBeenCalledWith(
+      ORG_ID,
+      expect.anything(),
+      expect.objectContaining({ familia: "omnirouter" }),
+    );
+  });
+
+  it("pedir o OmniRouter quando a base já está nele não grava nem refaz a base", async () => {
+    vi.mocked(familiaDaBase).mockResolvedValue({ familia: "omnirouter", origem: "escolha" });
+    chavesDisponiveis("omnirouter");
+    const r = await chamar({ provedor: "omnirouter" });
+    expect(((await r.json()) as { data: { mudou: boolean } }).data.mudou).toBe(false);
+    expect(updates).toHaveLength(0);
+    expect(enfileirarTodosOsMateriais).not.toHaveBeenCalled();
+  });
+
+  it("de volta do OmniRouter para a OpenAI exige a chave da OpenAI e grava a família openai", async () => {
+    vi.mocked(familiaDaBase).mockResolvedValue({ familia: "omnirouter", origem: "escolha" });
+    chavesDisponiveis("omnirouter");
+    expect((await chamar({ provedor: "openai" })).status).toBe(422);
+    expect(updates).toHaveLength(0);
+
+    chavesDisponiveis("openai", "omnirouter");
+    const r = await chamar({ provedor: "openai" });
+    expect(r.status).toBe(200);
+    expect(updates[0]!.valores).toMatchObject({
+      settings: { base_de_conhecimento: { familia: "openai" } },
     });
   });
 

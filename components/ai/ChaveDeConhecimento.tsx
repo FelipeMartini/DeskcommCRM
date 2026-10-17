@@ -21,7 +21,8 @@ import { useT } from "@/hooks/i18n/useT";
  * Quando JÁ existe chave, o componente não some: ele diz qual está valendo. Sem
  * isso, "por que ele indexou com a chave errada?" não tem resposta na tela.
  *
- * E diz QUEM prepara a base — OpenAI ou Google (contribuição de @vgamkt, #1130) ou a
+ * E diz QUEM prepara a base — OpenAI ou Google (contribuição de @vgamkt, #1130), o OmniRouter da
+ * instalação (sem chave a cadastrar aqui: quem o configura é o administrador da plataforma) ou a
  * busca por palavras, feita no próprio sistema, sem chave e sem custo (migration 0647) —
  * com a troca ali mesmo. A troca refaz a base inteira, então o aviso vem num
  * diálogo ANTES de trocar, nunca num toast depois.
@@ -58,6 +59,7 @@ type ProvedorDaChave = "openai" | "openrouter" | "google";
 const NOME_DO_PROVEDOR: Record<Exclude<ProvedorDaBase, "texto">, string> = {
   openai: "OpenAI",
   google: "Google",
+  omnirouter: "OmniRouter",
 };
 
 const ONDE_PEGAR: Record<ProvedorDaChave, { url: string; texto: string; placeholder: string }> = {
@@ -195,17 +197,25 @@ export function ChaveDeConhecimento({ estado, onChaveCadastrada }: Props) {
               ? t("A base é preparada pelo Google, e a chave do Google não está mais utilizável")
               : semChave === "openai"
                 ? t("A base é preparada pela OpenAI, e não há mais chave da OpenAI utilizável")
-                : t("Falta uma chave de embedding para o agente aprender o seu material")}
+                : semChave === "omnirouter"
+                  ? t("A base é preparada pelo OmniRouter, e ele não está disponível para esta organização")
+                  : t("Falta uma chave de embedding para o agente aprender o seu material")}
           </h3>
           <p className="text-xs text-text-muted">
-            {semChave
-              ? // Falha aberta na informação: outra chave cadastrada NÃO assume
-                // sozinha — perguntar com outro modelo não acharia nada do que
-                // já foi preparado. Quem troca é a pessoa, e a troca refaz a base.
+            {semChave === "omnirouter"
+              ? // O OmniRouter não tem chave a cadastrar aqui: o endereço e a chave são da instalação,
+                // e a liberação por organização é do administrador da plataforma.
                 t(
-                  "O agente não consegue consultar o material até isso ser resolvido. Chaves de outro provedor não são usadas sozinhas: o material já preparado só é encontrado com o mesmo provedor. Cadastre a chave de novo ou troque o provedor, o que refaz a base.",
+                  "O agente não consegue consultar o material até isso ser resolvido. O endereço e a chave do OmniRouter são configurados pelo administrador da plataforma em Admin › Credenciais, e ele precisa liberar esta organização. Peça isso a ele ou troque o provedor, o que refaz a base.",
                 )
-              : t(
+              : semChave
+                ? // Falha aberta na informação: outra chave cadastrada NÃO assume
+                  // sozinha — perguntar com outro modelo não acharia nada do que
+                  // já foi preparado. Quem troca é a pessoa, e a troca refaz a base.
+                  t(
+                    "O agente não consegue consultar o material até isso ser resolvido. Chaves de outro provedor não são usadas sozinhas: o material já preparado só é encontrado com o mesmo provedor. Cadastre a chave de novo ou troque o provedor, o que refaz a base.",
+                  )
+                : t(
                   "O material é preparado pela busca por palavras (no próprio sistema, sem chave e sem custo), pela OpenAI (text-embedding-3-small, também pela OpenRouter) ou pelo Google (gemini-embedding-001). A busca por palavras já funciona sozinha; as chaves servem para a busca entender sinônimos.",
                 )}
           </p>
@@ -419,7 +429,9 @@ function TrocaDeProvedor({
             ? t("Trocar para o Google")
             : destino === "openai"
               ? t("Trocar para a OpenAI")
-              : t("Usar a busca por palavras (sem chave)")}
+              : destino === "omnirouter"
+                ? t("Trocar para o OmniRouter")
+                : t("Usar a busca por palavras (sem chave)")}
         </Button>
       ))}
       {atual === "openai" && !destinos.includes("google") ? (
@@ -454,16 +466,22 @@ function TrocaDeProvedor({
                 ? t("Trocar para o Google refaz a base inteira")
                 : alvo === "texto"
                   ? t("Usar a busca por palavras refaz a base inteira")
-                  : t("Trocar para a OpenAI refaz a base inteira")}
+                  : alvo === "omnirouter"
+                    ? t("Trocar para o OmniRouter refaz a base inteira")
+                    : t("Trocar para a OpenAI refaz a base inteira")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {alvo === "texto"
                 ? t(
                     "Todo o material é preparado de novo no próprio sistema, sem chave e sem custo, e nenhum texto sai para provedor nenhum. A busca passa a achar pelas palavras da pergunta e não entende sinônimo sozinha. Enquanto isso acontece, o agente pode não encontrar o que ainda não foi refeito.",
                   )
-                : t(
-                    "Todo o material é preparado de novo com o novo provedor. Enquanto isso acontece, o agente pode não encontrar o que ainda não foi refeito. O texto dos materiais passa a ser enviado ao novo provedor.",
-                  )}
+                : alvo === "omnirouter"
+                  ? t(
+                      "Todo o material é preparado de novo pelo OmniRouter da instalação, com o modelo gemini-embedding-001 do Google. Enquanto isso acontece, o agente pode não encontrar o que ainda não foi refeito. O texto dos materiais, e depois o das perguntas dos clientes à base, passa a ser enviado ao OmniRouter e ao provedor que ele usa.",
+                    )
+                  : t(
+                      "Todo o material é preparado de novo com o novo provedor. Enquanto isso acontece, o agente pode não encontrar o que ainda não foi refeito. O texto dos materiais passa a ser enviado ao novo provedor.",
+                    )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
