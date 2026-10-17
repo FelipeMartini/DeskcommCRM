@@ -11,8 +11,10 @@
  * O que este arquivo cobra, sem subir banco (o banco de verdade é o `pnpm test:db`, que aplica o
  * baseline em install e em update):
  *   1. a migration desmarca o padrão ANTES do primeiro comando que o marca;
- *   2. o baseline contém a migration inteira, sem diferença (espelho exato);
- *   3. dentro do bloco do baseline a ordem é a mesma.
+ *   2. o baseline contém a migration sem diferença: os passos de dados juntos no bloco da 0687, e a função
+ *      do passo 2 idêntica, ACIMA da varredura de anon (nenhuma função pode ser criada depois dela:
+ *      `tests/unit/varredura-anon-e-o-ultimo-bloco.test.ts`);
+ *   3. dentro do bloco do baseline a ordem dos passos de dados é a mesma.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -22,6 +24,19 @@ import { describe, expect, it } from "vitest";
 const RAIZ = join(__dirname, "..", "..");
 const MIGRATION = "supabase/migrations/20261016153244_0687_haiku_padrao_e_omnirouter.sql";
 const MARCA_DO_BLOCO = "-- ---- Claude Haiku 5.5 padrão da Anthropic e das organizações (migration 0687) ----";
+const MARCA_DA_VARREDURA = "-- ---- VARREDURA anon:";
+const PASSO_2 = "-- 2. Atualiza o trigger seed";
+const PASSO_3 = "-- 3. Atualiza organizações existentes";
+const COMECO_DA_FUNCAO = "create or replace function public.fn_seed_org_llm_defaults()";
+
+/** O passo 2 da migration: a função, do `create` ao `$$;` que a fecha. Vazio se não achar. */
+function funcaoDe(sql: string): string {
+  const inicio = sql.indexOf(COMECO_DA_FUNCAO);
+  if (inicio < 0) return "";
+  const abre = sql.indexOf("$$", inicio);
+  const fecha = abre < 0 ? -1 : sql.indexOf("$$;", abre + 2);
+  return fecha < 0 ? "" : sql.slice(inicio, fecha + 3);
+}
 
 /** Só o que o Postgres executa: sem comentário de linha (o texto de cima cita os comandos). */
 function semComentarios(sql: string): string {
@@ -68,8 +83,26 @@ describe("a 0687 limpa o padrão anterior antes de marcar o Haiku 5.5", () => {
     );
   });
 
-  it("⭐ o baseline contém a migration inteira, sem uma única diferença", () => {
-    expect(baseline.includes(migration.trimEnd())).toBe(true);
+  it("⭐ o baseline contém os passos de dados da migration, sem uma única diferença e na mesma ordem", () => {
+    const i2 = migration.indexOf(PASSO_2);
+    const i3 = migration.indexOf(PASSO_3);
+    expect(i2).toBeGreaterThan(0);
+    expect(i3).toBeGreaterThan(i2);
+    const antes = migration.slice(0, i2).trimEnd();
+    const depois = migration.slice(i3).trimEnd();
+    const posAntes = baseline.indexOf(antes);
+    const posDepois = baseline.indexOf(depois);
+    expect(posAntes, "passos 0 e 1 não aparecem iguais no baseline").toBeGreaterThanOrEqual(0);
+    expect(posDepois, "passo 3 não aparece igual no baseline").toBeGreaterThan(posAntes);
+  });
+
+  it("⭐ a função do passo 2 está no baseline, idêntica e UMA vez, acima da varredura de anon", () => {
+    const funcao = funcaoDe(migration);
+    expect(funcao.length, "a função não foi achada na migration: a medição ficou cega").toBeGreaterThan(200);
+    expect(baseline.split(funcao).length - 1).toBe(1);
+    const varredura = baseline.indexOf(MARCA_DA_VARREDURA);
+    expect(varredura).toBeGreaterThan(0);
+    expect(baseline.indexOf(funcao)).toBeLessThan(varredura);
   });
 
   it("⭐ no bloco do baseline a ordem é a mesma: desmarcar, depois marcar", () => {
