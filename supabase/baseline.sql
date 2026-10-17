@@ -55042,9 +55042,9 @@ end; $$;
 revoke execute on function public.fn_mark_conversation_message(uuid,text,text,timestamptz) from public,anon,authenticated;
 grant execute on function public.fn_mark_conversation_message(uuid,text,text,timestamptz) to service_role;
 
--- ---- Claude Haiku 5.5 padrão: a função do seed das organizações (migration 0687, passo 2) ----
--- Só a função da 0687 mora aqui; os outros passos (desmarcar o padrão, inserir o Haiku 5.5, atualizar as
--- organizações) estão no bloco da 0687 mais abaixo, na ordem da migration. A função não depende deles: só lê
+-- ---- Claude Haiku 5.5 padrão: a função do seed das organizações (migration 0694, passo 2) ----
+-- Só a função da 0694 mora aqui; os outros passos (desmarcar o padrão, inserir o Haiku 5.5, atualizar as
+-- organizações) estão no bloco da 0694 mais abaixo, na ordem da migration. A função não depende deles: só lê
 -- `ai_models` quando uma organização nasce. Fica ACIMA da varredura de anon (migration 0116) porque nenhuma
 -- função pode ser criada depois dela. Idêntica ao passo 2 da migration.
 create or replace function public.fn_seed_org_llm_defaults() returns trigger
@@ -55868,11 +55868,11 @@ begin
 end;$fn$;
 revoke all on function public.fn_reply_inbound_revision() from public,anon,authenticated;
 
--- ---- Retenção por organização: as funções (migration 0693) ----
--- O corpo abaixo é o da migration 0693, sem a linha de manifesto. Só cria função, então mora ANTES da
+-- ---- Retenção por organização: as funções (migration 0695) ----
+-- O corpo abaixo é o da migration 0695, sem a linha de manifesto. Só cria função, então mora ANTES da
 -- varredura anon (o teste varredura-anon-e-o-ultimo-bloco proíbe função depois dela).
 -- ═══════════════════════════════════════════════════════════════════════════
--- 0693 — o prazo de retenção do dado pessoal passa a poder ser da ORGANIZAÇÃO.
+-- 0695 — o prazo de retenção do dado pessoal passa a poder ser da ORGANIZAÇÃO.
 --
 -- ─── Por que ───────────────────────────────────────────────────────────────
 -- Hoje o prazo de cada tipo de dado é um só para a INSTALAÇÃO inteira (16
@@ -58983,7 +58983,7 @@ end $$;
 comment on column public.webhook_lead_captures.outcome is
   'criado = virou lead novo; duplicado = envio repetido, nada mudou no card; atualizado = o card da mesma fonte recebeu o dado novo (issue #2316, só com a opção da fonte ligada); recusado = não entrou (reject_reason diz por quê).';
 
--- ---- Claude Haiku 5.5 padrão da Anthropic e das organizações (migration 0687) ----
+-- ---- Claude Haiku 5.5 padrão da Anthropic e das organizações (migration 0694) ----
 -- O dump --schema-only não traz seed pós-snapshot. Sem este apêndice, clones novos (install.sh) e
 -- clones atualizando (update.sh reaplica baseline.sql) ficam sem o Haiku 5.5 como padrão. Espelho
 -- EXATO da migration, inclusive a ordem: o padrão anterior é desmarcado ANTES de marcar o novo,

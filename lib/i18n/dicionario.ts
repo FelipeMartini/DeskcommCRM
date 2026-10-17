@@ -16460,7 +16460,7 @@ export const DICIONARIO: Traducoes = {
   "atualizado": { es: "actualizado" },
   "recusado": { es: "rechazado" },
   "Recusado.": { es: "Rechazado." },
-  // Retenção de dados pessoais POR ORGANIZAÇÃO (migration 0693): o cartão de Configurações › Empresa.
+  // Retenção de dados pessoais POR ORGANIZAÇÃO (migration 0695): o cartão de Configurações › Empresa.
   "Captação de leads": { es: "Captación de leads" },
   "Contatos que chegaram por formulário, anúncio ou webhook.": { es: "Contactos que llegaron por formulario, anuncio o webhook." },
   "Conversa do caso": { es: "Conversación del caso" },

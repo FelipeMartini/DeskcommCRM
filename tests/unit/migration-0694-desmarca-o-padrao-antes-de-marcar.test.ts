@@ -1,8 +1,8 @@
 /**
- * A 0687 DESMARCA O PADRÃO ANTERIOR DA ANTHROPIC ANTES DE MARCAR O NOVO — nos dois artefatos.
+ * A 0694 DESMARCA O PADRÃO ANTERIOR DA ANTHROPIC ANTES DE MARCAR O NOVO — nos dois artefatos.
  *
  * O defeito: `ai_models_one_default_per_provider` é um índice UNIQUE parcial e IMEDIATO (um modelo
- * padrão por provedor). A 0687 marcava `claude-haiku-5-5` como padrão (no `insert … on conflict do
+ * padrão por provedor). A 0694 marcava `claude-haiku-5-5` como padrão (no `insert … on conflict do
  * update`) e só DEPOIS desmarcava os outros. Com outro modelo da Anthropic ainda marcado, o primeiro
  * comando já violava a unicidade e a migration quebrava no meio. Na janela de 16/10/2026 isso foi
  * contornado à mão, com um prelúdio de uma linha na frente da migration; o conserto é a ordem certa
@@ -11,7 +11,7 @@
  * O que este arquivo cobra, sem subir banco (o banco de verdade é o `pnpm test:db`, que aplica o
  * baseline em install e em update):
  *   1. a migration desmarca o padrão ANTES do primeiro comando que o marca;
- *   2. o baseline contém a migration sem diferença: os passos de dados juntos no bloco da 0687, e a função
+ *   2. o baseline contém a migration sem diferença: os passos de dados juntos no bloco da 0694, e a função
  *      do passo 2 idêntica, ACIMA da varredura de anon (nenhuma função pode ser criada depois dela:
  *      `tests/unit/varredura-anon-e-o-ultimo-bloco.test.ts`);
  *   3. dentro do bloco do baseline a ordem dos passos de dados é a mesma.
@@ -22,8 +22,8 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const RAIZ = join(__dirname, "..", "..");
-const MIGRATION = "supabase/migrations/20261016153244_0687_haiku_padrao_e_omnirouter.sql";
-const MARCA_DO_BLOCO = "-- ---- Claude Haiku 5.5 padrão da Anthropic e das organizações (migration 0687) ----";
+const MIGRATION = "supabase/migrations/20261016153244_0694_haiku_padrao_e_omnirouter.sql";
+const MARCA_DO_BLOCO = "-- ---- Claude Haiku 5.5 padrão da Anthropic e das organizações (migration 0694) ----";
 const MARCA_DA_VARREDURA = "-- ---- VARREDURA anon:";
 const PASSO_2 = "-- 2. Atualiza o trigger seed";
 const PASSO_3 = "-- 3. Atualiza organizações existentes";
@@ -56,7 +56,7 @@ function posicoes(sql: string): { desmarca: number; marca: number } {
   return { desmarca, marca };
 }
 
-describe("a 0687 limpa o padrão anterior antes de marcar o Haiku 5.5", () => {
+describe("a 0694 limpa o padrão anterior antes de marcar o Haiku 5.5", () => {
   const migration = readFileSync(join(RAIZ, MIGRATION), "utf8");
   const baseline = readFileSync(join(RAIZ, "supabase", "baseline.sql"), "utf8");
 

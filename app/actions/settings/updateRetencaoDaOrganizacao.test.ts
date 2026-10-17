@@ -1,5 +1,5 @@
 /**
- * A gravação do prazo de retenção POR ORGANIZAÇÃO (migration 0693, etapa 3).
+ * A gravação do prazo de retenção POR ORGANIZAÇÃO (migration 0695, etapa 3).
  *
  * O que se prova aqui: a ordem dos portões (entrada → sessão → papel → segundo
  * fator), que a organização vem da SESSÃO e nunca do argumento, que o banco só é

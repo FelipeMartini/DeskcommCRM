@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { prazoSemEfeito, prazosGlobaisDosTipos } from "@/lib/retencao/prazos-da-organizacao";
 
 /**
- * O TETO QUE A TELA MOSTRA É O QUE O CRON APLICA — migration 0693, etapa 3.
+ * O TETO QUE A TELA MOSTRA É O QUE O CRON APLICA — migration 0695, etapa 3.
  *
  * A organização só encurta, então o prazo global é o teto dela, e a tela
  * (`prazosGlobaisDosTipos`) mostra esse número e avisa "sem efeito" quando o que
