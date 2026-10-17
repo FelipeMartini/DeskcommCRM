@@ -177,6 +177,22 @@ export const customFieldSchema = z.object({
   ]),
   required: z.boolean().optional(),
   /**
+   * A QUE PERTENCE O CAMPO (issue #2791): ao NEGÓCIO (`negocio`) ou ao CONTATO
+   * (`contato`).
+   *
+   * A AUSÊNCIA é `negocio` — o comportamento de sempre: toda definição que já
+   * existe aparece no card e no dossiê do negócio e é gravada em
+   * `crm_leads.custom_fields`. `contato` tira o campo do card e o leva para a
+   * ficha do contato, cujo valor mora em `contacts.custom_fields`.
+   *
+   * Sem `.default()` de propósito: gravar `negocio` em cima de um funil que não
+   * tem a chave faria toda definição existente mudar de forma ao salvar (o
+   * `handleSave` regrava `fields` inteiro). A ausência é LIDA como `negocio` em
+   * `lib/leads/campos-do-funil.ts`, e a tela só escreve a chave quando é
+   * `contato`.
+   */
+  escopo: z.enum(["negocio", "contato"]).optional(),
+  /**
    * QUANDO este campo passa a OBRIGAR (issue #1536).
    *
    * `required` continua com o significado antigo (destaca o campo no formulário);
