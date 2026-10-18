@@ -86,6 +86,13 @@ export interface ChaveDaInstalacao {
   readonly motivo?: MotivoDeDiagnostico;
   /** O que a pessoa faz para trocar, quando não dá pela tela. */
   readonly comoTrocar?: string;
+  /**
+   * A chave tem um valor de fábrica que o código cumpre quando nada foi gravado nem veio do `.env`.
+   * Sem isto a tela mostra "Não configurado" em âmbar, o que é verdade para uma chave de e-mail (sem ela
+   * nada sai) e falso para um prazo de retenção (sem nada gravado vale o padrão, e a poda roda). A tela
+   * troca o rótulo por "Usando o padrão do produto"; o número do padrão já está na `explicacao`.
+   */
+  readonly padraoQuandoAusente?: boolean;
 }
 
 /**
@@ -140,6 +147,7 @@ const DE_RETENCAO: readonly ChaveDaInstalacao[] = PRAZOS_GLOBAIS.map((p) => ({
   grupo: "retencao" as const,
   natureza: "numero" as const,
   controle: "edita" as const,
+  padraoQuandoAusente: true,
 }));
 
 export const CATALOGO_DA_INSTALACAO: readonly ChaveDaInstalacao[] = [
