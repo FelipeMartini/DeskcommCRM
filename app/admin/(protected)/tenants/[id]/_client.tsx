@@ -40,7 +40,11 @@ export function TenantOverviewClient({ id, cobrancaLigada = false }: TenantOverv
   }
 
   const { organization, counts, integrations } = data.data;
-  const settings = (organization.settings ?? {}) as Record<string, any>;
+  // Só os dois campos que esta tela lê; o resto de `settings` não é da conta dela.
+  const settings = (organization.settings ?? {}) as {
+    omnirouter?: { habilitado?: boolean };
+    llm?: { default_model?: string };
+  };
 
   return (
     <div className="space-y-6">
