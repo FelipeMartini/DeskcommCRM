@@ -971,6 +971,7 @@ export const DICIONARIO: Traducoes = {
   "Modo administrador": { es: "Modo administrador" },
   "Configurar este servidor": { es: "Configurar este servidor" },
   "Não configurado": { es: "Sin configurar" },
+  "Usando o padrão do produto": { es: "Usando el valor predeterminado del producto" },
   "Definido aqui nesta tela": { es: "Definido aquí, en esta pantalla" },
   "Vem do arquivo de instalação do servidor": {
     es: "Viene del archivo de instalación del servidor",

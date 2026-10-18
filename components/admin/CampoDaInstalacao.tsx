@@ -44,11 +44,22 @@ export interface LinhaDaInstalacao {
 export function Origem({
   fonte,
   idioma,
+  temPadrao = false,
 }: {
   fonte: "banco" | "ambiente" | "ausente";
   idioma: Idioma;
+  /** A chave tem valor de fábrica (`padraoQuandoAusente`): ausente deixa de ser "não configurado". */
+  temPadrao?: boolean;
 }) {
   const t = (s: string) => traduzir(s, idioma);
+  if (fonte === "ausente" && temPadrao) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-text-muted">
+        <span aria-hidden className="size-1.5 rounded-full bg-neutral-400" />
+        {t("Usando o padrão do produto")}
+      </span>
+    );
+  }
   if (fonte === "ausente") {
     return (
       <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
@@ -127,7 +138,11 @@ export function CampoEditavel({ linha, idioma }: { linha: LinhaDaInstalacao; idi
         <Label htmlFor={idCampo} className="text-sm font-medium">
           {t(definicao.rotulo)}
         </Label>
-        <Origem fonte={estado.fonte} idioma={idioma} />
+        <Origem
+          fonte={estado.fonte}
+          idioma={idioma}
+          temPadrao={definicao.padraoQuandoAusente === true}
+        />
       </div>
 
       <p id={idAjuda} className="text-sm text-text-muted">
