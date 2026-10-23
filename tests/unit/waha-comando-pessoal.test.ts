@@ -112,9 +112,21 @@ function makeAdmin(cap: Captura, opts: { ecoEmVoo?: boolean } = {}) {
       },
       then: (r: (v: unknown) => unknown) =>
         Promise.resolve(
-          // `ehEcoDeEnvioNosso` lê uma LISTA de envios nossos em voo (id, body, type).
-          name === "messages" && colunas === "id, body, type" && opts.ecoEmVoo
-            ? { data: [{ id: "nossa-em-voo", body: "#pessoal", type: "text" }], error: null }
+          // `ehEcoDeEnvioNosso` lê uma LISTA de envios nossos em voo, numa leitura só
+          // (id, body, type, external_id, status): a linha em voo ainda não tem id.
+          name === "messages" && colunas.startsWith("id, body, type") && opts.ecoEmVoo
+            ? {
+                data: [
+                  {
+                    id: "nossa-em-voo",
+                    body: "#pessoal",
+                    type: "text",
+                    external_id: null,
+                    status: "queued",
+                  },
+                ],
+                error: null,
+              }
             : { data: null, error: null },
         ).then(r),
     };

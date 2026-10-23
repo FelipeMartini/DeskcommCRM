@@ -306,6 +306,11 @@ export async function processMessageReceived(row: EventRow): Promise<ProcessResu
         conversation_id: ctx.conversation_id,
         message_id: persisted.outbound_message_id,
         invocation_kind: "bot_respond",
+        // O provedor EFETIVO do binding (issue #3098) — o comentário acima já
+        // dizia que o modelo RESOLVIDO é o que vai para o provedor; o provedor
+        // dele vai junto, senão o palpite por barra carimbaria `openrouter` num
+        // id de modelo de provedor personalizado.
+        provider: resolvido.provider,
         model: resolvido.modelId,
         prompt_tokens: response.prompt_tokens,
         completion_tokens: response.completion_tokens,
@@ -332,6 +337,8 @@ export async function processMessageReceived(row: EventRow): Promise<ProcessResu
       conversation_id: ctx.conversation_id,
       message_id: persisted.outbound_message_id,
       invocation_kind: "bot_respond",
+      // O provedor EFETIVO do binding (issue #3098) — ver o G3 acima.
+      provider: resolvido.provider,
       model: resolvido.modelId,
       prompt_tokens: response.prompt_tokens,
       completion_tokens: response.completion_tokens,
@@ -358,6 +365,9 @@ export async function processMessageReceived(row: EventRow): Promise<ProcessResu
       conversation_id: ctx.conversation_id,
       message_id: ctx.message_id,
       invocation_kind: "bot_respond",
+      // A linha de ERRO também diz de quem era a chamada (issue #3098): o id do
+      // modelo tem barra nos dois casos e o palpite diria `openrouter`.
+      provider: resolvido.provider,
       model: resolvido.modelId,
       prompt_tokens: 0,
       completion_tokens: 0,
@@ -1075,17 +1085,14 @@ async function retrieveContext(input: RetrieveInput): Promise<RagHit[]> {
   const limiar = limiarDoModelo(modelo, RAG_THRESHOLD);
   const { data, error } =
     fontes.length > 0 && porTexto
-      ? await admin.rpc(
-          "fn_buscar_trechos_por_texto" as never,
-          {
-            p_organization_id: input.organizationId,
-            p_source_ids: fontes as unknown as string,
-            p_query: input.query,
-            p_k: RAG_TOP_K,
-            p_threshold: limiar,
-            p_embedding_model: modelo,
-          } as never,
-        )
+      ? await admin.rpc("fn_buscar_trechos_por_texto", {
+          p_organization_id: input.organizationId,
+          p_source_ids: fontes,
+          p_query: input.query,
+          p_k: RAG_TOP_K,
+          p_threshold: limiar,
+          p_embedding_model: modelo,
+        })
       : fontes.length > 0
       ? await admin.rpc(
           "fn_buscar_trechos_das_fontes" as never,

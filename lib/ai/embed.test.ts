@@ -23,8 +23,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const embedSpy = vi.fn();
+const embedManySpy = vi.fn();
 vi.mock("ai", () => ({
   embed: (args: unknown) => embedSpy(args),
+  embedMany: (args: unknown) => embedManySpy(args),
 }));
 
 let chaveMock: () => unknown;
@@ -40,10 +42,17 @@ vi.mock("@/lib/ai/embeddings/chave", async () => {
   };
 });
 
-import { embedText, SemChaveDeEmbeddingError } from "@/lib/ai/embed";
+import { embedText, embedTexts, SemChaveDeEmbeddingError } from "@/lib/ai/embed";
+
+const vetor = (semente: number) => Array.from({ length: 1536 }, (_, i) => (i + semente) / 1536);
 
 beforeEach(() => {
   embedSpy.mockReset();
+  embedManySpy.mockReset();
+  embedManySpy.mockImplementation((args: { values: string[] }) => ({
+    embeddings: args.values.map((_, i) => vetor(i)),
+    usage: { tokens: 7 * args.values.length },
+  }));
   embedSpy.mockResolvedValue({
     // 1536 dimensões: `embedText` assere a dimensão a cada chamada, porque
     // divergir de modelo quebra o recall em SILÊNCIO.
@@ -252,5 +261,124 @@ describe("embedText", () => {
     embedSpy.mockResolvedValue({ embedding: [0.1, 0.2], usage: { tokens: 1 } });
 
     await expect(embedText("oi", { organizationId: "org-1" })).rejects.toThrow(/1536/);
+  });
+});
+
+describe("embedTexts", () => {
+  it("manda a lista inteira numa chamada e devolve um vetor por texto, na ordem", async () => {
+    const r = await embedTexts(["a", "b", "c"], { organizationId: "org-1" });
+
+    expect(embedManySpy).toHaveBeenCalledTimes(1);
+    const arg = embedManySpy.mock.calls[0]?.[0] as { values: string[] };
+    expect(arg.values).toEqual(["a", "b", "c"]);
+    expect(r.embeddings).toHaveLength(3);
+    expect(r.embeddings[0]).not.toEqual(r.embeddings[1]);
+    expect(r.promptTokens).toBe(21);
+  });
+
+  it("lista vazia não chama o provedor, mas confere a chave e devolve o modelo", async () => {
+    const r = await embedTexts([], { organizationId: "org-1" });
+
+    expect(embedManySpy).not.toHaveBeenCalled();
+    expect(r).toEqual({
+      embeddings: [],
+      promptTokens: 0,
+      model: "openai/text-embedding-3-small",
+    });
+  });
+
+  it("lista vazia com organização SEM chave ainda recusa", async () => {
+    chaveMock = () => null;
+
+    await expect(embedTexts([], { organizationId: "org-1" })).rejects.toBeInstanceOf(
+      SemChaveDeEmbeddingError,
+    );
+  });
+
+  // Estas duas são o motivo de a função existir em vez de um laço: em lote, um
+  // vetor a menos ou fora de ordem gravaria o embedding de um trecho na linha
+  // de outro, e o acervo responderia errado com nota alta.
+  it("menos vetores que textos é ERRO — a ordem deixaria de casar", async () => {
+    embedManySpy.mockResolvedValue({ embeddings: [vetor(0)], usage: { tokens: 1 } });
+
+    await expect(embedTexts(["a", "b"], { organizationId: "org-1" })).rejects.toThrow(
+      /1 vetores para 2 textos/,
+    );
+  });
+
+  it("dimensão diferente do contrato é ERRO, em qualquer posição do lote", async () => {
+    embedManySpy.mockResolvedValue({
+      embeddings: [vetor(0), [0.1, 0.2]],
+      usage: { tokens: 2 },
+    });
+
+    await expect(embedTexts(["a", "b"], { organizationId: "org-1" })).rejects.toThrow(/1536/);
+  });
+
+  it("a mesma régua de provedor do caminho de um texto: nunca a string com barra", async () => {
+    await embedTexts(["a"], { organizationId: "org-1" });
+
+    const arg = embedManySpy.mock.calls[0]?.[0] as { model: unknown };
+    expect(typeof arg.model).not.toBe("string");
+  });
+
+  // A base por palavras (migration 0647) nunca tocou a rede, e o lote não pode mudar isso: o
+  // indexador do oficial chama `embedTexts`, e sem este ramo a família gravaria o que o provedor
+  // devolvesse, ou recusaria a chave que ela nem tem.
+  it("busca por palavras: um vetor zero por texto, marcador no modelo e nenhuma chamada ao SDK", async () => {
+    chaveMock = () => ({
+      apiKey: null,
+      baseUrl: null,
+      provedor: "texto",
+      viaGateway: false,
+      origem: "busca_por_palavras",
+      rotulo: null,
+      avisos: [],
+    });
+
+    const r = await embedTexts(["a", "b", "c"], { organizationId: "org-1" });
+
+    expect(embedSpy).not.toHaveBeenCalled();
+    expect(embedManySpy).not.toHaveBeenCalled();
+    expect(r.model).toBe("texto/postgres-fts");
+    expect(r.promptTokens).toBe(0);
+    expect(r.embeddings).toHaveLength(3);
+    for (const v of r.embeddings) {
+      expect(v).toHaveLength(1536);
+      expect(v.every((x) => x === 0)).toBe(true);
+    }
+  });
+
+  // O OmniRouter devolve as 3072 dimensões do Gemini; a coluna é `vector(1536)`. O corte e a
+  // normalização valem no lote como valem no texto avulso, e o lote vai texto a texto porque só a
+  // chamada de UM texto foi provada contra o OmniRoute.
+  it("OmniRouter: texto a texto, 3072 dimensões cortadas nas 1536 e normalizadas, sem `embedMany`", async () => {
+    chaveMock = () => ({
+      apiKey: "chave-ficticia-omnirouter",
+      baseUrl: "https://omniroute.exemplo.test/v1",
+      provedor: "omnirouter",
+      viaGateway: false,
+      origem: "omnirouter_da_instalacao",
+      rotulo: null,
+      avisos: [],
+    });
+    embedSpy.mockImplementation(async () => ({
+      embedding: Array.from({ length: 3072 }, (_, i) => (i % 7) + 1),
+      usage: { tokens: 5 },
+    }));
+
+    // Seis textos: dois grupos (4 + 2), para provar que o grupo seguinte também sai.
+    const r = await embedTexts(["a", "b", "c", "d", "e", "f"], { organizationId: "org-1" });
+
+    expect(embedManySpy).not.toHaveBeenCalled();
+    expect(embedSpy).toHaveBeenCalledTimes(6);
+    expect(r.model).toBe("omnirouter/gemini-embedding-001");
+    expect(r.promptTokens).toBe(30);
+    expect(r.embeddings).toHaveLength(6);
+    for (const v of r.embeddings) {
+      expect(v).toHaveLength(1536);
+      const norma = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
+      expect(norma).toBeCloseTo(1, 6);
+    }
   });
 });

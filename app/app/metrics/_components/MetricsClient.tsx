@@ -12,6 +12,7 @@ import { AtritoPanel } from "./AtritoPanel";
 import { CanaisPanel } from "./CanaisPanel";
 import { PerdasPanel } from "./PerdasPanel";
 import { PrevisaoPanel } from "./PrevisaoPanel";
+import { SeriePanel } from "./SeriePanel";
 import { useTeamMembers } from "@/hooks/team/useTeamMembers";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -190,7 +191,7 @@ export function MetricsClient({ canCompare, currentUserId }: Props) {
                   <TableHead className="text-right">{t("Ganhos")}</TableHead>
                   <TableHead className="text-right">{t("Perdidos")}</TableHead>
                   <TableHead className="text-right">{t("Conversas")}</TableHead>
-                  <TableHead className="text-right">{t("1ª resposta (média)")}</TableHead>
+                  <TableHead className="text-right">{t("1ª resposta (média / mediana)")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -208,7 +209,8 @@ export function MetricsClient({ canCompare, currentUserId }: Props) {
                       {a.conversations_handled}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {formatarDuracao(a.avg_first_response_seconds)}
+                      {formatarDuracao(a.avg_first_response_seconds)} ·{" "}
+                      {formatarDuracao(a.median_first_response_seconds)}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -223,6 +225,7 @@ export function MetricsClient({ canCompare, currentUserId }: Props) {
           operação (rodízio #1330). Fora do filtro de atendente a RLS é quem
           escopa: agent vê as próprias conversas, manager+ a organização. */}
       <CanaisPanel owner={selectedOwner} />
+      <SeriePanel />
     </div>
   );
 }

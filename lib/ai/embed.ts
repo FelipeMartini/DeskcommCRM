@@ -8,11 +8,17 @@
  * pior possível para quem instala: cadastrar a chave da OpenAI pela tela não
  * habilitava a base de conhecimento, enquanto duas telas do produto prometiam
  * que sim.
+ *
+ * Duas entradas, UMA preparação. `embedText` embeda um texto; `embedTexts`
+ * embeda uma lista numa chamada. A escolha da chave, do modelo, a régua do par
+ * provedor×modelo e a asserção de dimensão são as mesmas nos dois caminhos de
+ * propósito: se divergissem, metade do acervo nasceria com um vetor e a
+ * consulta sairia com outro, e o recall quebraria sem erro nenhum.
  */
 
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
-import { embed } from "ai";
+import { embed, embedMany } from "ai";
 
 import {
   DIMENSOES_DO_EMBEDDING,
@@ -52,6 +58,12 @@ export interface EmbedResult {
   model: string;
 }
 
+export interface EmbedManyResult {
+  embeddings: number[][];
+  promptTokens: number;
+  model: string;
+}
+
 /** Falta de chave é um ESTADO do tenant, não um acidente: tipo próprio para quem
  *  chama poder mostrar a tela certa em vez de repetir um erro genérico. */
 export class SemChaveDeEmbeddingError extends Error {
@@ -66,10 +78,11 @@ export class SemChaveDeEmbeddingError extends Error {
   }
 }
 
-export async function embedText(
-  content: string,
-  opts: EmbedOptions,
-): Promise<EmbedResult> {
+/**
+ * Tudo que as duas entradas decidem ANTES de chamar o provedor. Extraído para
+ * que `embedText` e `embedTexts` não possam divergir numa régua.
+ */
+async function prepararEmbedding(opts: EmbedOptions) {
   const chave =
     opts.chave ?? (await resolverChaveDeEmbedding(opts.organizationId, opts.ponto));
   if (!chave) {
@@ -81,11 +94,7 @@ export async function embedText(
   // que recebe o TEXTO. Quem chama reconhece a família pelo `model` devolvido
   // (`ehBuscaPorTexto`) e troca de função; nenhuma rede é tocada aqui.
   if (chave.provedor === "texto") {
-    return {
-      embedding: new Array<number>(DIMENSOES_DO_EMBEDDING).fill(0),
-      promptTokens: 0,
-      model: MODELO_DE_EMBEDDING_DA_BUSCA_POR_TEXTO,
-    };
+    return { tipo: "texto" as const, modelId: MODELO_DE_EMBEDDING_DA_BUSCA_POR_TEXTO };
   }
 
   const modelId = String(opts.model ?? modeloDeEmbedding(chave.provedor));
@@ -140,17 +149,16 @@ export async function embedText(
           chave.provedor === "openrouter" ? modelId : modelId.replace(/^openai\//, ""),
         );
 
-  const result = await embed({
-    model: resolvido,
-    value: content,
-    headers: chave.viaGateway
-      ? gatewayHeaders({ organizationId: opts.organizationId })
-      : undefined,
-    // O Gemini devolve 3072 dimensões por padrão; pedir 1536 é o que deixa a
-    // coluna `vector(1536)` servir aos dois provedores sem migration. A busca é
-    // por cosseno (`<=>`), então o vetor não normalizado dessa dimensão não
-    // distorce a nota. O `taskType` é o par documento×pergunta do próprio Google.
-    ...(chave.provedor === "google"
+  const headers = chave.viaGateway
+    ? gatewayHeaders({ organizationId: opts.organizationId })
+    : undefined;
+
+  // O Gemini devolve 3072 dimensões por padrão; pedir 1536 é o que deixa a
+  // coluna `vector(1536)` servir aos dois provedores sem migration. A busca é
+  // por cosseno (`<=>`), então o vetor não normalizado dessa dimensão não
+  // distorce a nota. O `taskType` é o par documento×pergunta do próprio Google.
+  const extrasDoProvedor =
+    chave.provedor === "google"
       ? {
           providerOptions: {
             google: {
@@ -160,31 +168,156 @@ export async function embedText(
             },
           },
         }
-      : {}),
-  });
+      : {};
 
-  // O OmniRouter devolve as 3072 dimensões nativas do Gemini (não repassa o parâmetro de tamanho):
-  // corta nas 1536 da coluna e normaliza. Qualquer outro tamanho segue intacto para a asserção abaixo.
-  const vetor =
-    chave.provedor === "omnirouter"
-      ? ajustarVetorDoGemini(result.embedding, DIMENSOES_DO_EMBEDDING)
-      : result.embedding;
+  return {
+    tipo: "vetor" as const,
+    provedor: chave.provedor,
+    modelId,
+    resolvido,
+    headers,
+    extrasDoProvedor,
+  };
+}
 
-  // Dimensão asserida a cada chamada: divergir de modelo quebra o recall em
-  // SILÊNCIO (os vetores deixam de ser comparáveis), e uma chamada recusada é
-  // infinitamente melhor que um acervo que responde errado com nota alta.
-  if (vetor.length !== DIMENSOES_DO_EMBEDDING) {
+/** A busca por palavras grava vetor zero (a coluna é NOT NULL), um por trecho. */
+const vetorZero = () => new Array<number>(DIMENSOES_DO_EMBEDDING).fill(0);
+
+/**
+ * O OmniRouter devolve as 3072 dimensões nativas do Gemini (não repassa o parâmetro de tamanho):
+ * corta nas 1536 da coluna e normaliza. Qualquer outro tamanho segue intacto para a asserção de
+ * `conferirDimensao`. Nos outros provedores o vetor já vem no tamanho certo e passa direto.
+ */
+function ajustarVetor(provedor: string, embedding: number[]): number[] {
+  return provedor === "omnirouter"
+    ? ajustarVetorDoGemini(embedding, DIMENSOES_DO_EMBEDDING)
+    : embedding;
+}
+
+/**
+ * Quantos textos o OmniRouter recebe ao mesmo tempo em `embedTexts`. Só a chamada de UM texto foi
+ * provada contra o OmniRoute (Mylab, 22/10/2026); o lote por `embedMany` manda uma lista num pedido
+ * e o roteador pode não repassá-la ao Gemini. Até alguém provar o lote, esta família vai texto a
+ * texto, em pequenos grupos, como era antes do `embedTexts` existir.
+ */
+const TEXTOS_POR_GRUPO_NO_OMNIROUTER = 4;
+
+/**
+ * Dimensão asserida a cada chamada: divergir de modelo quebra o recall em
+ * SILÊNCIO (os vetores deixam de ser comparáveis), e uma chamada recusada é
+ * infinitamente melhor que um acervo que responde errado com nota alta.
+ */
+function conferirDimensao(embedding: number[], modelId: string): void {
+  if (embedding.length !== DIMENSOES_DO_EMBEDDING) {
     throw new Error(
-      `embedding com ${vetor.length} dimensões, esperado ${DIMENSOES_DO_EMBEDDING} ` +
+      `embedding com ${embedding.length} dimensões, esperado ${DIMENSOES_DO_EMBEDDING} ` +
         `(pin de contrato ${modelId}) — recall quebraria em silêncio`,
     );
   }
+}
 
-  // EmbedResult.embedding is `number[]` for single-value embed.
-  const promptTokens =
-    (result.usage as { tokens?: number; promptTokens?: number } | undefined)?.tokens ??
-    (result.usage as { tokens?: number; promptTokens?: number } | undefined)?.promptTokens ??
-    0;
+function tokensDoUso(usage: unknown): number {
+  const u = usage as { tokens?: number; promptTokens?: number } | undefined;
+  return u?.tokens ?? u?.promptTokens ?? 0;
+}
 
-  return { embedding: vetor, promptTokens, model: modelId };
+export async function embedText(
+  content: string,
+  opts: EmbedOptions,
+): Promise<EmbedResult> {
+  const preparado = await prepararEmbedding(opts);
+  if (preparado.tipo === "texto") {
+    return { embedding: vetorZero(), promptTokens: 0, model: preparado.modelId };
+  }
+  const { provedor, modelId, resolvido, headers, extrasDoProvedor } = preparado;
+
+  const result = await embed({
+    model: resolvido,
+    value: content,
+    headers,
+    ...extrasDoProvedor,
+  });
+
+  const vetor = ajustarVetor(provedor, result.embedding);
+  conferirDimensao(vetor, modelId);
+
+  return { embedding: vetor, promptTokens: tokensDoUso(result.usage), model: modelId };
+}
+
+/**
+ * Vários textos numa chamada, para quem indexa em volume.
+ *
+ * Existe porque o laço de um-a-um era o teto real da indexação, e não a API da
+ * loja: a 200-400 ms por pedaço, um catálogo de mil produtos passava da janela
+ * de 10 minutos que o reaper do drain usa para devolver evento à fila — e o
+ * efeito não era carga lenta, era DOIS workers indexando a mesma fonte, com o
+ * embedding pago em dobro e corrida na ativação da versão.
+ *
+ * `embedMany` já divide a lista conforme o limite do provedor e paraleliza as
+ * partes, então quem chama manda o lote inteiro e não precisa saber do limite
+ * de cada API.
+ */
+export async function embedTexts(
+  contents: string[],
+  opts: EmbedOptions,
+): Promise<EmbedManyResult> {
+  // A lista vazia sai sem chamar o provedor, mas DEPOIS de preparar: num
+  // arquivo cujo contrato é recusar em vez de seguir no escuro, o atalho não
+  // pode ser a única porta que passa sem conferir chave e par provedor×modelo.
+  const preparado = await prepararEmbedding(opts);
+  if (preparado.tipo === "texto") {
+    return {
+      embeddings: contents.map(vetorZero),
+      promptTokens: 0,
+      model: preparado.modelId,
+    };
+  }
+  const { provedor, modelId, resolvido, headers, extrasDoProvedor } = preparado;
+
+  if (contents.length === 0) {
+    return { embeddings: [], promptTokens: 0, model: modelId };
+  }
+
+  let brutos: number[][];
+  let promptTokens = 0;
+  if (provedor === "omnirouter") {
+    brutos = [];
+    for (let i = 0; i < contents.length; i += TEXTOS_POR_GRUPO_NO_OMNIROUTER) {
+      const grupo = await Promise.all(
+        contents.slice(i, i + TEXTOS_POR_GRUPO_NO_OMNIROUTER).map((value) =>
+          embed({ model: resolvido, value, headers, ...extrasDoProvedor }),
+        ),
+      );
+      for (const r of grupo) {
+        brutos.push(r.embedding);
+        promptTokens += tokensDoUso(r.usage);
+      }
+    }
+  } else {
+    const result = await embedMany({
+      model: resolvido,
+      values: contents,
+      headers,
+      ...extrasDoProvedor,
+    });
+    brutos = result.embeddings;
+    promptTokens = tokensDoUso(result.usage);
+  }
+
+  // Um vetor por texto, na ordem. Sem esta conta, quem chama gravaria o
+  // embedding de um pedaço na linha de outro — acervo errado respondendo com
+  // nota alta, que é o pior modo de falhar que este arquivo tem.
+  if (brutos.length !== contents.length) {
+    throw new Error(
+      `embedding em lote devolveu ${brutos.length} vetores para ${contents.length} textos ` +
+        `(modelo ${modelId}) — a ordem deixaria de casar com os trechos`,
+    );
+  }
+  const embeddings = brutos.map((bruto) => {
+    const vetor = ajustarVetor(provedor, bruto);
+    conferirDimensao(vetor, modelId);
+    return vetor;
+  });
+
+  return { embeddings, promptTokens, model: modelId };
 }
