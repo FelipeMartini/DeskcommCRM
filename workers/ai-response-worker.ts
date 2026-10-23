@@ -1085,17 +1085,14 @@ async function retrieveContext(input: RetrieveInput): Promise<RagHit[]> {
   const limiar = limiarDoModelo(modelo, RAG_THRESHOLD);
   const { data, error } =
     fontes.length > 0 && porTexto
-      ? await admin.rpc(
-          "fn_buscar_trechos_por_texto" as never,
-          {
-            p_organization_id: input.organizationId,
-            p_source_ids: fontes as unknown as string,
-            p_query: input.query,
-            p_k: RAG_TOP_K,
-            p_threshold: limiar,
-            p_embedding_model: modelo,
-          } as never,
-        )
+      ? await admin.rpc("fn_buscar_trechos_por_texto", {
+          p_organization_id: input.organizationId,
+          p_source_ids: fontes,
+          p_query: input.query,
+          p_k: RAG_TOP_K,
+          p_threshold: limiar,
+          p_embedding_model: modelo,
+        })
       : fontes.length > 0
       ? await admin.rpc(
           "fn_buscar_trechos_das_fontes" as never,

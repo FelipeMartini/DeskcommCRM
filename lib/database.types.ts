@@ -10794,6 +10794,24 @@ isOneToOne: false
           source_name: string
         }[]
       }
+      fn_buscar_trechos_por_texto: {
+        Args: {
+          p_embedding_model?: string
+          p_k?: number
+          p_organization_id: string
+          p_query: string
+          p_source_ids: string[]
+          p_threshold?: number
+        }
+        Returns: {
+          chunk_id: string
+          content: string
+          knowledge_source_id: string
+          metadata: Json
+          similarity: number
+          source_name: string
+        }[]
+      }
       fn_can_view_appointment: {
         Args: { p_org: string; p_owner_user_id: string }
         Returns: boolean

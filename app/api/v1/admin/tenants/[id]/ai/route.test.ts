@@ -48,7 +48,12 @@ vi.mock("next/navigation", () => ({
   },
 }));
 vi.mock("@/lib/impersonate/support", () => ({ requireSupportWrite: h.requireSupportWrite }));
-vi.mock("@/lib/auth/server", () => ({ mfaEmDivida: h.mfaEmDivida }));
+// `requirePlatformAdminEscrita` mede a dívida de MFA pela régua ESTRITA; os dois nomes
+// respondem pelo mesmo interruptor para que o caso "tem fator e está em aal1" valha.
+vi.mock("@/lib/auth/server", () => ({
+  mfaEmDivida: h.mfaEmDivida,
+  mfaEmDividaEstrita: h.mfaEmDivida,
+}));
 vi.mock("@/lib/audit", () => ({ audit: h.audit }));
 vi.mock("@/lib/ai/credenciais/guardar", () => ({
   guardarCredencial: h.guardar,

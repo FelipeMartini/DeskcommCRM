@@ -81,6 +81,22 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
+// A página também lê a configuração da INSTALAÇÃO (o OmniRouter e as chaves de IA do painel) pelo
+// admin client, em `platform_config`. Sem dublê, cada leitura tenta a rede do placeholder e o
+// `postgrest-js` a reenvia com recuo de 1 s + 2 s + 4 s: 7 s por leitura, 14 s por `abrir()` (duas
+// levas em sequência) — e o caso que abre a página três vezes estourava os 15 s do teste. Aqui o banco
+// não tem linha nenhuma, que é a instalação nova: o `.env` (as variáveis que `ambiente()` controla)
+// é o piso, pela regra de verdade (`valorDaInstalacao`), sem rede.
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => {
+    const semLinha: Record<string, unknown> = {
+      maybeSingle: async () => ({ data: null, error: null }),
+    };
+    for (const m of ["select", "eq", "abortSignal"]) semLinha[m] = () => semLinha;
+    return { from: () => semLinha };
+  },
+}));
+
 vi.mock("@/lib/ai/gateway-binding", () => ({
   resolverModeloDoPonto: vi.fn(async () =>
     banco.iaPrincipal ? { model: {}, modelId: "anthropic/claude-haiku-4-5", origem: "padrao" } : null,
