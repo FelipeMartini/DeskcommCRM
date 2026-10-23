@@ -129,8 +129,8 @@ export async function GET(
 
   try {
     await requirePlatformAdmin();
-  } catch {
-    return fail("forbidden", "Requer privilégios de administrador da plataforma", 403, { requestId });
+  } catch (err) {
+    return falhaDaEscritaDePlatformAdmin(err, requestId, "Requer privilégios de administrador da plataforma");
   }
 
   const admin = createAdminClient();
