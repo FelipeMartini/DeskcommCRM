@@ -79,9 +79,28 @@ describe("mesclarConfig", () => {
       ].sort(),
     );
   });
+
+  it("grava a entrada do Inbox como bloco e o recorte de encerrados, inclusive o zero", () => {
+    const entrada = { ativa: true, stage_id: "11111111-1111-4111-8111-111111111111" };
+    const r = mesclarConfig(null, { ocultar_encerrados_dias: 45 }, {
+      entrada_do_inbox: entrada,
+      ocultar_encerrados_dias: 0,
+    } as never);
+    expect(r.settings.entrada_do_inbox).toEqual(entrada);
+    expect(r.settings.ocultar_encerrados_dias).toBe(0);
+  });
 });
 
 describe("resumoDaConfig", () => {
+  it("audita se a entrada do Inbox está ativa e o recorte de encerrados, sem a etapa", () => {
+    const r = resumoDaConfig({
+      entrada_do_inbox: { ativa: false, stage_id: "etapa-secreta" },
+      ocultar_encerrados_dias: 0,
+    } as never);
+    expect(r).toMatchObject({ entrada_do_inbox_ativa: false, ocultar_encerrados_dias: 0 });
+    expect(JSON.stringify(r)).not.toContain("etapa-secreta");
+  });
+
   it("grava contagens e marcas, nunca o conteúdo dos rótulos", () => {
     const r = resumoDaConfig({
       vocabulary: { lead: "Segredo do cliente" },

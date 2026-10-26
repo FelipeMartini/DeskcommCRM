@@ -181,7 +181,6 @@ describe("rodada: a plataforma recusa o modelo no primeiro envio", () => {
 
 describe("rodada: falha que é da pessoa ou passageira NÃO pausa", () => {
   it.each([
-    ["meta_130429: (#130429) Rate limit hit", "130429"],
     ["meta_131026: (#131026) Message undeliverable", "131026"],
     ["meta_500: http_500", "500"],
     ["fetch failed", "send_failed"],
@@ -193,5 +192,20 @@ describe("rodada: falha que é da pessoa ou passageira NÃO pausa", () => {
 
     expect(tabelas.campaigns![0]!.status).toBe("running");
     expect(tabelas.campaign_recipients!.find((d) => d.id === "r-ana")!.last_error_code).toBe(codigo);
+  });
+
+  // A plataforma pediu para desacelerar: não é falha da pessoa, e falhá-la a
+  // tiraria da campanha por pressa nossa. Ela volta para a fila e sai na rodada
+  // seguinte — o mesmo desfecho do 429 do parceiro (`ehLimiteDeVelocidade`).
+  it("meta_130429: (#130429) Rate limit hit → a pessoa volta para a fila", async () => {
+    mundo.falha = { error_code: "meta_error", error_message: "meta_130429: (#130429) Rate limit hit" };
+    const { admin, tabelas } = cenario();
+
+    await rodarUmaRodadaDeCampanha(admin, AGORA);
+
+    expect(tabelas.campaigns![0]!.status).toBe("running");
+    const ana = tabelas.campaign_recipients!.find((d) => d.id === "r-ana")!;
+    expect(ana.status).toBe("pending");
+    expect(ana.last_error_code).toBe("limite_de_velocidade");
   });
 });

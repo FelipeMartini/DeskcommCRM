@@ -1,3 +1,4 @@
+import { contemAssuntoComercialRestrito, comercialExigeHumano } from '@/lib/escalacao/assunto-comercial';
 import { prospectingConversationContext } from "@/lib/prospecting/context";
 import { setExecutionAgentOperation } from '@/lib/atendimento/fronteira-server';
 import { TIPOS_DE_CASO, TIPOS_DE_CASO_PARA_A_IA } from "@/lib/ai/case-copy";
@@ -40,6 +41,7 @@ import { auxModelArgs, type AuxModelArgs } from './aux-model-args';
 import type { ChannelAdapter, ChannelSendResult } from '../channel-adapter';
 
 import { withFields, type Logger } from '../obs/logger';
+import { etiquetasParaOMatcher } from './etiquetas-do-matcher';
 import {
   criarColetorDeFerramentas,
   envolverFerramentasComTraco,
@@ -111,6 +113,7 @@ import {
   type LeadCheckpointRow,
 } from "./abertura/checkpoint";
 import { buildOpeningMessage, ritualBlocks } from "./abertura/ritual";
+import { lerRemetenteDeGrupo, type RemetenteDeGrupo } from "@/lib/messaging/remetente-de-grupo";
 import { applySaveLeadNote, buildNotesIndexBlock, getLeadNoteBody } from './lead-notes';
 import { buildCompromissosBlock } from './compromissos-do-contato';
 import { buildOrigemBlock } from './abertura/origem-do-contato';
@@ -166,6 +169,7 @@ import { validarRespostaDoFluxo } from './flow-validate';
 import { moduloLigadoComMemo } from '@/lib/instalacao/modulos';
 import { msAteAJanelaAbrir } from './janela-de-atendimento';
 import { turnoDisparaNasMensagens } from './palavra-chave-do-gatilho';
+import { agenteJaRespondeuNoAtendimento } from './agente-ja-respondeu';
 import { enviaAvisoForaDoHorario, portasDeProducao } from './aviso-fora-do-horario';
 import { enviarComSaidaConfiguravel } from "@/lib/prospecting/saida-configuravel";
 import { janelaDeEnvioAberta, proximaAberturaDaJanela } from '../pacing/engine';
@@ -346,7 +350,7 @@ export const AGENT_TOOL_DEFS = {
     description:
       'Envia UMA mensagem de WhatsApp ao lead desta conversa. É o ÚNICO jeito de falar com o lead; texto fora desta tool nunca é enviado.',
     inputSchema: z.object({
-      body: z.string().min(1).describe('corpo da mensagem, em pt-br, pronto para envio'),
+      body: z.string().min(1).describe('corpo da mensagem, no idioma da conversa com o lead, pronto para envio'),
       produto_codigo: z
         .string()
         .optional()
@@ -449,9 +453,9 @@ export const AGENT_TOOL_DEFS = {
           .string()
           .min(2)
           .describe(
-            'a pergunta ou termos a buscar, em pt-br. Escreva também as palavras parecidas que o ' +
-              'material pode usar (ex.: "valor preço custa", "app aplicativo") — a busca compara ' +
-              'palavras e pode não ligar uma à outra sozinha.',
+            'a pergunta ou termos a buscar, no idioma da conversa com o lead. Escreva também as ' +
+              'palavras parecidas que o material pode usar (ex.: "valor preço custa", "app ' +
+              'aplicativo") — a busca compara palavras e pode não ligar uma à outra sozinha.',
           ),
       })
       .passthrough(),
@@ -540,9 +544,9 @@ export const AGENT_TOOL_DEFS = {
     // erro de ENSINO ao modelo, nunca exceção do SDK nem strip silencioso.
     inputSchema: z
       .object({
-        title: z.string().describe('título curto, ex.: "Liberar acesso ao painel"'),
-        summary: z.string().describe('o que o lead precisa, em pt-br'),
-        blocker: z.string().describe('por que você não consegue resolver sozinho'),
+        title: z.string().describe('título curto, no idioma da conversa com o lead (ex.: "Liberar acesso ao painel")'),
+        summary: z.string().describe('o que o lead precisa, no idioma da conversa com o lead'),
+        blocker: z.string().describe('por que você não consegue resolver sozinho, no mesmo idioma'),
         // O assunto serve para quem TRIA a fila separar antes de ler. O detalhe
         // continua no título e no resumo — este campo não os substitui, e por
         // isso a lista é curta: muitas opções produzem classificação
@@ -684,8 +688,26 @@ export async function loadInboundBodyForJob(
   db: Queryable,
   input: { tenantId: string; conversationId: string; inboundMessageId: string },
 ): Promise<string | null> {
-  const result = await db.query<CorpoDaMensagemRow>(
-    `select type, body, media_url, media_storage_path, media_derived_text
+  const linha = await loadInboundForJob(db, input);
+  return linha === null ? null : linha.body;
+}
+
+/**
+ * A linha canônica do job — corpo E autor (#2729).
+ *
+ * O corpo sai do mesmo caminho de sempre (`corpoDaMensagem`); o `sender` é o
+ * `metadata.group_sender` que o ingest de grupo grava. Numa conversa 1:1 ele é
+ * `null`: não há participante a nomear, e o autor é o próprio contato da ficha.
+ *
+ * Uma consulta só, e não duas: este é o caminho quente de abertura do turno — o
+ * `metadata` vem na mesma linha que o corpo já lia.
+ */
+export async function loadInboundForJob(
+  db: Queryable,
+  input: { tenantId: string; conversationId: string; inboundMessageId: string },
+): Promise<{ body: string; sender: RemetenteDeGrupo | null } | null> {
+  const result = await db.query<CorpoDaMensagemRow & { metadata: unknown }>(
+    `select type, body, media_url, media_storage_path, media_derived_text, metadata
        from messages
       where organization_id = $1
         and conversation_id = $2
@@ -695,7 +717,8 @@ export async function loadInboundBodyForJob(
     [input.tenantId, input.conversationId, input.inboundMessageId],
   );
   const row = result.rows[0];
-  return row === undefined ? null : corpoDaMensagem(row);
+  if (row === undefined) return null;
+  return { body: corpoDaMensagem(row), sender: lerRemetenteDeGrupo(row.metadata) };
 }
 
 /**
@@ -739,6 +762,25 @@ export const RESUMO_DO_HANDOFF_POR_ORCAMENTO =
 
 /** Título do item da Central que este handoff abre — rótulo visível, logo constante. */
 export const TITULO_DO_HANDOFF_POR_ORCAMENTO = 'Teto de gasto com IA atingido — assumir a conversa';
+
+/**
+ * Título do item da Central do handoff por SUSPEITA de opt-out (#1713).
+ *
+ * Ele descreve só a ação que existe HOJE, e é o mesmo nos dois caminhos que
+ * chegam aqui (assistido e automático): assumir a conversa e pedir ao cliente a
+ * palavra que a regra reconhece (STOP/PARAR/SAIR sozinha — `ehPalavraIsolada`).
+ *
+ * O título anterior mandava a equipe CONFIRMAR, NO CRM, O BLOQUEIO DO CONTATO —
+ * o produto NÃO oferece essa ação: o único escritor de `contacts.is_blocked` é o
+ * STOP da ingestão (`lib/channels/pos-entrada.ts`), e a ficha do contato só
+ * oferece Desbloquear. O botão de bloqueio manual é a DEC-013, fora desta fatia;
+ * até ela existir, a Central não pode prometer o botão que não está lá.
+ *
+ * Constante, e não literal repetido: os dois pontos de handoff dizem a MESMA
+ * coisa, e a distância entre eles é de ~780 linhas.
+ */
+export const TITULO_DO_HANDOFF_POR_SUSPEITA_DE_OPT_OUT =
+  'Suspeita de opt-out — assumir a conversa e pedir ao cliente a palavra que a regra reconhece';
 
 /**
  * ORÇAMENTO ESGOTADO NÃO PODE VIRAR SILÊNCIO PARA O LEAD.
@@ -1560,6 +1602,12 @@ export interface AgentTurnInput {
     /** Texto exato da mensagem que acordou este turno inbound. */
     currentInboundText?: string;
     /**
+     * #2729 — quem escreveu a mensagem que acordou este turno, quando ela veio
+     * de um GRUPO. Opcional pela mesma razão de `projeta`: quem monta um ritual
+     * à mão (testes) não precisa dele, e a produção sempre o passa.
+     */
+    currentInboundSender?: RemetenteDeGrupo;
+    /**
      * Projetar o contexto (spec 16 §4)? Decidido pelo turno, ver `turnoProjeta`.
      *
      * OPCIONAL no tipo, e a razão é externa ao desenho: `tests/invariants/**` é
@@ -1843,7 +1891,7 @@ export async function deteccoesDeterministicasDoAssistido(
       {
         reason: 'suspected_optout',
         conversationSummary: briefing.body,
-        inboxTitle: 'Suspeita de opt-out — confirmar bloqueio do contato no CRM',
+        inboxTitle: TITULO_DO_HANDOFF_POR_SUSPEITA_DE_OPT_OUT,
         passagem: { origem: 'opt_out_provavel', motivoCodigo: 'suspected_optout', briefing },
         avisoAoLead: desfecho,
         log,
@@ -2071,6 +2119,73 @@ function turnoVaiFalarComOLead(job: JobRow): boolean {
 }
 
 /**
+ * Valores e negociação só com a equipe (#2877) — a passagem ANTES do roteador.
+ *
+ * Roda no handler, antes de `resolveConversationTurn`: o pedido de preço vai à
+ * equipe sem gastar a escolha de agente nem o redator. Ainda não há contexto do
+ * turno lido, então o aviso sai por `avisarLeadLendoOContato` (lê o contato do
+ * banco para os gates de LGPD e de parada). O aviso vem ANTES da passagem: é
+ * `performHumanHandoff` que arma o silêncio que a cadeia de envio lê.
+ *
+ * `comercialExigeHumano` lança quando a leitura falha, e aqui ninguém captura: o
+ * job volta para a fila em vez de deixar a IA responder sobre preço.
+ */
+async function escalarComercialAntesDoModelo(
+  pool: pg.Pool,
+  deps: InboundTurnDeps,
+  job: JobRow,
+  turno: { leadId: string; conversationId: string; channelSessionId: string },
+): Promise<boolean> {
+  const tenantId = job.organization_id;
+  if (!(await comercialExigeHumano(pool, tenantId))) return false;
+  const textos = (await pool.query<{ body: string | null }>(
+    `select m.body from messages m
+     where m.organization_id = $1 and m.conversation_id = $2 and m.direction = 'inbound'
+       and m.created_at > coalesce((select max(o.created_at) from messages o
+         where o.organization_id = $1 and o.conversation_id = $2 and o.direction = 'outbound'), '-infinity')
+     order by m.created_at desc limit 100`, [tenantId, turno.conversationId],
+  )).rows.map((m) => m.body ?? '');
+  // STOP e pedido de humano VENCEM o desvio comercial. "Quanto custa? Para de me
+  // mandar mensagem" caía aqui: o cliente recebia o aviso comercial e o turno
+  // voltava sem registrar o opt-out. Com `false`, o turno segue para as
+  // detecções determinísticas — do assistido e do automático —, que usam a regra
+  // única de `lib/opt-out/deteccao.ts` e registram a parada. (Contato já
+  // bloqueado não recebe o aviso daqui: o `stopGate` lê `is_blocked` na fonte.)
+  if (textos.some((t) => detectAmbiguousOptOut(t) || detectHumanHandoffRequest(t))) return false;
+  if (!textos.some(contemAssuntoComercialRestrito)) return false;
+  const log = withFields(deps.log, { job_id: job.id, tenant_id: tenantId, lead_id: turno.leadId });
+  const aviso = await avisarLeadLendoOContato(
+    pool,
+    {
+      tenantId,
+      leadId: turno.leadId,
+      conversationId: turno.conversationId,
+      channelSessionId: turno.channelSessionId,
+      jobId: job.id,
+      jobClaim: claimOfJob(job),
+    },
+    {
+      motivo: 'outro',
+      channel: (deps.channel ?? ((p: pg.Pool) => new WahaChannelAdapter(p, deps.crmCfg)))(pool),
+      origem: tipoDeEnvio(eTurnoDeResposta(job)),
+      now: deps.clock?.() ?? new Date(),
+      log,
+      ...(deps.knobs.disclosureMode !== undefined ? { disclosureMode: deps.knobs.disclosureMode } : {}),
+      ...(deps.sleep !== undefined ? { sleep: deps.sleep } : {}),
+    },
+  );
+  const briefing = montarBriefingDaPassagem({ checkpoint: null, pendentesDoCliente: textos,
+    motivo: { codigo: 'low_confidence', texto: 'Valores e negociação: fora do escopo da IA.' } });
+  await performHumanHandoff(pool, { tenantId, leadId: turno.leadId, conversationId: turno.conversationId },
+    { reason: 'low_confidence', conversationSummary: briefing.body,
+      inboxTitle: 'Valores e negociação — atendimento humano necessário',
+      passagem: { origem: 'runtime_nativo', motivoCodigo: 'low_confidence', briefing },
+      avisoAoLead: aviso, log });
+  log.info('assunto comercial restrito encaminhado sem chamada ao redator', { lead_avisado: aviso.avisado });
+  return true;
+}
+
+/**
  * O MESMO job já gravou uma decisão de roteamento? (#3143)
  *
  * Existe porque `rescheduleJob` NÃO cria outro job: o adiamento (pela janela
@@ -2158,6 +2273,9 @@ async function executarTurnoDoAgente(
   // linhas de distância um do outro, e duas queries para a mesma pergunta viram,
   // com o tempo, duas respostas.
   const camadas = await lerCamadasDaOrg(pool, tenantId);
+  // Valores e negociação só com a equipe (#2877): lida à parte porque falha
+  // FECHADA (ver `comercialExigeHumano`) — e uma vez, para a prévia e para o envio.
+  const restricaoComercial = await comercialExigeHumano(pool, tenantId);
   // O fuso da ORGANIZAÇÃO — o que o bloco `## Agora` usa lá embaixo, na montagem
   // da abertura. Lido aqui pela mesma razão da linha acima: uma query por turno,
   // longe do ponto de uso, para não virar duas respostas para a mesma pergunta.
@@ -2300,6 +2418,23 @@ async function executarTurnoDoAgente(
         error: (err instanceof Error ? err.message : String(err)).slice(0, 120),
       });
     }
+  }
+
+  // A prévia faz a mesma passagem do handler (`escalarComercialAntesDoModelo`), mas
+  // só PROPÕE: nada é enviado nem silenciado no Testar. O turno real já passou por
+  // ela antes de escolher o agente.
+  if (
+    preview &&
+    restricaoComercial &&
+    inboundsNaoRespondidos(preview.context.context.messages).some(contemAssuntoComercialRestrito)
+  ) {
+    preview.result.proposals.push({ tool: 'crm_request_human_handoff', arguments: {
+      reason: 'Valores e negociação: atendimento exclusivamente humano.',
+    } });
+    preview.result.impediments.push({ code: 'commercial_requires_human',
+      message: 'Valores e negociação: a IA não pode responder. Atendimento humano necessário.' });
+    runLog.info('assunto comercial restrito: prévia propõe a passagem sem chamar o redator');
+    return;
   }
 
   const routed = preview
@@ -2566,7 +2701,7 @@ async function executarTurnoDoAgente(
   // juntos, o pico chega a 32 leituras sobre 10 conexões (default do pg, knob
   // DB_POOL_MAX). O pg enfileira e nenhuma destas leituras segura conexão, então
   // o pior caso é espera de fila no pico, não erro nem deadlock.
-  const [playbook, [skills, currentInboundText], orgMemory, [previous, leadState]] =
+  const [playbook, [skills, inboundDoJob], orgMemory, [previous, leadState]] =
     await Promise.all([
       (async () => {
         const prospectingContext =
@@ -2588,7 +2723,7 @@ async function executarTurnoDoAgente(
           await loadSkills(pool, tenantId),
           input.inboundMessageId === undefined
             ? null
-            : await loadInboundBodyForJob(pool, {
+            : await loadInboundForJob(pool, {
                 tenantId,
                 conversationId: input.conversationId,
                 inboundMessageId: input.inboundMessageId,
@@ -2604,6 +2739,10 @@ async function executarTurnoDoAgente(
           preview?.kind === 'sandbox' ? null : await getLeadState(pool, tenantId, leadId),
         ] as const)(),
     ]);
+  // A mensagem canônica do job: o TEXTO que este turno responde e, num grupo,
+  // QUEM a escreveu (#2729). As duas saem da mesma linha, numa leitura só.
+  const currentInboundText = inboundDoJob === null ? null : inboundDoJob.body;
+  const currentInboundSender = inboundDoJob === null ? null : inboundDoJob.sender;
   const skillIndex = renderSkillIndex(skills);
   const systemWithMemory = composeSystemPrompt({
     playbookPrompt: playbook.prompt,
@@ -2701,6 +2840,28 @@ async function executarTurnoDoAgente(
     },
   });
 
+  /**
+   * Resposta da IA barrada pela restrição comercial (#2877): avisa o cliente e
+   * passa para a equipe. Vale para o `send_message` e o `send_template` — os dois
+   * corpos que o modelo escolhe. O aviso vem ANTES da passagem, que arma o
+   * silêncio que a cadeia lê.
+   */
+  const passarComercialParaEquipe = async (code: string) => {
+    const aviso = await avisarLeadDaEscalacao(pool, avisoDaEscalacao().ids, {
+      ...avisoDaEscalacao().base,
+      motivo: 'outro',
+    });
+    const briefing = montarBriefingDaPassagem({ checkpoint: null, pendentesDoCliente: [],
+      motivo: { codigo: 'low_confidence', texto: 'Resposta comercial barrada; valores e negociação são exclusivos da equipe.' } });
+    await performHumanHandoff(pool, { tenantId, leadId, conversationId: input.conversationId },
+      { reason: 'low_confidence', conversationSummary: briefing.body,
+        inboxTitle: 'Valores e negociação — atendimento humano necessário',
+        passagem: { origem: 'runtime_nativo', motivoCodigo: 'low_confidence', briefing },
+        avisoAoLead: aviso, log: runLog });
+    return { ok: false as const, error: { code,
+      message: 'Resposta barrada e necessidade de atendimento humano registrada. Não envie valores nem negocie.' } };
+  };
+
   // F4-06 (acceptance 1): detecção DETERMINÍSTICA (regex PT-BR, sem LLM) de pedido explícito
   // de atendimento humano na última mensagem do lead. Handoff é cidadão de 1ª classe (exigência
   // Meta fiscalizada, blueprint 5.5) — dispara ANTES do modelo: o bot não gasta LLM.
@@ -2797,7 +2958,7 @@ async function executarTurnoDoAgente(
       {
         reason: 'suspected_optout',
         conversationSummary: briefing.body,
-        inboxTitle: 'Suspeita de opt-out — confirmar bloqueio do contato no CRM',
+        inboxTitle: TITULO_DO_HANDOFF_POR_SUSPEITA_DE_OPT_OUT,
         passagem: { origem: 'opt_out_provavel', motivoCodigo: 'suspected_optout', briefing },
         avisoAoLead: aviso,
         log: runLog,
@@ -2838,6 +2999,43 @@ async function executarTurnoDoAgente(
   // `corpoTemTexto` que faz a falha aberta da mídia rodar de verdade
   // (ponto 2).
   //
+  // O FILTRO DECIDE A ENTRADA, NÃO CADA MENSAGEM (#3142). O exemplo medido no
+  // #2696: o agente responde a "quero um orçamento", pergunta o produto, e o
+  // cliente responde "camiseta azul, tamanho M" — sem a palavra do filtro. Com
+  // o gate julgando cada mensagem, `turnoDisparaNasMensagens` devolvia false e o
+  // agente ficava CALADO no meio da conversa que ele mesmo começou. A tela
+  // promete "só entra quando a mensagem contiver uma dessas palavras": isso
+  // fala da ENTRADA do agente na conversa, não de cada turno seguinte.
+  //
+  // A âncora do "já engajado" é uma OUTBOUND DESTE AGENTE NESTE ATENDIMENTO
+  // (`agente-ja-respondeu.ts`): `messages` com `sent_via='ai'`,
+  // `metadata->>'ai_actor_id' = agentConfig.agentId` e dentro da fronteira do
+  // atendimento corrente — a MESMA linha que o caminho de envio grava DEPOIS
+  // deste portão, portanto a única testemunha que não existe antes de o agente
+  // responder. O sticky do roteador NÃO serve (CR do #3240): sem roteador ele
+  // nunca é gravado, e com roteador é gravado no INÍCIO do turno, antes deste
+  // portão — ali o filtro seguraria só a primeira mensagem, não a entrada. E a
+  // âncora é do agente que VAI responder, não da conversa: fala do suporte não
+  // engaja o agente de vendas que o roteador acabou de escolher (ponto 2).
+  //
+  // A leitura só acontece quando há filtro configurado — quem não usa o campo
+  // não paga a consulta. Erro de leitura sobe e o turno é re-tentado pela fila
+  // (`failJob` → `max_attempts` → `job_dead`): `false` ali calaria um cliente
+  // já engajado. Só a linha ausente vira `false`; nunca inventa engajamento.
+  const agenteJaEngajado =
+    !preview && liveJob().kind === 'inbound_turn' && agentConfig?.filtroDePalavraChave != null
+      ? await agenteJaRespondeuNoAtendimento(pool, {
+          organizationId: tenantId,
+          conversationId: input.conversationId,
+          agentId: agentConfig.agentId,
+        })
+      : false;
+  //
+  // O QUE NÃO MUDA: a janela logo abaixo segue valendo para o turno engajado
+  // (ela é sobre QUANDO o lojista atende, não sobre palavras), a ordem do início
+  // do turno fica intacta (detecções determinísticas → filtro → janela) e a
+  // falha aberta continua aberta. O miss na ENTRADA segue calando o turno.
+  //
   // Diferente da JANELA logo abaixo, um miss NÃO adia: não há "depois" em que
   // a mesma mensagem venha a casar. O turno é encerrado sem resposta (`return`,
   // o mesmo consumo do job de todo outro veto do início do turno — lead em
@@ -2846,7 +3044,12 @@ async function executarTurnoDoAgente(
   // tela. Regex quebrada, corpo sem texto ou nada a julgar ⇒ o turno SEGUE —
   // entrar de menos cala o cliente, e esta porta é a única que este gate
   // existe para não criar.
-  if (!preview && liveJob().kind === 'inbound_turn' && agentConfig?.filtroDePalavraChave != null) {
+  if (
+    !preview &&
+    liveJob().kind === 'inbound_turn' &&
+    agentConfig?.filtroDePalavraChave != null &&
+    !agenteJaEngajado
+  ) {
     const corposDoTurno =
       inboundsPendentes.length > 0
         ? inboundsPendentes
@@ -3298,7 +3501,15 @@ async function executarTurnoDoAgente(
   // seguir marcando todo turno seguinte.
   const skillSignal = latestInboundSignal(effectiveContext.messages);
   const sinalDoMatcher = recentInboundSignal(effectiveContext.messages);
-  const skillMatch = matchSkills(skills, sinalDoMatcher);
+  const etiquetasDoTurno = await etiquetasParaOMatcher(
+    pool,
+    tenantId,
+    input.conversationId,
+    skills,
+    preview,
+    runLog,
+  );
+  const skillMatch = matchSkills(skills, sinalDoMatcher, etiquetasDoTurno);
   // Skills que o roteiro puxa neste passo entram JUNTO do match por palavra
   // (o nó `skill` diz "puxe isto aqui"). O match vence o empate por nome.
   const skillsDoRoteiro = (roteiro?.skills ?? [])
@@ -3519,6 +3730,9 @@ async function executarTurnoDoAgente(
           },
         });
 
+        if (chain.status === 'vetoed' && chain.code === 'commercial_requires_human') {
+          return passarComercialParaEquipe(chain.code);
+        }
         if (chain.status === 'vetoed') {
           return { ok: false, error: { code: chain.code, message: chain.message } };
         }
@@ -3859,6 +4073,7 @@ async function executarTurnoDoAgente(
             // `GateContext.clinicalClaimEnforced`. Sem linha, desligada: não há padrão de
             // ambiente para uma proteção que só faz sentido em saúde.
             enforceClinicalClaim: camadaLigada(camadas.afirmacao_clinica, false),
+            enforceCommercialRestriction: restricaoComercial,
             // Mesmo padrão do vocabulário interno: só o `send_message` arma — é o único
             // corpo escrito pelo modelo. `active` é ter QUALQUER ferramenta de agenda:
             // um agente que só CONSULTA promete "vou verificar" igual, e enquanto a
@@ -4043,6 +4258,9 @@ async function executarTurnoDoAgente(
               hasOpenCase: true,
               openedCaseThisTurn: true,
             });
+          }
+          if (chain.status === 'vetoed' && chain.code === 'commercial_requires_human') {
+            return passarComercialParaEquipe(chain.code);
           }
           if (chain.status === 'vetoed' && chain.code === 'clinical_claim') {
             // Fail-safe do gate de afirmação clínica. Ao contrário do vocabulário interno,
@@ -5035,6 +5253,9 @@ async function executarTurnoDoAgente(
       compromissosBlock,
       origemBlock,
       ...(currentInboundText !== null ? { currentInboundText } : {}),
+      // #2729 — o autor da mensagem canônica, quando ela é de grupo. Vai junto
+      // do texto: sem ele o modelo ouve a voz e não sabe de quem é.
+      ...(currentInboundSender !== null ? { currentInboundSender } : {}),
     });
     // Sufixos por-lead (situacionais, voláteis — depois do prefixo cacheável F2-17): corpos de
     // skill casadas (F3-09) + hint do classificador (F3-11) + instrução de split (F4-xx, quando
@@ -6076,6 +6297,12 @@ export function createInboundTurnHandler(deps: InboundTurnDeps) {
         error: (err instanceof Error ? err.message : String(err)).slice(0, 160),
       });
     }
+    if (await escalarComercialAntesDoModelo(pool, deps, job, {
+      leadId: job.contact_id,
+      conversationId: payload.conversation_id,
+      channelSessionId: payload.channel_session_id,
+    })) return;
+
     const resolvedAgent = await resolveConversationTurn(pool, deps.llmCfg, {
       tenantId: job.organization_id,
       leadId: job.contact_id,
@@ -6157,6 +6384,7 @@ export function createInboundTurnHandler(deps: InboundTurnDeps) {
         compromissosBlock,
         origemBlock,
         currentInboundText,
+        currentInboundSender,
       }) =>
         buildOpeningMessage(
           previous,
@@ -6167,6 +6395,7 @@ export function createInboundTurnHandler(deps: InboundTurnDeps) {
           entregues,
           compromissosBlock,
           currentInboundText,
+          currentInboundSender,
           origemBlock,
         ),
     });
