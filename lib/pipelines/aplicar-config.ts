@@ -38,6 +38,10 @@ export function resumoDaConfig(patch: PipelineConfigPatch): Record<string, unkno
     won_reasons_count: patch.won_reasons?.length ?? null,
     won_reason_required: patch.won_reason_required ?? null,
     reabertura: patch.reabertura ?? null,
+    entrada_do_inbox_ativa: patch.entrada_do_inbox?.ativa ?? null,
+    // #2995: quantos cards o quadro deixa de mostrar é decisão de quem opera — a auditoria
+    // registra o número (ou `0`, o desligamento).
+    ocultar_encerrados_dias: patch.ocultar_encerrados_dias ?? null,
   };
 }
 
@@ -61,6 +65,16 @@ export function mesclarConfig(
   if (patch.comanda_no_ganho !== undefined) settings.comanda_no_ganho = patch.comanda_no_ganho;
   if (patch.reabertura !== undefined) settings.reabertura = patch.reabertura;
   if (patch.reabertura_campos !== undefined) settings.reabertura_campos = patch.reabertura_campos;
+  // A entrada do Inbox (issue #3011): a ETAPA em que a conversa nova vira card neste funil. Grava o
+  // bloco inteiro, e não campo a campo, porque `ativa` e `stage_id` são uma decisão só — desligar
+  // sem perder a etapa escolhida é o que a tela precisa poder fazer.
+  if (patch.entrada_do_inbox !== undefined) settings.entrada_do_inbox = patch.entrada_do_inbox;
+  // #2995 — o recorte de encerrados antigos do quadro. `0` é um valor com significado
+  // ("desliguei") e por isso a chave é gravada como veio: pular o zero deixaria o número antigo no
+  // banco e o quadro seguiria escondendo card de quem acabou de desligar a opção.
+  if (patch.ocultar_encerrados_dias !== undefined) {
+    settings.ocultar_encerrados_dias = patch.ocultar_encerrados_dias;
+  }
 
   return { vocabulary, settings };
 }

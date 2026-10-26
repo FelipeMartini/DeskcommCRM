@@ -130,3 +130,39 @@ describe("Configurações › Segurança — regenerar sem o código desta sess�
     await waitFor(() => expect(irAoDesafioDeMfa).toHaveBeenCalledTimes(1));
   });
 });
+
+describe("Configurações › Segurança — Exigir da equipe no celular (ADR-0006, F4)", () => {
+  it("Nível mínimo e Dias de carência têm 44px de altura abaixo de md", () => {
+    // Contrato de classe: o jsdom não aplica media query, e nenhuma spec mede esta tela.
+    renderTela({ podeExigirDaEquipe: true });
+    expect(screen.getByLabelText("Nível mínimo")).toHaveClass("max-md:min-h-11");
+    expect(screen.getByLabelText("Dias de carência")).toHaveClass("max-md:min-h-11");
+  });
+});
+
+describe("Configurações › Segurança — sem códigos de recuperação válidos (doc 195)", () => {
+  const AVISO = /Você está sem códigos de recuperação válidos/;
+
+  it("com a verificação ligada e zero códigos, a tela pede para gerar novos, e o aviso sai depois de gerar", async () => {
+    const user = userEvent.setup();
+    renderTela({ semCodigos: true });
+
+    expect(screen.getByText(AVISO)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Regenerar códigos de recuperação" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Gere novos códigos de recuperação" }));
+    const dialogo = await screen.findByRole("alertdialog");
+    await user.click(within(dialogo).getByRole("button", { name: "Confirmar" }));
+
+    await waitFor(() => expect(regenerar).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText(AVISO)).toBeNull());
+  });
+
+  it("quem tem códigos, ou não tem a verificação ligada, não vê o aviso", () => {
+    const { unmount } = renderTela({ semCodigos: false });
+    expect(screen.queryByText(AVISO)).toBeNull();
+    unmount();
+    renderTela({ mfaEnrolled: false, semCodigos: true });
+    expect(screen.queryByText(AVISO)).toBeNull();
+  });
+});
