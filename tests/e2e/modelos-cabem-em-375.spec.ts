@@ -26,13 +26,17 @@
  *
  * ## As duas abas, e o que "duas" quer dizer aqui
  *
- * A aba do parceiro e a do canal oficial montam o MESMO formulário: hoje a do
- * parceiro em `TemplatesParceiroClient` e a oficial em `FormularioDaDefinicao`
- * (as duas usam `data-formulario-do-modelo` e o mesmo CSS). Esta spec percorre
- * as duas em 375x812 com o formulário ABERTO — não com a lista fechada, que
- * sempre cabe. Na aba que ainda não oferece criação, ela MEDE a tela e registra
- * o motivo no relatório, em vez de fingir que mediu um formulário que não está
- * lá.
+ * A aba do parceiro e a do canal oficial montam o MESMO formulário — o
+ * compartilhado em `FormularioDaDefinicao`, que o parceiro abre por
+ * `TemplatesParceiroClient` e o canal oficial por `TemplatesClient` (as duas
+ * usam `data-formulario-do-modelo` e o mesmo CSS). Esta spec percorre as duas em
+ * 375x812 com o formulário ABERTO — não com a lista fechada, que sempre cabe.
+ *
+ * Desde que o canal oficial passou a gerenciar modelo pela tela (#3635), "não
+ * achei o formulário" deixou de ser um caso legítimo: virou DEFEITO, e o caso
+ * fica vermelho. A única ausência aceita é a instalação não ter número oficial
+ * conectado — ali não existe formulário nenhum, e o caso se declara PULADO com
+ * o motivo, em vez de medir a lista e chamar isso de verde.
  *
  * Cada caso imprime a medida, para que um vermelho diga QUANTO passou em vez de
  * só "não cabe".
@@ -93,8 +97,20 @@ async function medirEstavel(page: Page) {
   return transbordo(page);
 }
 
-/** Abre a aba de modelos e, se ela já oferecer criação, o formulário. */
-async function abrirAba(page: Page, aba: string): Promise<boolean> {
+/** O que a aba ofereceu ao abrir: o formulário, ou o motivo de ele não existir. */
+type Abertura =
+  | { formulario: true }
+  | { formulario: false; motivo: "canal-oficial-desconectado" | "sem-criacao" };
+
+/**
+ * Abre a aba de modelos e o formulário.
+ *
+ * Devolve o ESTADO da aba, e não um booleano: desde a #3635 as duas abas têm
+ * "Criar modelo", então "não achei o formulário" deixou de ser um caso legítimo
+ * e passou a ser defeito. Quem chama decide o que é desculpa aceitável (a
+ * instalação não ter número oficial conectado) e o que é regressão.
+ */
+async function abrirAba(page: Page, aba: string): Promise<Abertura> {
   await page.goto(`/app/connections?aba=${aba}&sub=templates`, { waitUntil: "domcontentloaded" });
   // A tela montou quando a sub-aba "Modelos" está lá: ela existe nas duas abas
   // mesmo quando a conexão do canal ainda não foi feita (a lista vazia e o
@@ -104,11 +120,27 @@ async function abrirAba(page: Page, aba: string): Promise<boolean> {
     .first()
     .waitFor({ state: "visible", timeout: 60_000 });
 
+  // Duas telas possíveis: a aba com o botão que abre o formulário, ou o cartão
+  // que avisa que não há canal oficial conectado — a ÚNICA saída sem form.
   const criar = page.getByRole("button", { name: /^Criar modelo$/ });
-  if ((await criar.count()) === 0) return false;
+  const semCanal = page.getByText(/Canal oficial não conectado/);
+  await expect(
+    criar.or(semCanal).first(),
+    `a aba "${aba}" não montou: nem "Criar modelo", nem o aviso de canal desconectado`,
+  ).toBeVisible({ timeout: 60_000 });
+
+  if ((await semCanal.count()) > 0)
+    return { formulario: false, motivo: "canal-oficial-desconectado" };
+  if ((await criar.count()) === 0) return { formulario: false, motivo: "sem-criacao" };
+
   await criar.first().click();
-  await expect(page.locator("[data-formulario-do-modelo]")).toBeVisible();
-  return true;
+  // A espera é o FORMULÁRIO, não o botão: sem esta linha, um formulário que não
+  // abre deixa o caso medindo a lista e chamando isso de verde.
+  await expect(
+    page.locator("[data-formulario-do-modelo]"),
+    `a aba "${aba}" tem "Criar modelo" e o clique não abriu o formulário`,
+  ).toBeVisible();
+  return { formulario: true };
 }
 
 test("o formulário de modelo não estoura a tela em 375px, nas duas abas", async ({ page }) => {
@@ -116,31 +148,47 @@ test("o formulário de modelo não estoura a tela em 375px, nas duas abas", asyn
   await loginComoAdmin(page, creds);
 
   for (const { aba, rotulo } of ABAS) {
-    const temFormulario = await abrirAba(page, aba);
+    const abertura = await abrirAba(page, aba);
+
+    if (!abertura.formulario) {
+      test
+        .info()
+        .annotations.push({
+          type: "medida",
+          description: `${rotulo}: NÃO medido (${abertura.motivo})`,
+        });
+      // Ficar sem formulário só é desculpa na aba do canal oficial, e só quando a
+      // instalação não tem número oficial conectado — ali não existe formulário
+      // nenhum para medir, e o caso se declara PULADO com o motivo (nunca verde).
+      // Em qualquer outra aba é regressão: o formulário é o que este caso mede.
+      expect(
+        abertura.motivo,
+        `a aba do ${rotulo} abriu sem "Criar modelo" — o formulário deixou de ser oferecido ali`,
+      ).toBe("canal-oficial-desconectado");
+      test.skip(
+        true,
+        `a aba do ${rotulo} não existe nesta instalação: canal oficial não conectado`,
+      );
+    }
+
     const { px, detalhe } = await medirEstavel(page);
     test.info().annotations.push({
       type: "medida",
-      description: `${rotulo} (${temFormulario ? "criar" : "lista"}): ${detalhe} → ${px}px`,
+      description: `${rotulo} (criar): ${detalhe} → ${px}px`,
     });
     expect(
       px,
-      `a aba do ${rotulo} passa da tela em 375px` +
-        (temFormulario
-          ? " com o formulário aberto"
-          : " (a aba ainda não oferece criação nesta base)") +
-        ` — ${detalhe}`,
+      `a aba do ${rotulo} passa da tela em 375px com o formulário aberto — ${detalhe}`,
     ).toBeLessThanOrEqual(1);
 
-    if (temFormulario) {
-      const doFormulario = await page.evaluate(() => {
-        const form = document.querySelector<HTMLElement>("[data-formulario-do-modelo]")!;
-        return { scroll: form.scrollWidth, client: form.clientWidth };
-      });
-      expect(
-        doFormulario.scroll,
-        `o formulário em si passa da própria caixa: ${doFormulario.scroll}/${doFormulario.client}`,
-      ).toBeLessThanOrEqual(doFormulario.client + 1);
-    }
+    const doFormulario = await page.evaluate(() => {
+      const form = document.querySelector<HTMLElement>("[data-formulario-do-modelo]")!;
+      return { scroll: form.scrollWidth, client: form.clientWidth };
+    });
+    expect(
+      doFormulario.scroll,
+      `o formulário da aba do ${rotulo} passa da própria caixa: ${doFormulario.scroll}/${doFormulario.client}`,
+    ).toBeLessThanOrEqual(doFormulario.client + 1);
   }
 
   // O formulário de EDITAR tem um campo a mais (a linha "Editando <nome>") e
