@@ -96,10 +96,11 @@ async function medirEstavel(page: Page) {
 /** Abre a aba de modelos e, se ela já oferecer criação, o formulário. */
 async function abrirAba(page: Page, aba: string): Promise<boolean> {
   await page.goto(`/app/connections?aba=${aba}&sub=templates`, { waitUntil: "domcontentloaded" });
-  // A tela montou quando a lista (ou o estado vazio) apareceu: o botão de
-  // sincronizar é o primeiro controle da aba nas duas abas.
+  // A tela montou quando a sub-aba "Modelos" está lá: ela existe nas duas abas
+  // mesmo quando a conexão do canal ainda não foi feita (a lista vazia e o
+  // "canal não conectado" convivem com a barra de sub-abas).
   await page
-    .getByRole("button", { name: /Sincronizar/ })
+    .getByRole("tab", { name: /^(Modelos|Modelos do parceiro|Templates da Meta)$/ })
     .first()
     .waitFor({ state: "visible", timeout: 60_000 });
 
@@ -117,12 +118,10 @@ test("o formulário de modelo não estoura a tela em 375px, nas duas abas", asyn
   for (const { aba, rotulo } of ABAS) {
     const temFormulario = await abrirAba(page, aba);
     const { px, detalhe } = await medirEstavel(page);
-    test
-      .info()
-      .annotations.push({
-        type: "medida",
-        description: `${rotulo} (${temFormulario ? "criar" : "lista"}): ${detalhe} → ${px}px`,
-      });
+    test.info().annotations.push({
+      type: "medida",
+      description: `${rotulo} (${temFormulario ? "criar" : "lista"}): ${detalhe} → ${px}px`,
+    });
     expect(
       px,
       `a aba do ${rotulo} passa da tela em 375px` +
@@ -164,12 +163,10 @@ test("o formulário de modelo não estoura a tela em 375px, nas duas abas", asyn
   await expect(page.locator('[data-formulario-do-modelo="editar"]')).toBeVisible();
 
   const doEditar = await medirEstavel(page);
-  test
-    .info()
-    .annotations.push({
-      type: "medida",
-      description: `editar: ${doEditar.detalhe} → ${doEditar.px}px`,
-    });
+  test.info().annotations.push({
+    type: "medida",
+    description: `editar: ${doEditar.detalhe} → ${doEditar.px}px`,
+  });
   expect(
     doEditar.px,
     `o formulário de editar passa da tela — ${doEditar.detalhe}`,
