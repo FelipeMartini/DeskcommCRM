@@ -76,7 +76,7 @@ function parseArgs(argv: string[]): Opcoes {
   };
   const pos: string[] = [];
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
+    const a = argv[i] ?? "";
     if (a === "--store-dir" || a === "--store") { opts.storeDir = argv[++i] ?? opts.storeDir; continue; }
     if (a === "--waha-url" || a === "--url") { opts.wahaUrl = (argv[++i] ?? "").replace(/\/+$/, ""); continue; }
     if (a === "--api-key" || a === "--key") { opts.apiKey = argv[++i] ?? opts.apiKey; continue; }
@@ -89,7 +89,7 @@ function parseArgs(argv: string[]): Opcoes {
     if (a.startsWith("--")) continue;
     pos.push(a);
   }
-  if (pos.length > 0) opts.storeDir = pos[0];
+  if (pos.length > 0) opts.storeDir = pos[0] ?? opts.storeDir;
   if (!opts.wahaUrl) opts.medirWaha = false;
   return opts;
 }
@@ -168,7 +168,41 @@ function medirMemoria(opts: Opcoes): MedidaMemoria {
   return { rssBytes, container, processo };
 }
 
-async function fetchJson(url: string, apiKey: string): Promise<any> {
+function comoObjeto(v: unknown): Record<string, unknown> | null {
+  return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
+}
+
+function comoLista(v: unknown): unknown[] {
+  return Array.isArray(v) ? v : [];
+}
+
+function comoTexto(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  return "";
+}
+
+function extrairVersao(v: unknown): string | null {
+  if (typeof v === "string") return v;
+  const obj = comoObjeto(v);
+  if (!obj) return null;
+  const direta = comoTexto(obj.version);
+  if (direta) return direta;
+  const aninhada = comoTexto(comoObjeto(obj.waha)?.version);
+  return aninhada || null;
+}
+
+function extrairChatId(c: unknown): string {
+  const obj = comoObjeto(c);
+  if (!obj) return "";
+  const direto = comoTexto(obj.id);
+  if (direto) return direto;
+  const id = comoObjeto(obj.id);
+  if (!id) return "";
+  return comoTexto(id._serialized) || comoTexto(id.id);
+}
+
+async function fetchJson(url: string, apiKey: string): Promise<unknown> {
   const headers: Record<string, string> = { accept: "application/json" };
   if (apiKey) headers["X-Api-Key"] = apiKey;
   const res = await fetch(url, { headers });
@@ -189,22 +223,23 @@ async function medirWaha(opts: Opcoes): Promise<MedidaWaha> {
   try {
     const v = await fetchJson(`${base}/api/server/version`, opts.apiKey);
     vivo = true;
-    versao = typeof v === "string" ? v : (v?.version ?? v?.waha?.version ?? null);
+    versao = extrairVersao(v);
   } catch {
     vivo = false;
   }
-  let lista: any[] = [];
+  let lista: unknown[] = [];
   try {
     const r = await fetchJson(`${base}/api/sessions`, opts.apiKey);
-    lista = Array.isArray(r) ? r : (r?.data ?? []);
+    lista = Array.isArray(r) ? r : comoLista(comoObjeto(r)?.data);
   } catch {
     lista = [];
   }
   sessoes = lista.length;
   for (const s of lista) {
-    const nome = String(s?.name ?? s?.session ?? "");
+    const sessao = comoObjeto(s);
+    const nome = comoTexto(sessao?.name) || comoTexto(sessao?.session);
     if (!nome) continue;
-    let chats: any[] = [];
+    let chats: unknown[] = [];
     try {
       let offset = 0;
       const limit = 100;
@@ -213,8 +248,8 @@ async function medirWaha(opts: Opcoes): Promise<MedidaWaha> {
           `${base}/api/${encodeURIComponent(nome)}/chats?limit=${limit}&offset=${offset}`,
           opts.apiKey,
         );
-        const arr = Array.isArray(lote) ? lote : (lote?.data ?? []);
-        if (!Array.isArray(arr) || arr.length === 0) break;
+        const arr = Array.isArray(lote) ? lote : comoLista(comoObjeto(lote)?.data);
+        if (arr.length === 0) break;
         chats = chats.concat(arr);
         if (arr.length < limit) break;
         offset += arr.length;
@@ -225,7 +260,7 @@ async function medirWaha(opts: Opcoes): Promise<MedidaWaha> {
     chats = chats.slice(0, opts.maxChats);
     let sessionMsgs = 0;
     for (const c of chats) {
-      const chatId = typeof c?.id === "string" ? c.id : (c?.id?._serialized ?? c?.id?.id ?? "");
+      const chatId = extrairChatId(c);
       if (!chatId) continue;
       try {
         let offset = 0;
@@ -236,8 +271,8 @@ async function medirWaha(opts: Opcoes): Promise<MedidaWaha> {
             `${base}/api/${encodeURIComponent(nome)}/chats/${encodeURIComponent(chatId)}/messages?limit=${limit}&offset=${offset}&downloadMedia=false`,
             opts.apiKey,
           );
-          const arr = Array.isArray(lote) ? lote : (lote?.data ?? []);
-          if (!Array.isArray(arr) || arr.length === 0) break;
+          const arr = Array.isArray(lote) ? lote : comoLista(comoObjeto(lote)?.data);
+          if (arr.length === 0) break;
           sessionMsgs += arr.length;
           if (arr.length < limit) break;
           offset += arr.length;
@@ -249,7 +284,7 @@ async function medirWaha(opts: Opcoes): Promise<MedidaWaha> {
       }
     }
     mensagens += sessionMsgs;
-    porSessao.push({ nome, status: String(s?.status ?? ""), chats: chats.length, mensagens: sessionMsgs });
+    porSessao.push({ nome, status: comoTexto(sessao?.status), chats: chats.length, mensagens: sessionMsgs });
   }
   return {
     vivo,
