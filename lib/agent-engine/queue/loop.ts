@@ -19,10 +19,16 @@
 import type { Logger } from '../obs/logger';
 
 export interface IntervalosDaFila {
-  /** Teto de espera / ritmo ocioso — `QUEUE_POLL_INTERVAL_MS`. */
+  /** Piso da espera ociosa — `QUEUE_POLL_INTERVAL_MS`. */
   ociosoMs: number;
   /** "Havia trabalho e eu não peguei" — `QUEUE_CLAIM_RETRY_INTERVAL_MS`. */
   retryMs: number;
+  /**
+   * Teto do recuo exponencial com a fila vazia — `QUEUE_IDLE_MAX_INTERVAL_MS`.
+   * Abaixo dele o recuo não protege nada: a instalação parada volta a consultar
+   * o banco no ritmo do piso para sempre (issue #3688).
+   */
+  ociosoMaxMs: number;
 }
 
 /**
@@ -34,9 +40,32 @@ export interface IntervalosDaFila {
  * porque há trabalho de verdade esperando uma vaga. `> 0` = acorda no vencimento,
  * limitado pelo teto, que é o que impede o laço de dormir através da janela do
  * `INBOUND_DEBOUNCE_MS`.
+ *
+ * `rodadasOciosas` = quantas rodadas SEGUIDAS o relógio respondeu "fila vazia"
+ * antes desta. É o que separa "acabei de ficar ocioso" de "estou ocioso há uma
+ * hora": com o piso fixo, a instalação parada consultava o banco 30×/min para
+ * sempre — medido pelo autor da #3688 em 3.880 chamadas em 2h19 (~28/min), a
+ * maior fonte de consumo ocioso do produto. Aqui a espera DOBRA por rodada
+ * ociosa até o teto `ociosoMaxMs` (60 s de default: ~1 consulta/min) e volta ao
+ * piso na primeira rodada em que houver trabalho, que é o único momento em que o
+ * ritmo curto compra latência de verdade.
+ *
+ * Função pura de propósito: o recuo é aritmética, e aritmética se prova com
+ * números, não com um laço e relógio de parede.
  */
-export function intervaloDeEspera(faltaMs: number | null, intervalos: IntervalosDaFila): number {
-  if (faltaMs === null) return intervalos.ociosoMs;
+export function intervaloDeEspera(
+  faltaMs: number | null,
+  intervalos: IntervalosDaFila,
+  rodadasOciosas = 0,
+): number {
+  if (faltaMs === null) {
+    // `2 ** 30` estoura para Infinity bem antes de qualquer contador real; o
+    // `Math.min` com o teto já o domina, mas clampar o expoente mantém o número
+    // finito e a leitura óbvia.
+    const fator = 2 ** Math.min(Math.max(rodadasOciosas, 0), 30);
+    const teto = Math.max(intervalos.ociosoMaxMs, intervalos.ociosoMs);
+    return Math.min(intervalos.ociosoMs * fator, teto);
+  }
   if (faltaMs <= 0) return intervalos.retryMs;
   return Math.min(faltaMs, intervalos.ociosoMs);
 }
@@ -64,6 +93,11 @@ export async function rodarLoopDaFila<J>(deps: DepsDoLoopDaFila<J>): Promise<voi
   // O relógio só é consultado quando a rodada anterior voltou vazia. Sob carga o
   // laço claima em sequência, no ritmo de hoje, sem pagar o statement extra.
   let ultimaTrouxe = true;
+  // Quantas rodadas SEGUIDAS o relógio respondeu "fila vazia". É o expoente do
+  // recuo: 0 = primeira espera ociosa (piso), 1 = o dobro, ... até o teto. Sai de
+  // zero no mesmo instante em que o relógio volta a acusar trabalho — a fila que
+  // acorda não paga o recuo que acumulou dormindo.
+  let rodadasOciosa = 0;
 
   while (!deps.deveParar()) {
     let faltaMs: number | null = 0;
@@ -105,8 +139,14 @@ export async function rodarLoopDaFila<J>(deps: DepsDoLoopDaFila<J>): Promise<voi
     ultimaTrouxe = claimados.length > 0;
 
     if (claimados.length === 0 || deps.deveParar()) {
+      const espera = intervaloDeEspera(faltaMs, deps.intervalos, rodadasOciosa);
+      // O contador avança DEPOIS de calcular a espera desta rodada: a primeira
+      // volta com a fila vazia dorme o piso, não o piso dobrado. Só o relógio
+      // dizendo `null` acumula recuo; `faltaMs` numérico (inclusive o vencido que
+      // o claim não pegou) significa que HÁ trabalho e zera a contagem.
+      rodadasOciosa = faltaMs === null ? rodadasOciosa + 1 : 0;
       try {
-        await deps.dormir(intervaloDeEspera(faltaMs, deps.intervalos));
+        await deps.dormir(espera);
       } catch {
         // Sinal de desligamento abortou a espera: sair é o comportamento certo,
         // e o `deveParar()` do topo confirmaria na volta de qualquer forma.

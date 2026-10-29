@@ -73,15 +73,26 @@ const envSchema = z.object({
   QUEUE_VISIBILITY_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
   // Porta do /healthz (bind 0.0.0.0 no container; 0 = porta efêmera em teste).
   HEALTH_PORT: z.coerce.number().int().min(0).max(65_535).default(8787),
-  // TETO de espera do laço da fila: com a fila vazia é quanto ele dorme entre uma
-  // consulta ao relógio e a próxima; com job agendado, ele acorda no vencimento e
-  // este valor só limita a soneca. Era 250 e a fila era consultada abrindo uma
+  // PISO da espera ociosa do laço da fila: com a fila vazia é quanto ele dorme na
+  // PRIMEIRA rodada ociosa, e o valor dobra a cada rodada seguinte até
+  // QUEUE_IDLE_MAX_INTERVAL_MS; com job agendado, ele acorda no vencimento e este
+  // valor só limita a soneca. Era 250 e a fila era consultada abrindo uma
   // transação de claim inteira — 5 statements, ~17/s para sempre numa instalação
   // que não atende ninguém (issue #258: 8,09 GB/mês de egress medidos contra uma
   // cota de 5 GB do plano free do Supabase). O 2000 mantém o SIGNIFICADO da chave
   // para quem já a configurou, cabe 4× dentro do INBOUND_DEBOUNCE_MS (8000) e fica
   // abaixo do idleTimeoutMillis do pool (10s), acima do qual cada rodada reconecta.
   QUEUE_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(2_000),
+  // TETO do recuo exponencial com a fila VAZIA (issue #3688). Com o piso fixo, a
+  // instalação parada consultava o banco ~30×/min para sempre: o autor da issue
+  // mediu 3.880 chamadas do relógio em 2h19 (~28/min) numa instalação sem
+  // ninguém logado — a maior fonte de consumo ocioso do produto. Dobrando a
+  // espera até 60 s, a mesma instalação cai para ~1 consulta/min sem pagar nada
+  // no caminho ocupado, porque o recuo zera no primeiro trabalho encontrado.
+  // O teto fica ACIMA do idleTimeoutMillis do pool (10 s) de propósito: cada
+  // rodada depois de um sono longo reconecta (499 B medidos contra 66 B), mas
+  // 1 rodada/min a 499 B continua 4× mais barata que 30 rodadas/min a 66 B.
+  QUEUE_IDLE_MAX_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
   // Ritmo do "havia trabalho e eu não peguei" — cap QUEUE_MAX_CONCURRENCY cheio ou
   // lane do contato ocupada. Aqui há job vencido esperando vaga, então recolher o
   // ritmo custaria throughput no pico sem economizar nada no ocioso: é o único

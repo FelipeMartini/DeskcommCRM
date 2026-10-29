@@ -547,6 +547,7 @@ export async function startWorker(
     intervalos: {
       ociosoMs: env.QUEUE_POLL_INTERVAL_MS,
       retryMs: env.QUEUE_CLAIM_RETRY_INTERVAL_MS,
+      ociosoMaxMs: env.QUEUE_IDLE_MAX_INTERVAL_MS,
     },
     log,
   });
@@ -605,14 +606,16 @@ export async function startWorker(
   process.once("SIGINT", (signal) => void shutdown(signal));
 
   // A linha que a Fase 0 exige ver: worker conectado ao Supabase, schema ok, pronto.
-  // Os dois intervalos vão junto porque governam a conta de egress do banco (issue
-  // #258) e quem os ajusta precisa conseguir CONFERIR o que está em vigor sem ler
-  // o código-fonte — foi o que o autor da issue teve de fazer para achar o knob.
+  // Os três intervalos vão junto porque governam a conta de egress do banco (issues
+  // #258 e #3688) e quem os ajusta precisa conseguir CONFERIR o que está em vigor sem
+  // ler o código-fonte — foi o que os autores das issues tiveram de fazer para achar
+  // o knob.
   log.info("agent-engine pronto", {
     worker_id: workerId,
     healthz_port: port,
     max_concurrency: env.QUEUE_MAX_CONCURRENCY,
     poll_ocioso_ms: env.QUEUE_POLL_INTERVAL_MS,
+    poll_ocioso_teto_ms: env.QUEUE_IDLE_MAX_INTERVAL_MS,
     claim_retry_ms: env.QUEUE_CLAIM_RETRY_INTERVAL_MS,
   });
   // Acima de 10 s a espera ociosa passa do idleTimeoutMillis do pool (10 s, o

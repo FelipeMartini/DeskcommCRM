@@ -19,7 +19,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Logger } from "@/lib/agent-engine/obs/logger";
 import { rodarLoopDaFila } from "@/lib/agent-engine/queue/loop";
 
-const INTERVALOS = { ociosoMs: 2_000, retryMs: 250 };
+const INTERVALOS = { ociosoMs: 2_000, retryMs: 250, ociosoMaxMs: 60_000 };
 
 function logSpy(): Logger {
   const noop = (): void => undefined;
