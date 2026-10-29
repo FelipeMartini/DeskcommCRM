@@ -68,7 +68,9 @@ describe("formulário de modelo — a largura cabe em 375px", () => {
     const filhos = Array.from(form.children);
     expect(filhos.length, "o grid do formulário tem dois filhos (campos e prévia)").toBe(2);
     for (const filho of filhos) {
-      expect(classes(filho), `filho sem min-w-0: "${filho.textContent?.slice(0, 30)}"`).toContain("min-w-0");
+      expect(classes(filho), `filho sem min-w-0: "${filho.textContent?.slice(0, 30)}"`).toContain(
+        "min-w-0",
+      );
     }
   });
 
@@ -101,6 +103,8 @@ describe("formulário de modelo — a largura cabe em 375px", () => {
     await userEvent.type(form.querySelector<HTMLElement>('[aria-label="Conteúdo"]')!, "Hola {{1}}");
     const previa = form.querySelector<HTMLElement>("[data-previa-do-modelo]");
     expect(classes(previa)).toContain("max-w-full");
-    expect(classes(form.querySelector("[data-previa-do-modelo] p.whitespace-pre-wrap"))).toContain("break-words");
+    expect(classes(form.querySelector("[data-previa-do-modelo] p.whitespace-pre-wrap"))).toContain(
+      "break-words",
+    );
   });
 });

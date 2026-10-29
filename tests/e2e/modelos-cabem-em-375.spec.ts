@@ -119,11 +119,16 @@ test("o formulário de modelo não estoura a tela em 375px, nas duas abas", asyn
     const { px, detalhe } = await medirEstavel(page);
     test
       .info()
-      .annotations.push({ type: "medida", description: `${rotulo} (${temFormulario ? "criar" : "lista"}): ${detalhe} → ${px}px` });
+      .annotations.push({
+        type: "medida",
+        description: `${rotulo} (${temFormulario ? "criar" : "lista"}): ${detalhe} → ${px}px`,
+      });
     expect(
       px,
       `a aba do ${rotulo} passa da tela em 375px` +
-        (temFormulario ? " com o formulário aberto" : " (a aba ainda não oferece criação nesta base)") +
+        (temFormulario
+          ? " com o formulário aberto"
+          : " (a aba ainda não oferece criação nesta base)") +
         ` — ${detalhe}`,
     ).toBeLessThanOrEqual(1);
 
@@ -152,10 +157,21 @@ test("o formulário de modelo não estoura a tela em 375px, nas duas abas", asyn
   test.skip(!temModelo, "a organização não tem modelo espelhado para editar");
 
   await primeira.click();
-  await page.getByRole("button", { name: /^Editar$/ }).first().click();
+  await page
+    .getByRole("button", { name: /^Editar$/ })
+    .first()
+    .click();
   await expect(page.locator('[data-formulario-do-modelo="editar"]')).toBeVisible();
 
   const doEditar = await medirEstavel(page);
-  test.info().annotations.push({ type: "medida", description: `editar: ${doEditar.detalhe} → ${doEditar.px}px` });
-  expect(doEditar.px, `o formulário de editar passa da tela — ${doEditar.detalhe}`).toBeLessThanOrEqual(1);
+  test
+    .info()
+    .annotations.push({
+      type: "medida",
+      description: `editar: ${doEditar.detalhe} → ${doEditar.px}px`,
+    });
+  expect(
+    doEditar.px,
+    `o formulário de editar passa da tela — ${doEditar.detalhe}`,
+  ).toBeLessThanOrEqual(1);
 });
