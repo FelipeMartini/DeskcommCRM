@@ -36,7 +36,18 @@ vi.mock("@/lib/api/client", () => ({
 }));
 vi.mock("@/hooks/i18n/useT", () => ({ useT: () => (texto: string) => texto }));
 vi.mock("@/hooks/i18n/useLocaleDeData", () => ({ useTagDeIdioma: () => "es-PY" }));
+// A aba do CANAL OFICIAL lê a lista por outro hook; o espelho vazio basta para a
+// tela montar — o que este arquivo mede é a classe, não o dado.
+vi.mock("@/hooks/channels/useTemplates", () => ({
+  useTemplates: () => ({
+    isPending: false,
+    data: { data: { waba: "1029384756", templates: [] } },
+  }),
+  useSyncTemplates: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSaveTemplateValues: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}));
 
+import { TemplatesClient } from "./TemplatesClient";
 import { TemplatesParceiroClient } from "./TemplatesParceiroClient";
 
 /** Abre o formulário de criar e devolve o elemento, já montado. */
@@ -106,5 +117,32 @@ describe("formulário de modelo — a largura cabe em 375px", () => {
     expect(classes(form.querySelector("[data-previa-do-modelo] p.whitespace-pre-wrap"))).toContain(
       "break-words",
     );
+  });
+});
+
+/**
+ * A OUTRA ABA. Desde a #3635 o canal oficial também cria modelo pela tela, e ele
+ * monta o MESMO `FormularioDaDefinicao` — por isso o conserto vale para as duas.
+ * Mas "vale por construção" envelhece: se alguém voltar a montar o formulário
+ * inline só nesta aba, o parceiro continua verde e o oficial quebra no celular.
+ * Este caso prende o vínculo: o formulário da aba oficial tem as mesmas classes.
+ */
+describe("aba do canal oficial — o formulário é o mesmo, e com o mesmo conserto", () => {
+  it("monta o formulário compartilhado com as classes que seguram os 375px", async () => {
+    const { container } = render(<TemplatesClient />);
+    await userEvent.click(screen.getByRole("button", { name: "Criar modelo" }));
+
+    const form = container.querySelector<HTMLElement>('[data-formulario-do-modelo="criar"]');
+    if (!form) throw new Error("a aba do canal oficial não abriu o formulário de criar");
+    expect(classes(form)).toContain("grid-cols-1");
+    expect(classes(form)).toContain("lg:grid-cols-[1fr_20rem]");
+
+    const filhos = Array.from(form.children);
+    expect(filhos.length, "o grid do formulário tem dois filhos (campos e prévia)").toBe(2);
+    for (const filho of filhos) expect(classes(filho)).toContain("min-w-0");
+
+    const idioma = classes(form.querySelector<HTMLElement>('[aria-label="Idioma"]'));
+    expect(idioma).toContain("w-full");
+    expect(idioma).toContain("sm:w-56");
   });
 });
