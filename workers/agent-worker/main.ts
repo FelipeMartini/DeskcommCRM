@@ -321,6 +321,8 @@ export async function startWorker(
     {
       intervalMs: env.EVENT_LOG_DRAIN_INTERVAL_MS,
       idleIntervalMs: env.EVENT_LOG_DRAIN_IDLE_INTERVAL_MS,
+      idleMaxMs: env.EVENT_LOG_DRAIN_IDLE_MAX_INTERVAL_MS,
+      staleSweepMs: env.EVENT_LOG_DRAIN_STALE_SWEEP_MS,
       batchSize: env.EVENT_LOG_DRAIN_BATCH_SIZE,
     },
     log,
