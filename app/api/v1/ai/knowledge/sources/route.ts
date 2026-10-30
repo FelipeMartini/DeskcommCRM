@@ -21,6 +21,7 @@ import { type NextRequest } from "next/server";
 import { z } from "zod";
 import { resolveAuthDual, tetoDeEscritaDoToken } from "@/lib/api/auth-dual";
 import { ok, fail } from "@/lib/api/wrappers";
+import { audit } from "@/lib/audit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { parseFaqMarkdown } from "@/lib/ai/rag/ingest/faq";
 import { temChaveDeEmbedding } from "@/lib/ai/embeddings/chave";
@@ -327,6 +328,19 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (emitErr) {
     console.warn("[ai-knowledge-sources] emit_event falhou (não bloqueia):", emitErr.message);
   }
+
+  // Quem pôs este material no acervo? A trilha responde — com tipo e contagem,
+  // nunca com o texto (a tabela é append-only e a cascata da LGPD não a alcança).
+  void audit({
+    action: "ai.knowledge_source_created",
+    actorUserId: authz.actor.type === "user" ? authz.actor.id : null,
+    actorApiTokenId: authz.apiTokenId ?? null,
+    organizationId: activeOrg.orgId,
+    resourceType: "ai_knowledge_source",
+    resourceId: ksId,
+    requestId,
+    metadata: { source_type: tipo, items_count: itemsCount },
+  });
 
   // A resposta DIZ se a indexação vai acontecer. Sem isto a tela prometia
   // "começa em instantes" para uma organização sem chave de embedding, e o
