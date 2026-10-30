@@ -10,6 +10,13 @@
  * O DESENHO, em uma frase: o worker pergunta ao banco QUANDO tem trabalho, não SE
  * — e dorme exatamente até lá, limitado por um teto.
  *
+ * E QUEM DORME ACORDA: o teto de 60 s (recuo da fila vazia, #3688) é uma soneca
+ * que o inbound pode ter de furar. O `runDrainLoop` roda neste mesmo worker e é
+ * quem transforma evento em job, então ele avisa (`SonecaDaFila.acordar`) e a
+ * soneca sai na hora, em vez de o job esperar o fim dela — 49,25 s medidos pelo
+ * @melgarafael numa chegada 125 s depois da fila esvaziar. O desenho e os
+ * contratos estão em `./soneca.ts`.
+ *
  * Antes (issue #258), toda rodada abria uma transação de claim com 5 statements e
  * dormia 250 ms fixos quando voltava vazia: ~17 statements/s para sempre numa
  * instalação que não atende ninguém, 8,09 GB/mês de egress medidos pelo autor da
@@ -17,6 +24,7 @@
  * UM statement de 54 B, e o teto só é atingido quando não há nada agendado.
  */
 import type { Logger } from '../obs/logger';
+import type { SonecaDaFila } from './soneca';
 
 export interface IntervalosDaFila {
   /** Piso da espera ociosa — `QUEUE_POLL_INTERVAL_MS`. */
@@ -76,8 +84,11 @@ export interface DepsDoLoopDaFila<J> {
   claimar: () => Promise<J[]>;
   /** Despacha os jobs claimados (o `runJob` do worker). Não é aguardado. */
   aoClaimar: (jobs: J[]) => void;
-  /** Espera abortável. Rejeita quando o desligamento aborta o sinal. */
-  dormir: (ms: number) => Promise<unknown>;
+  /**
+   * Espera abortável E interrompível: sai no desligamento (rejeita) e também
+   * quando chega trabalho novo (`acordar`). Ver `./soneca.ts`.
+   */
+  soneca: SonecaDaFila;
   deveParar: () => boolean;
   intervalos: IntervalosDaFila;
   log: Logger;
@@ -100,6 +111,11 @@ export async function rodarLoopDaFila<J>(deps: DepsDoLoopDaFila<J>): Promise<voi
   let rodadasOciosa = 0;
 
   while (!deps.deveParar()) {
+    // A geração do wake no TOPO da volta: é a régua contra a qual a hora de
+    // dormir vai ser comparada. Se o drain enfileirar um job enquanto esta volta
+    // consulta o relógio ou claima, a geração muda e o laço não dorme — sem
+    // isso, o job esperaria o teto inteiro (o mesmo defeito que o wake fecha).
+    const geracaoNoInicio = deps.soneca.geracao();
     let faltaMs: number | null = 0;
     if (!ultimaTrouxe) {
       try {
@@ -139,6 +155,12 @@ export async function rodarLoopDaFila<J>(deps: DepsDoLoopDaFila<J>): Promise<voi
     ultimaTrouxe = claimados.length > 0;
 
     if (claimados.length === 0 || deps.deveParar()) {
+      // Trabalho que chegou ENQUANTO esta volta rodava: o `acordar` já disparou,
+      // mas não havia soneca para cortar. Dormir aqui é exatamente o atraso que
+      // o wake existe para eliminar, então volta a perguntar ao relógio — que
+      // agora enxerga o job recém-enfileirado. Não é soneca pendente: a geração
+      // é reabsorvida no topo da próxima volta.
+      if (deps.soneca.geracao() !== geracaoNoInicio) continue;
       const espera = intervaloDeEspera(faltaMs, deps.intervalos, rodadasOciosa);
       // O contador avança DEPOIS de calcular a espera desta rodada: a primeira
       // volta com a fila vazia dorme o piso, não o piso dobrado. Só o relógio
@@ -146,10 +168,11 @@ export async function rodarLoopDaFila<J>(deps: DepsDoLoopDaFila<J>): Promise<voi
       // o claim não pegou) significa que HÁ trabalho e zera a contagem.
       rodadasOciosa = faltaMs === null ? rodadasOciosa + 1 : 0;
       try {
-        await deps.dormir(espera);
+        await deps.soneca.dormir(espera);
       } catch {
         // Sinal de desligamento abortou a espera: sair é o comportamento certo,
-        // e o `deveParar()` do topo confirmaria na volta de qualquer forma.
+        // e o `deveParar()` do topo confirmaria na volta de qualquer forma. Um
+        // wake NÃO passa por aqui — ele resolve, não rejeita.
         break;
       }
     }

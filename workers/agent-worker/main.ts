@@ -71,7 +71,6 @@ if (!sentryDsn) {
 }
 
 import { hostname } from "node:os";
-import { setTimeout as sleep } from "node:timers/promises";
 
 import type pg from "pg";
 
@@ -109,6 +108,7 @@ import {
   type CacheAlertKnobs,
 } from "@/lib/agent-engine/obs/metrics";
 import { rodarLoopDaFila } from "@/lib/agent-engine/queue/loop";
+import { criarSonecaDaFila } from "@/lib/agent-engine/queue/soneca";
 import { createHealthzServer } from "./healthz";
 import { desligarNoPrazo } from "./desligamento-no-prazo";
 import {
@@ -288,6 +288,12 @@ export async function startWorker(
 
   const loopsAbort = new AbortController();
 
+  // A soneca do laço da fila (#3688). Nasce aqui porque DOIS laços a usam: o da
+  // fila dorme nela, e o drain a acorda ao enfileirar um turno — mesmo worker,
+  // promessa local, sem polling novo. O `signal` é o que faz o `docker stop`
+  // cortar a soneca em curso na hora.
+  const sonecaDaFila = criarSonecaDaFila({ signal: loopsAbort.signal });
+
   // Drain do event_log (mesmo banco pós-fusão) — transforma dispatch_requested em
   // jobs. Fase 0 (convergência, spec 2026-07-23): o drain liga SEMPRE — o
   // dispatcher nativo EPIC-13 foi aposentado, o engine é o único consumidor.
@@ -306,6 +312,8 @@ export async function startWorker(
       debounceMs: env.INBOUND_DEBOUNCE_MS,
       reapTimeoutMs: env.CRM_EVENT_REAP_TIMEOUT_MS,
       allowlistTtlMs: env.AI_ALLOWLIST_TTL_DAYS * 24 * 60 * 60 * 1000,
+      // Quem corta a soneca do laço da fila quando um turno nasce (#3688).
+      acordarFila: () => sonecaDaFila.acordar(),
     },
     log,
     loopsAbort.signal,
@@ -313,7 +321,7 @@ export async function startWorker(
 
   // Handlers do event_log (mídia, branding, follow-up…) no ritmo do worker.
   // Antes disto eles só rodavam pelo cron `event-log-drain`, 1×/min: a cadeia
-  // persist→derive de um áudio levava 103-188s contra os 45s que o drain do
+  // persist→derive de um áudio levava 103-188s contra os 120s que o drain do
   // turno espera, e o agente respondia "não consigo ouvir" com a transcrição
   // pronta segundos depois. O cron continua como rede de segurança — o claim
   // otimista do `drainEventLog` torna os dois seguros em paralelo.
@@ -538,11 +546,11 @@ export async function startWorker(
         void running.finally(() => inFlight.delete(running));
       }
     },
-    // O `{ signal }` é o que faz o `docker stop` não esperar a espera inteira —
-    // e é por isso que `rodarLoopDaFila` trata a rejeição em vez de propagá-la:
-    // `sleep` abortado REJEITA, e essa rejeição chegaria ao `await workerLoop`
-    // logo abaixo, matando o processo antes do drain dos jobs em voo.
-    dormir: (ms) => sleep(ms, undefined, { signal: loopsAbort.signal }),
+    // O `{ signal }` (dentro da soneca) é o que faz o `docker stop` não esperar a
+    // espera inteira — e é por isso que `rodarLoopDaFila` trata a rejeição em vez
+    // de propagá-la: `sleep` abortado REJEITA, e essa rejeição chegaria ao `await
+    // workerLoop` logo abaixo, matando o processo antes do drain dos jobs em voo.
+    soneca: sonecaDaFila,
     deveParar: () => shuttingDown,
     intervalos: {
       ociosoMs: env.QUEUE_POLL_INTERVAL_MS,

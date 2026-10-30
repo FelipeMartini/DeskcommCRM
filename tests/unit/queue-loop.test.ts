@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { intervaloDeEspera, rodarLoopDaFila } from "@/lib/agent-engine/queue/loop";
+import type { SonecaDaFila } from "@/lib/agent-engine/queue/soneca";
 import type { Logger } from "@/lib/agent-engine/obs/logger";
 
 /**
@@ -27,6 +28,19 @@ function logSpy(): Logger & { erros: { msg: string }[] } {
 }
 
 const INTERVALOS = { ociosoMs: 2_000, retryMs: 250, ociosoMaxMs: 60_000 };
+
+/**
+ * Soneca de mentira: registra a espera pedida e NUNCA corta por wake — o tempo
+ * aqui é do teste. `dormir` é substituível para quem precisa simular o abort do
+ * desligamento. A geração é fixa, então a conferência do laço nunca dispara: o
+ * roteiro do wake tem teste próprio em `fila-acorda-quando-chega-trabalho`.
+ */
+function sonecaDeMentira(
+  dormiu: number[] = [],
+  dormir: SonecaDaFila["dormir"] = async (ms) => void dormiu.push(ms),
+): SonecaDaFila {
+  return { acordar: () => undefined, geracao: () => 0, dormir };
+}
 
 /**
  * Para o laço depois de `n` rodadas COMPLETAS.
@@ -115,7 +129,7 @@ describe("rodarLoopDaFila", () => {
       relogio,
       claimar,
       aoClaimar: contar,
-      dormir: async (ms) => void dormiu.push(ms),
+      soneca: sonecaDeMentira(dormiu),
       deveParar,
       intervalos: INTERVALOS,
       log: logSpy(),
@@ -148,7 +162,7 @@ describe("rodarLoopDaFila", () => {
       relogio,
       claimar,
       aoClaimar: contar,
-      dormir: async (ms) => void dormiu.push(ms),
+      soneca: sonecaDeMentira(dormiu),
       deveParar,
       intervalos: INTERVALOS,
       log: logSpy(),
@@ -173,7 +187,7 @@ describe("rodarLoopDaFila", () => {
       },
       claimar,
       aoClaimar: contar,
-      dormir: async () => undefined,
+      soneca: sonecaDeMentira(),
       deveParar,
       intervalos: INTERVALOS,
       log,
@@ -198,9 +212,9 @@ describe("rodarLoopDaFila", () => {
         relogio: async () => null,
         claimar: async () => [],
         aoClaimar: () => undefined,
-        dormir: async () => {
+        soneca: sonecaDeMentira([], async () => {
           throw abortError;
-        },
+        }),
         deveParar: () => false,
         intervalos: INTERVALOS,
         log: logSpy(),
@@ -225,7 +239,7 @@ describe("rodarLoopDaFila", () => {
         despachados.push(...jobs);
         contar();
       },
-      dormir: async () => undefined,
+      soneca: sonecaDeMentira(),
       deveParar,
       intervalos: INTERVALOS,
       log: logSpy(),
@@ -248,7 +262,7 @@ describe("rodarLoopDaFila", () => {
       relogio,
       claimar: async () => [],
       aoClaimar: contar,
-      dormir: async () => undefined,
+      soneca: sonecaDeMentira(),
       deveParar,
       intervalos: INTERVALOS,
       log: logSpy(),
