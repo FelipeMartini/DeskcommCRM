@@ -8,7 +8,9 @@ import { createClient } from "@/lib/supabase/server";
 
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
-vi.mock("@/lib/env", () => ({ env: { AI_TELEMETRY_RETENTION_DAYS: undefined } }));
+vi.mock("@/lib/instalacao/config", () => ({
+  valorDaInstalacao: vi.fn(async () => ({ valor: null, fonte: "env" })),
+}));
 
 const ID = "b3201000-0000-4000-8000-000000000001";
 const PESSOAL = "Pessoa Sintética recibo3201@example.test +5511999032010 123.456.789-09";

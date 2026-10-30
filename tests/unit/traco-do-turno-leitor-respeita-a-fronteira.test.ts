@@ -8,7 +8,9 @@ import { janelaDaLeitura } from "@/lib/retencao/janela-do-traco";
 
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
-vi.mock("@/lib/env", () => ({ env: { AI_TELEMETRY_RETENTION_DAYS: "100" } }));
+vi.mock("@/lib/instalacao/config", () => ({
+  valorDaInstalacao: vi.fn(async () => ({ valor: "100", fonte: "env" })),
+}));
 
 const AGORA = new Date("2026-10-26T12:34:56.789Z");
 const CORTE = new Date(AGORA.getTime() - 100 * 86_400_000);

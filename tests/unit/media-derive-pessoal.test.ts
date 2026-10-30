@@ -123,6 +123,9 @@ vi.mock("@/lib/messaging/media/derive", () => ({
 }));
 
 vi.mock("@/lib/agent-engine/edge/llm/credentials", () => ({
+  // O worker monta a configuração do `.env` por esta função compartilhada; sem o export o mock
+  // derrubava a derivação antes de ela chegar à decisão de "contato pessoal" que o arquivo prova.
+  llmEdgeConfigFromEnv: vi.fn(() => ({})),
   resolveOrgLlmConfig: vi.fn(async () => ({
     provider: "openai",
     apiKey: "chave-da-organizacao",
