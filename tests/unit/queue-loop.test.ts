@@ -13,8 +13,9 @@ import type { Logger } from "@/lib/agent-engine/obs/logger";
  * derrubando o processo a cada `docker stop`.
  *
  * Sem Postgres e sem fake timers de propósito: `vi.useFakeTimers()` não fakeia o
- * `setTimeout` de `node:timers/promises`, que é o que o worker usa. Aqui o
- * `dormir` é injetado, então o tempo é do teste.
+ * `setTimeout` de `node:timers/promises`, que é o que o worker usa. Aqui a
+ * `soneca` é injetada, então o tempo é do teste — e o wake tem teste próprio
+ * com relógio virtual em `fila-acorda-quando-chega-trabalho`.
  */
 function logSpy(): Logger & { erros: { msg: string }[] } {
   const erros: { msg: string }[] = [];
