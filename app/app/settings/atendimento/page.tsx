@@ -29,9 +29,10 @@ import { lerCampanhas } from "@/lib/ai/elegibilidade/campanha";
 import { nomeDoCanal } from "@/lib/channels/estado";
 import { lerConfigPessoal } from "@/lib/contacts/configuracao-pessoal";
 import { podeAdministrarEmpresa } from "@/lib/auth/pode-administrar-empresa";
-import { telefoneDeFichaVaziaLigado } from "@/lib/schemas/settings";
+import { regrasDeCliente, telefoneDeFichaVaziaLigado } from "@/lib/schemas/settings";
 import { AssinaturaForm } from "./_assinatura-form";
 import { CampanhasPorPalavraForm } from "./_campanhas-form";
+import { ClientePelaVenda } from "./_clientePelaVenda";
 import { ChannelRoutingForm } from "./_channels-form";
 import { ContatosPessoaisForm } from "./_contatos-pessoais-form";
 import { AtendimentoForm } from "./_form";
@@ -88,6 +89,10 @@ export default async function AtendimentoSettingsPage() {
   // (`telefoneDeFichaVaziaLigado`): a tela não pode mostrar ligado o que o
   // `proporDadoDoContato` lê como desligado.
   const telefoneDeFichaVazia = telefoneDeFichaVaziaLigado({ crm: settings.crm });
+  // #3644 — as duas chaves da regra da venda, lidas pela MESMA régua que o
+  // nascimento do lead aplica (`regrasDeCliente`): a tela não pode mostrar
+  // ligado o que o roteamento lê como desligado.
+  const venda = regrasDeCliente({ crm: settings.crm });
 
   return (
     <div className="flex h-full flex-col gap-6 overflow-y-auto p-6">
@@ -117,6 +122,12 @@ export default async function AtendimentoSettingsPage() {
       />
       <TelefoneDeFichaVazia
         ligada={telefoneDeFichaVazia}
+        idioma={idioma}
+        podeMudar={podeAdministrarEmpresa(user, activeOrg)}
+      />
+      <ClientePelaVenda
+        ligada={venda.pelaVenda}
+        posVendaDias={venda.posVendaDias}
         idioma={idioma}
         podeMudar={podeAdministrarEmpresa(user, activeOrg)}
       />

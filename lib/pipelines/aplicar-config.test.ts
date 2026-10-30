@@ -89,9 +89,38 @@ describe("mesclarConfig", () => {
     expect(r.settings.entrada_do_inbox).toEqual(entrada);
     expect(r.settings.ocultar_encerrados_dias).toBe(0);
   });
+
+  it("grava os atalhos do card como vieram, inclusive a lista vazia (#3487)", () => {
+    const atalhos = [
+      { rotulo: "Ficha", icone: "link", url: "https://exemplo.test/{{contato.id}}" },
+    ];
+    const com = mesclarConfig(null, null, { atalhos } as never);
+    expect(com.settings.atalhos).toEqual(atalhos);
+    // `[]` é o "apaguei todos": tem de substituir os atalhos antigos, não ser pulado.
+    const vazio = mesclarConfig(null, { atalhos }, { atalhos: [] } as never);
+    expect(vazio.settings.atalhos).toEqual([]);
+    // Ausente no patch: o que o funil já tem fica como está.
+    const ausente = mesclarConfig(null, { atalhos }, {} as never);
+    expect(ausente.settings.atalhos).toEqual(atalhos);
+  });
 });
 
 describe("resumoDaConfig", () => {
+  it("audita só quantos atalhos o funil oferece, nunca o conteúdo do link (#3487)", () => {
+    const r = resumoDaConfig({
+      atalhos: [
+        {
+          rotulo: "Ficha",
+          icone: "link",
+          url: "https://dado-do-cliente.test/{{contato.telefone}}",
+        },
+      ],
+    } as never);
+    expect(r).toMatchObject({ atalhos_count: 1 });
+    expect(JSON.stringify(r)).not.toContain("dado-do-cliente");
+    expect(resumoDaConfig({} as never)).toMatchObject({ atalhos_count: null });
+  });
+
   it("audita se a entrada do Inbox está ativa e o recorte de encerrados, sem a etapa", () => {
     const r = resumoDaConfig({
       entrada_do_inbox: { ativa: false, stage_id: "etapa-secreta" },
