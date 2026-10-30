@@ -91,7 +91,9 @@ describe("mesclarConfig", () => {
   });
 
   it("grava os atalhos do card como vieram, inclusive a lista vazia (#3487)", () => {
-    const atalhos = [{ rotulo: "Ficha", icone: "link", url: "https://exemplo.test/{{contato.id}}" }];
+    const atalhos = [
+      { rotulo: "Ficha", icone: "link", url: "https://exemplo.test/{{contato.id}}" },
+    ];
     const com = mesclarConfig(null, null, { atalhos } as never);
     expect(com.settings.atalhos).toEqual(atalhos);
     // `[]` é o "apaguei todos": tem de substituir os atalhos antigos, não ser pulado.
@@ -106,7 +108,13 @@ describe("mesclarConfig", () => {
 describe("resumoDaConfig", () => {
   it("audita só quantos atalhos o funil oferece, nunca o conteúdo do link (#3487)", () => {
     const r = resumoDaConfig({
-      atalhos: [{ rotulo: "Ficha", icone: "link", url: "https://dado-do-cliente.test/{{contato.telefone}}" }],
+      atalhos: [
+        {
+          rotulo: "Ficha",
+          icone: "link",
+          url: "https://dado-do-cliente.test/{{contato.telefone}}",
+        },
+      ],
     } as never);
     expect(r).toMatchObject({ atalhos_count: 1 });
     expect(JSON.stringify(r)).not.toContain("dado-do-cliente");
