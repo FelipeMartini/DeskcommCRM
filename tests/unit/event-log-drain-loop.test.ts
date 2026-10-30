@@ -8,10 +8,15 @@
  * dizia "não consigo ouvir áudio" com o texto chegando ao banco meio minuto
  * depois. A transcrição em si levava 3,9s.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Logger } from '@/lib/agent-engine/obs/logger';
 import type { DrainSummary } from '@/lib/event-log/drain';
+import {
+  _reiniciarSinalDeTrabalho,
+  acordarLacoDeEventLog,
+  criarSinalDeTrabalho,
+} from '@/lib/event-log/sinal-de-trabalho';
 
 const drainEventLog = vi.fn();
 const ensureHandlersRegistered = vi.fn();
@@ -50,6 +55,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   createAdminClient.mockReturnValue({ marcador: 'admin' });
   _reiniciarProntidaoDoLaco();
+  _reiniciarSinalDeTrabalho();
 });
 
 describe('proximaEspera — a regra de ritmo', () => {
@@ -211,5 +217,155 @@ describe('runEventLogDrainLoop', () => {
 
     expect(ticks).toBe(3);
     expect(log.error).toHaveBeenCalledTimes(3);
+  });
+});
+
+/**
+ * O WAKE — a soneca do recuo sai antes quando a mídia está pendente (#3701).
+ *
+ * O defeito medido pelo @DPalmercs: o recuo vai a 60s, e o caminho da PRIMEIRA
+ * resposta a um áudio passa pelo `event_log` (persist → derive → Whisper). Com
+ * a instalação parada, o primeiro salto custava até 60s; um áudio lento (86s)
+ * fazia 60+86 passar do teto de 120s do turno e a resposta voltava a ser "não
+ * consegui ouvir seu áudio". O `crm/drain.ts` adia o turno nesse instante e é
+ * ele quem acorda o laço — os dois rodam no mesmo processo.
+ *
+ * Relógio falso de verdade: os 60s destes casos são de mentira, e o número que
+ * as asserções medem é QUANTOS TICKS o laço deu, não quanto tempo passou.
+ */
+describe('wake — a mídia pendente corta a soneca (#3701)', () => {
+  // Piso = teto = 60s: o recuo ocioso fica no teto desde a primeira rodada, que
+  // é o pior caso de quem não tem atendimento (noite, fim de semana).
+  const sonecaLonga = {
+    ...knobs,
+    intervalMs: 0,
+    idleIntervalMs: 60_000,
+    idleMaxMs: 60_000,
+    staleSweepMs: 3_600_000,
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('o laço dormindo 60s acorda no meio da soneca: o tick seguinte chega na hora', async () => {
+    const abort = new AbortController();
+    const sinal = criarSinalDeTrabalho();
+    let ticks = 0;
+    drainEventLog.mockImplementation(() => {
+      ticks += 1;
+      return Promise.resolve({ ...vazio, scanned: 1 });
+    });
+
+    const laco = runEventLogDrainLoop(sonecaLonga, logger, abort.signal, { sinal });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ticks).toBe(1);
+    // Metade da soneca (30 dos 60s): nenhum tick novo. É o comportamento certo
+    // quando não há trabalho — e o que o wake tem de vencer.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(ticks).toBe(1);
+
+    // É o que `crm/drain.ts` faz ao adiar o turno por mídia pendente.
+    sinal.acordar();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ticks, 'o wake não cortou a soneca: o laço esperou o teto do recuo').toBe(2);
+
+    abort.abort();
+    await laco;
+  });
+
+  it('o wake chega DENTRO do tick (a linha nasceu depois da consulta) e não se perde', async () => {
+    // O caso fino: o `drainEventLog` já leu o banco quando a mídia pendente
+    // apareceu. Perder este acordar custaria os 60s inteiros — é exatamente o
+    // que o pedido "não deixe pendente para sempre, mas não perca" protege.
+    const abort = new AbortController();
+    const sinal = criarSinalDeTrabalho();
+    let ticks = 0;
+    drainEventLog.mockImplementation(() => {
+      ticks += 1;
+      if (ticks === 1) sinal.acordar();
+      return Promise.resolve({ ...vazio, scanned: 1 });
+    });
+
+    const laco = runEventLogDrainLoop(sonecaLonga, logger, abort.signal, { sinal });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ticks, 'a soneca seguinte saiu antes do prazo, como devia').toBe(2);
+
+    // E o pedido foi CONSUMIDO: a soneca seguinte dorme o prazo inteiro.
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(ticks).toBe(2);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(ticks).toBe(3);
+
+    abort.abort();
+    await laco;
+  });
+
+  it('dois acordes seguidos valem UM tick extra — o sinal não acumula', async () => {
+    const abort = new AbortController();
+    const sinal = criarSinalDeTrabalho();
+    let ticks = 0;
+    drainEventLog.mockImplementation(() => {
+      ticks += 1;
+      return Promise.resolve({ ...vazio, scanned: 1 });
+    });
+
+    const laco = runEventLogDrainLoop(sonecaLonga, logger, abort.signal, { sinal });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ticks).toBe(1);
+
+    sinal.acordar();
+    sinal.acordar();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ticks).toBe(2);
+
+    // Nenhum terceiro tick de graça: o segundo acordar foi absorvido.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(ticks).toBe(2);
+
+    abort.abort();
+    await laco;
+  });
+
+  it('acordarLacoDeEventLog() — o caminho de produção — corta a MESMA soneca', async () => {
+    // Sem sinal injetado: o laço usa o de produção, que é o que o
+    // `crm/drain.ts` acorda por `import`. Se este caso passar, o fio entre os
+    // dois laços do worker existe de verdade.
+    const abort = new AbortController();
+    drainEventLog.mockResolvedValue({ ...vazio, scanned: 1 });
+
+    const laco = runEventLogDrainLoop(sonecaLonga, logger, abort.signal);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(drainEventLog).toHaveBeenCalledTimes(1);
+
+    acordarLacoDeEventLog();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(drainEventLog).toHaveBeenCalledTimes(2);
+
+    abort.abort();
+    await laco;
+  });
+
+  it('shutdown: abortar tira o laço da soneca de 60s na hora, com ou sem wake pendente', async () => {
+    for (const comWake of [false, true]) {
+      vi.clearAllMocks();
+      const abort = new AbortController();
+      const sinal = criarSinalDeTrabalho();
+      drainEventLog.mockResolvedValue({ ...vazio, scanned: 1 });
+
+      const laco = runEventLogDrainLoop(sonecaLonga, logger, abort.signal, { sinal });
+      await vi.advanceTimersByTimeAsync(10_000);
+      if (comWake) sinal.acordar();
+      abort.abort();
+
+      // Zero milissegundos de relógio falso: o desligamento não espera timer.
+      await vi.advanceTimersByTimeAsync(0);
+      await expect(laco, `comWake=${comWake}`).resolves.toBeUndefined();
+      expect(vi.getTimerCount(), `comWake=${comWake}: timer pendurado`).toBe(0);
+    }
   });
 });

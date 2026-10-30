@@ -22,6 +22,7 @@ import type { Logger } from '../../obs/logger';
 import { enqueueJob } from '../../queue/queue';
 import { decidirRajada, debounceEfetivo } from './debounce';
 import { avisoDeEventoMorto, IA_QUE_NAO_RESPONDEU } from '@/lib/event-log/aviso-de-evento-morto';
+import { acordarLacoDeEventLog } from '@/lib/event-log/sinal-de-trabalho';
 import { canalDesativado } from '@/lib/channels/desativado';
 import { TIPOS_DERIVAVEIS, DERIVACAO_TERMINADA } from '@/lib/messaging/media/derivable';
 import { haQuemAtendaASessao } from '@/lib/ai/agents/quem-atende-a-sessao';
@@ -519,6 +520,22 @@ async function processEvent(
         tipo: midia.type,
         esperando_ha_ms: esperandoHa,
       });
+      // ACORDA o laço do `event_log` — o que roda `media.persist_requested` e
+      // `media.derive_requested`, isto é, quem faz a transcrição acontecer.
+      //
+      // É daqui porque este é o único ponto DENTRO do worker que sabe que a
+      // derivação está pendente: os dois laços sobem no mesmo processo
+      // (`workers/agent-worker/main.ts`), então um `import` basta — sem
+      // LISTEN/NOTIFY, sem conexão nova por worker. O ingest do canal, que
+      // escreve `media.persist_requested`, roda em OUTRO processo (a rota HTTP
+      // do webhook) e continua limitado pelo teto do recuo; acordar de lá é o
+      // que ficaria para um LISTEN/NOTIFY, fora deste PR.
+      //
+      // Sem isto, o laço do event_log dorme até 60s no recuo e um áudio lento
+      // (86s medidos) faz 60+86 passar do teto de 120s deste turno — o cliente
+      // ouve "não consegui ouvir seu áudio", o defeito que fez o teto subir de
+      // 45s para 120s.
+      acordarLacoDeEventLog();
       return 'adiar';
     }
     log.warn('drain: derivação não concluiu no teto — seguindo sem o texto', {

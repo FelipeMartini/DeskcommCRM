@@ -16,13 +16,18 @@
  *   Whisper transcreve em 3,9s
  *
  * Total real: 103s e 188s em duas medições. Enquanto isso, o drain do turno
- * (`lib/agent-engine/edge/crm/drain.ts`) espera no máximo 45s pela derivação e
+ * (`lib/agent-engine/edge/crm/drain.ts`) espera no máximo 120s pela derivação e
  * então despacha SEM o texto — e o agente responde "não consigo ouvir áudio"
  * com a transcrição chegando ao banco meio minuto depois. Os 3,9s provam que a
  * lentidão não é do Whisper: é fila de cron.
  *
- * 45s é menor que UM tick de cron. Com dois saltos, perder a janela não é azar,
- * é aritmética. Este laço tira o cron do caminho crítico.
+ * 120s cobre dois saltos de cron, mas não cobre dois saltos de RECUO: o recuo
+ * ocioso deste laço chega a 60s, e um áudio lento (86s medidos) faz
+ * 60+86 > 120 — o "não consegui ouvir" volta. É por isso que existe o
+ * `sinal-de-trabalho.ts`: quando o drain do turno adia por mídia ainda sendo
+ * transcrita, ele ACORDA este laço, e a soneca sai na hora em vez de esperar o
+ * teto do recuo. Sem ele, o recuo teria de voltar a 10s (o tráfego que o #3693
+ * tirou) para o teto de 120s voltar a caber.
  *
  * ─── Por que o cron continua ─────────────────────────────────────────────────
  *
@@ -46,6 +51,10 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { Logger } from '@/lib/agent-engine/obs/logger';
 import { sincronizarAvisoDoLacoDeEventLog } from '@/lib/event-log/aviso-do-laco';
+import {
+  sinalDeTrabalhoDoLacoDeEventLog,
+  type SinalDeTrabalhoDeEventLog,
+} from '@/lib/event-log/sinal-de-trabalho';
 // `import type` e nunca import de valor: em runtime esta linha desaparece, e é
 // isso que mantém a cadeia que termina em `@/lib/env` fora do boot do worker.
 import type { DrainSummary } from '@/lib/event-log/drain';
@@ -81,6 +90,15 @@ type DrainFn = (
 interface Deps {
   drainEventLog: DrainFn;
   admin: SupabaseClient;
+}
+
+/**
+ * O que o laço aceita de fora, além dos knobs. Hoje só o sinal de trabalho: o
+ * teste injeta um sinal próprio para medir o corte da soneca com relógio falso,
+ * sem que o caso anterior deixe um pedido pendente para o seguinte.
+ */
+export interface DepsDoLaco {
+  sinal?: SinalDeTrabalhoDeEventLog;
 }
 
 /**
@@ -262,27 +280,23 @@ export function proximaEspera(
   return feitos > 0 ? knobs.intervalMs : esperaOciosa(knobs, rodadasOciosas);
 }
 
-function esperar(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener(
-      'abort',
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
-  });
-}
-
+/**
+ * A soneca do laço. Quem corta é `dormir()` do sinal: `acordar()` resolve a
+ * espera em curso, e o pedido feito sem ninguém dormindo é gasto aqui — o
+ * `esperar(ms, signal)` local que existia antes não tinha como ser acordado, e
+ * o recuo de 60s era o preço que o primeiro evento de uma instalação parada
+ * pagava (ver `sinal-de-trabalho.ts`).
+ */
 export async function runEventLogDrainLoop(
   knobs: EventLogDrainKnobs,
   log: Logger,
   signal: AbortSignal,
+  opts: DepsDoLaco = {},
 ): Promise<void> {
   const deps = await carregarDepsDoLaco(log);
   if (!deps) return;
+
+  const sinal = opts.sinal ?? sinalDeTrabalhoDoLacoDeEventLog();
 
   // O contador e o relógio moram AQUI, não na regra: `proximaEspera` continua
   // pura e é o laço quem sabe quantas voltas ociosas já passaram.
@@ -295,6 +309,9 @@ export async function runEventLogDrainLoop(
   const vazio: DrainSummary = { scanned: 0, done: 0, retried: 0, failed: 0, dead: 0 };
 
   while (!signal.aborted) {
+    // O tick paga o corte da soneca anterior: daqui para baixo, um `acordar()`
+    // novo volta a comprar um tick.
+    sinal.inicioDoTick();
     // Tick que EXPLODE não pode acelerar o laço: no erro não há resumo, e o
     // erro conta como rodada ociosa — um banco fora do ar lançaria a cada
     // iteração, e o ritmo rápido transformaria a indisponibilidade numa
@@ -327,6 +344,6 @@ export async function runEventLogDrainLoop(
       rodadasOciosas = proximaRodadaOciosa(vazio, rodadasOciosas);
       espera = esperaOciosa(knobs, rodadasOciosas);
     }
-    await esperar(espera, signal);
+    await sinal.dormir(espera, signal);
   }
 }
