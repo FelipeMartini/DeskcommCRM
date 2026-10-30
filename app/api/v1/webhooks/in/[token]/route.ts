@@ -818,8 +818,12 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
   // perguntamos" e "disse não" com a mesma forma no banco, e quem lê para
   // decidir envio não tinha como separar os dois (ver
   // buildContactConsentDenial). Vale para os DOIS INSERTs abaixo.
+  // O TENANT É DECLARADO ONDE A LINHA NASCE, não escondido no helper: a régua
+  // de R1 (`tests/unit/admin-client-exige-filtro-de-tenant.test.ts`) lê a
+  // cadeia e a declaração do payload, e um `camposDoContatoNovo(…)` dentro do
+  // `insert` é opaco para ela — foi assim que os dois INSERTs abaixo passaram a
+  // criar contato em tabela tenant-aware sem `organization_id` visível.
   const camposDoContatoNovo = (nome: string) => ({
-    organization_id: source.organization_id,
     name: nome,
     email: mapped.email,
     source: "webhook",
@@ -840,6 +844,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
       const { data: created, error: insertErr } = await admin
         .from("contacts")
         .insert({
+          organization_id: source.organization_id,
           ...camposDoContatoNovo(mapped.name ?? mapped.phone),
           phone_number: mapped.phone,
         })
@@ -898,7 +903,10 @@ export async function POST(req: NextRequest, ctx: RouteCtx): Promise<NextRespons
     } else {
       const { data: created, error: insertErr } = await admin
         .from("contacts")
-        .insert(camposDoContatoNovo(mapped.name ?? mapped.email))
+        .insert({
+          organization_id: source.organization_id,
+          ...camposDoContatoNovo(mapped.name ?? mapped.email),
+        })
         .select("id")
         .maybeSingle();
       if (insertErr) {
