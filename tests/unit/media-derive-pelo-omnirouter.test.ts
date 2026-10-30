@@ -33,6 +33,8 @@ const banco = vi.hoisted(() => ({
   escolha: undefined as unknown,
   /** O que a tela de Credenciais gravou em `platform_config` (vence o `.env`). */
   platformConfig: [] as unknown[],
+  /** A organização do evento em curso: a mensagem e o caminho da mídia dela acompanham. */
+  orgDoEvento: "11111111-1111-4111-8111-111111111111",
 }));
 vi.mock("@/lib/agent-engine/db/pool", () => ({
   createPool: () => ({
@@ -58,20 +60,23 @@ const inboxInsertMock = vi.fn();
 /** As linhas de custo que o worker grava em `llm_calls` (pelo admin, fire-and-forget). */
 const custoInsertMock = vi.fn();
 const downloadMock = vi.fn();
-const linhaDaMensagem = {
+// A mídia mora sob o id da organização dona dela (`<org>/<conversa>/<arquivo>`): o worker recusa o
+// objeto que o caminho não prova ser da org do evento (`isMediaPathInOrganization`, #3592). Por isso a
+// linha acompanha a organização do evento em vez de ter uma org fixa.
+const linhaDaMensagem = () => ({
   id: "msg1",
-  organization_id: "11111111-1111-4111-8111-111111111111",
+  organization_id: banco.orgDoEvento,
   type: "image",
   media_mime: "image/png",
-  media_storage_path: "org/conv1/msg1.png",
+  media_storage_path: `${banco.orgDoEvento}/conv1/msg1.png`,
   media_derived_status: null as string | null,
-};
+});
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
     from: (tabela: string) => {
       // Sem binding de visão: o worker segue pela escada padrão da organização.
       const linha =
-        tabela === "ai_purpose_bindings" || tabela === "agent_inbox_items" ? null : linhaDaMensagem;
+        tabela === "ai_purpose_bindings" || tabela === "agent_inbox_items" ? null : linhaDaMensagem();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const terminais: any = {
         maybeSingle: async () => ({ data: linha, error: null }),
@@ -200,6 +205,7 @@ interface Chamada {
 }
 
 function eventRow(orgId: string) {
+  banco.orgDoEvento = orgId;
   return {
     id: "ev1",
     organization_id: orgId,

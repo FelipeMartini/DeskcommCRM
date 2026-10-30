@@ -16,8 +16,8 @@ import { z } from "zod";
 
 import { fail, ok } from "@/lib/api/wrappers";
 import { requireRole } from "@/lib/auth/require-role";
-import { env } from "@/lib/env";
 import { traduzir } from "@/lib/i18n/dicionario";
+import { valorDaInstalacao } from "@/lib/instalacao/config";
 import {
   RETENCAO_TELEMETRIA_DE_IA_DIAS_PADRAO,
   RETENCAO_TELEMETRIA_DE_IA_DIAS_PISO,
@@ -74,7 +74,11 @@ export async function GET(req: NextRequest): Promise<Response> {
   // Um knob, dois leitores: o expurgo (cron) e esta rota. Ler o MESMO
   // `interpretarRetencao` é o que impede os dois de divergirem — o dia em que a
   // retenção for menor que a janela da tela, é aqui que o corte aparece.
-  const retencao = interpretarRetencao(env.AI_TELEMETRY_RETENTION_DAYS, {
+  // O valor vem de `valorDaInstalacao` (o que a tela gravou vence, o `.env` é a partida), o mesmo
+  // caminho do expurgo: lido direto do ambiente, o campo da tela não mudaria a janela desta rota
+  // (cerca: `painel-nao-promete-o-que-nao-cumpre.test.ts`).
+  const prazoDaTelemetria = await valorDaInstalacao("AI_TELEMETRY_RETENTION_DAYS");
+  const retencao = interpretarRetencao(prazoDaTelemetria.valor ?? undefined, {
     chave: "AI_TELEMETRY_RETENTION_DAYS",
     padrao: RETENCAO_TELEMETRIA_DE_IA_DIAS_PADRAO,
     piso: RETENCAO_TELEMETRIA_DE_IA_DIAS_PISO,

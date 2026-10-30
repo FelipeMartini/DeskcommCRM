@@ -24,7 +24,9 @@ import { createClient } from "@/lib/supabase/server";
 
 vi.mock("@/lib/auth/require-role", () => ({ requireRole: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
-vi.mock("@/lib/env", () => ({ env: { AI_TELEMETRY_RETENTION_DAYS: undefined } }));
+vi.mock("@/lib/instalacao/config", () => ({
+  valorDaInstalacao: vi.fn(async () => ({ valor: null, fonte: "env" })),
+}));
 
 const { GET } = await import("@/app/api/v1/ai/turn-traces/route");
 const { COLUNAS_DO_TRACO, LIMITE_MAXIMO } =
