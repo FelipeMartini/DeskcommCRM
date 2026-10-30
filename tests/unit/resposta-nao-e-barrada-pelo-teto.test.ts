@@ -56,6 +56,13 @@ describe('resposta não é barrada pelo teto do dia', () => {
     expect(d).toEqual({ allow: true, waitMs: PACING_DEFAULTS.throttleMs - 200 });
   });
 
+  it('prospecção prevalece: abordagem fria nunca abre o teto, mesmo declarando resposta', () => {
+    const d = decidePacing({ ...input({ sentToday: 20, resposta: true }), prospeccao: true });
+    expect(d.allow).toBe(false);
+    if (d.allow) throw new Error('inalcançável');
+    expect(d.code).toBe('warmup_cap');
+  });
+
   it('resposta continua respeitando a janela de resposta', () => {
     const d = decidePacing(input({ now: MADRUGADA, resposta: true }));
     expect(d.allow).toBe(false);

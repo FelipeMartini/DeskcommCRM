@@ -128,7 +128,10 @@ export function decidePacing(input: PacingInput): PacingDecision {
   // amanhã porque a prospecção do dia acabou perde o lead e não protege o
   // número. Por isso a resposta também não entra na conta (`recordSend` grava
   // `resposta`, `loadPacingState` só conta disparo). O espaçamento continua.
-  if (resposta) return { allow: true, waitMs: throttleWaitMs(now, state, knobs, rng) };
+  //
+  // `prospeccao` prevalece: abordagem fria nunca é resposta (ver o contrato do
+  // campo), então um chamador que declare as duas coisas não abre o teto.
+  if (!prospeccao && resposta) return { allow: true, waitMs: throttleWaitMs(now, state, knobs, rng) };
 
   // Clamp em >= 0: number_activated_at no futuro (typo do admin / clock skew
   // daemon↔DB) cai no degrau MAIS conservador — warm-up falha FECHADO, nunca
