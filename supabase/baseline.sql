@@ -8823,7 +8823,7 @@ create table if not exists public.crm_lead_risk_states (
 );
 
 comment on table public.crm_lead_risk_states is
-  'Estado de risco por negócio (wave 7 — o ciclo). FORA de crm_leads pelos motivos da 0075 (pulso que mente, 409 fantasma), mas DENTRO da publicação supabase_realtime, ao contrário de crm_lead_scores: risco é mudança de estado, não telemetria. O escritor só grava quando o bucket muda.';
+  'Estado de risco por negócio (wave 7 — o ciclo). FORA de crm_leads pelos motivos da 0075 (pulso que mente, 409 fantasma). Saiu da publicação supabase_realtime na 9046 (#3697): nenhuma tela assina esta tabela, e publicada sem consumidor ela só custava decodificação por escrita. O escritor só grava quando o bucket muda.';
 
 alter table public.crm_lead_risk_states
   drop constraint if exists crm_lead_risk_states_bucket_check;
@@ -8857,6 +8857,7 @@ create index if not exists idx_crm_lead_risk_states_org_bucket
   on public.crm_lead_risk_states (organization_id, bucket, since);
 
 -- DENTRO da publicação — ver o cabeçalho. Idempotente: só adiciona se faltar.
+-- (A 9046 desfaz isto no fim do arquivo: sem consumidor no código, a tabela sai.)
 do $$
 begin
   if not exists (
@@ -9138,6 +9139,8 @@ create trigger trg_crm_lead_reactivations_carimbo
 -- DENTRO da publicação de realtime, pela mesma regra da 0078: proposta nascendo
 -- ou vencendo é MUDANÇA DE ESTADO que o card precisa mostrar sem reload —
 -- não é telemetria.
+-- (A 9046 desfaz isto no fim do arquivo: o card é do NEGÓCIO, e nenhuma tela
+-- assina esta tabela.)
 do $$
 begin
   if not exists (
@@ -70541,3 +70544,56 @@ create unique index if not exists agent_inbox_cliente_sem_resposta_na_queda_aber
   where status = 'open' and kind = 'cliente_sem_resposta_na_queda';
 
 notify pgrst, 'reload schema';
+
+-- ---- realtime sem consumidor: o que ninguém assina sai da publicação (9046, #3697) ----
+-- `ai_agents` entra na lista do `foreach` lá em cima (linha do bloco "realtime:
+-- inbox, kanban e IA") porque na época a tela de agentes parecia candidata a
+-- tempo real; ela nunca assinou — lê por PostgREST. `crm_lead_risk_states`
+-- (0078) e `crm_lead_reactivations` (0082) entraram pela regra "mudança de
+-- estado pinta o card", mas o card é do NEGÓCIO (`crm_leads`), e nenhuma tela
+-- abre canal nas duas. As três saem AQUI, no fim, pelo mesmo desenho do
+-- `crm_lead_scores` (0075): o `add` fica na posição em que aconteceu, o `drop`
+-- vem depois — o baseline é aplicado inteiro e em ordem, então a lista final
+-- não repete tabela e o resultado é o mesmo de uma instalação migrada.
+-- Idempotente e guardado: `alter publication ... drop table` não aceita
+-- `if exists`, então só executa o que está de fato em `pg_publication_tables`.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication where pubname = 'supabase_realtime'
+  ) then
+    -- publicação ausente: nada a tirar (instância que nunca ligou realtime).
+    return;
+  end if;
+
+  -- ai_agents: a tela de agentes lê por PostgREST; nenhum canal assina.
+  if exists (
+    select 1 from pg_publication_tables
+     where pubname = 'supabase_realtime'
+       and schemaname = 'public'
+       and tablename = 'ai_agents'
+  ) then
+    execute 'alter publication supabase_realtime drop table public.ai_agents';
+  end if;
+
+  -- crm_lead_risk_states: risco é lido junto do negócio; nenhum canal assina.
+  if exists (
+    select 1 from pg_publication_tables
+     where pubname = 'supabase_realtime'
+       and schemaname = 'public'
+       and tablename = 'crm_lead_risk_states'
+  ) then
+    execute 'alter publication supabase_realtime drop table public.crm_lead_risk_states';
+  end if;
+
+  -- crm_lead_reactivations: proposta de reativação é lida pela tela; nenhum
+  -- canal assina.
+  if exists (
+    select 1 from pg_publication_tables
+     where pubname = 'supabase_realtime'
+       and schemaname = 'public'
+       and tablename = 'crm_lead_reactivations'
+  ) then
+    execute 'alter publication supabase_realtime drop table public.crm_lead_reactivations';
+  end if;
+end $$;
