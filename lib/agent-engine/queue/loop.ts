@@ -10,7 +10,7 @@
  * O DESENHO, em uma frase: o worker pergunta ao banco QUANDO tem trabalho, não SE
  * — e dorme exatamente até lá, limitado por um teto.
  *
- * E QUEM DORME ACORDA: o teto de 60 s (recuo da fila vazia, #3688) é uma soneca
+ * E QUEM DORME ACORDA: o teto do recuo da fila vazia (#3688, opt-in) é uma soneca
  * que o inbound pode ter de furar. O `runDrainLoop` roda neste mesmo worker e é
  * quem transforma evento em job, então ele avisa (`SonecaDaFila.acordar`) e a
  * soneca sai na hora, em vez de o job esperar o fim dela — 49,25 s medidos pelo
@@ -33,10 +33,13 @@ export interface IntervalosDaFila {
   retryMs: number;
   /**
    * Teto do recuo exponencial com a fila vazia — `QUEUE_IDLE_MAX_INTERVAL_MS`.
-   * Abaixo dele o recuo não protege nada: a instalação parada volta a consultar
-   * o banco no ritmo do piso para sempre (issue #3688).
+   * AUSENTE = recuo DESLIGADO: a fila vazia dorme sempre o piso, que é o
+   * comportamento de antes da #3688. Decisão do dono (doc 242, opção C): a fila
+   * de respostas do agente é o caminho que o cliente sente na hora, e nem todo
+   * enfileiramento acorda a soneca (o `case_reply_turn` nasce na API do app, fora
+   * do worker), então economizar consultas é escolha de quem opera, não default.
    */
-  ociosoMaxMs: number;
+  ociosoMaxMs?: number | undefined;
 }
 
 /**
@@ -54,7 +57,8 @@ export interface IntervalosDaFila {
  * hora": com o piso fixo, a instalação parada consultava o banco 30×/min para
  * sempre — medido pelo autor da #3688 em 3.880 chamadas em 2h19 (~28/min), a
  * maior fonte de consumo ocioso do produto. Aqui a espera DOBRA por rodada
- * ociosa até o teto `ociosoMaxMs` (60 s de default: ~1 consulta/min) e volta ao
+ * ociosa até o teto `ociosoMaxMs` (60 s dá ~1 consulta/min; sem teto, não há
+ * recuo) e volta ao
  * piso na primeira rodada em que houver trabalho, que é o único momento em que o
  * ritmo curto compra latência de verdade.
  *
@@ -71,7 +75,7 @@ export function intervaloDeEspera(
     // `Math.min` com o teto já o domina, mas clampar o expoente mantém o número
     // finito e a leitura óbvia.
     const fator = 2 ** Math.min(Math.max(rodadasOciosas, 0), 30);
-    const teto = Math.max(intervalos.ociosoMaxMs, intervalos.ociosoMs);
+    const teto = Math.max(intervalos.ociosoMaxMs ?? intervalos.ociosoMs, intervalos.ociosoMs);
     return Math.min(intervalos.ociosoMs * fator, teto);
   }
   if (faltaMs <= 0) return intervalos.retryMs;

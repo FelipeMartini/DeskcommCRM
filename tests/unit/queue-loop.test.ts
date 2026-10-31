@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { intervaloDeEspera, rodarLoopDaFila } from "@/lib/agent-engine/queue/loop";
+import { loadEnv } from "@/lib/agent-engine/env";
 import type { SonecaDaFila } from "@/lib/agent-engine/queue/soneca";
 import type { Logger } from "@/lib/agent-engine/obs/logger";
 
@@ -77,6 +78,38 @@ describe("intervaloDeEspera", () => {
       2_000, 4_000, 8_000, 16_000, 32_000, 60_000, 60_000, 60_000, 60_000, 60_000,
     ]);
     expect(Math.max(...esperas)).toBeLessThanOrEqual(60_000);
+  });
+
+  it("doc 242 (C): sem QUEUE_IDLE_MAX_INTERVAL_MS o recuo fica DESLIGADO", () => {
+    // Decisão do dono: na fila de respostas do agente, o comportamento de hoje é
+    // o default e o recuo é opt-in. O env é o mesmo `loadEnv` do worker, e o
+    // valor vai cru para `ociosoMaxMs` (workers/agent-worker/main.ts).
+    const base: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
+      SUPABASE_DB_URL: "postgresql://u:p@localhost:5432/db",
+      NEXT_PUBLIC_SUPABASE_URL: "https://x.supabase.co",
+      SUPABASE_SERVICE_ROLE_KEY: "service-key",
+    };
+    const rodadas = (envAtual: ReturnType<typeof loadEnv>) =>
+      Array.from({ length: 10 }, (_, n) =>
+        intervaloDeEspera(
+          null,
+          {
+            ociosoMs: envAtual.QUEUE_POLL_INTERVAL_MS,
+            retryMs: envAtual.QUEUE_CLAIM_RETRY_INTERVAL_MS,
+            ociosoMaxMs: envAtual.QUEUE_IDLE_MAX_INTERVAL_MS,
+          },
+          n,
+        ),
+      );
+
+    // `.env` antigo e `CHAVE=` vazia: piso fixo, como antes da #3688.
+    for (const envAtual of [loadEnv(base), loadEnv({ ...base, QUEUE_IDLE_MAX_INTERVAL_MS: "" })]) {
+      expect(envAtual.QUEUE_IDLE_MAX_INTERVAL_MS).toBeUndefined();
+      expect(new Set(rodadas(envAtual))).toEqual(new Set([2_000]));
+    }
+    // Quem liga, recua até o teto que escolheu.
+    expect(rodadas(loadEnv({ ...base, QUEUE_IDLE_MAX_INTERVAL_MS: "60000" })).at(-1)).toBe(60_000);
   });
 
   it("contador absurdo não vira Infinity nem NaN", () => {

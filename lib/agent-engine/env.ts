@@ -83,16 +83,17 @@ const envSchema = z.object({
   // para quem já a configurou, cabe 4× dentro do INBOUND_DEBOUNCE_MS (8000) e fica
   // abaixo do idleTimeoutMillis do pool (10s), acima do qual cada rodada reconecta.
   QUEUE_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(2_000),
-  // TETO do recuo exponencial com a fila VAZIA (issue #3688). Com o piso fixo, a
-  // instalação parada consultava o banco ~30×/min para sempre: o autor da issue
-  // mediu 3.880 chamadas do relógio em 2h19 (~28/min) numa instalação sem
-  // ninguém logado — a maior fonte de consumo ocioso do produto. Dobrando a
-  // espera até 60 s, a mesma instalação cai para ~1 consulta/min sem pagar nada
-  // no caminho ocupado, porque o recuo zera no primeiro trabalho encontrado.
+  // TETO do recuo exponencial com a fila VAZIA (issue #3688). OPCIONAL, e
+  // ausente = recuo DESLIGADO (a fila vazia dorme sempre o piso, como antes).
+  // Ligar economiza consultas: o autor da issue mediu 3.880 chamadas do relógio
+  // em 2h19 (~28/min) numa instalação parada; com 60000 a mesma instalação cai
+  // para ~1 consulta/min. O custo: só o inbound que passa pelo drain do worker
+  // acorda a soneca — job enfileirado pela API do app (resposta da equipe a um
+  // caso da IA) pode esperar até o teto. Por isso não é default (doc 242, C).
   // O teto fica ACIMA do idleTimeoutMillis do pool (10 s) de propósito: cada
   // rodada depois de um sono longo reconecta (499 B medidos contra 66 B), mas
   // 1 rodada/min a 499 B continua 4× mais barata que 30 rodadas/min a 66 B.
-  QUEUE_IDLE_MAX_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
+  QUEUE_IDLE_MAX_INTERVAL_MS: z.coerce.number().int().positive().optional(),
   // Ritmo do "havia trabalho e eu não peguei" — cap QUEUE_MAX_CONCURRENCY cheio ou
   // lane do contato ocupada. Aqui há job vencido esperando vaga, então recolher o
   // ritmo custaria throughput no pico sem economizar nada no ocioso: é o único

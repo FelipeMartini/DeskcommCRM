@@ -623,7 +623,8 @@ export async function startWorker(
     healthz_port: port,
     max_concurrency: env.QUEUE_MAX_CONCURRENCY,
     poll_ocioso_ms: env.QUEUE_POLL_INTERVAL_MS,
-    poll_ocioso_teto_ms: env.QUEUE_IDLE_MAX_INTERVAL_MS,
+    // Igual ao piso = recuo desligado (o default, doc 242).
+    poll_ocioso_teto_ms: env.QUEUE_IDLE_MAX_INTERVAL_MS ?? env.QUEUE_POLL_INTERVAL_MS,
     claim_retry_ms: env.QUEUE_CLAIM_RETRY_INTERVAL_MS,
   });
   // Acima de 10 s a espera ociosa passa do idleTimeoutMillis do pool (10 s, o

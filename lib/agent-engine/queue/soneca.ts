@@ -3,8 +3,8 @@
  * sair antes — chegou trabalho (`acordar`) e desligou (`signal`).
  *
  * O DEFEITO QUE ELA FECHA (#3688, medido pelo @melgarafael com relógio falso e
- * `dormir` de verdade): com o recuo exponencial da fila vazia, uma instalação
- * parada dorme até o teto `QUEUE_IDLE_MAX_INTERVAL_MS` (60 s). O inbound que
+ * `dormir` de verdade): com o recuo exponencial da fila vazia LIGADO (opt-in,
+ * doc 242), uma instalação parada dorme até o teto `QUEUE_IDLE_MAX_INTERVAL_MS`. O inbound que
  * chega NO MEIO dessa soneca vira job em segundos — o `runDrainLoop` roda no
  * mesmo worker e o enfileira —, mas o laço só o enxerga quando a soneca termina.
  * Chegada 125 s depois da fila esvaziar custava 49,25 s de atraso no claim;

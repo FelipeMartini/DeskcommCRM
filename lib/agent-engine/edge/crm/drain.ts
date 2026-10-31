@@ -613,7 +613,7 @@ async function processEvent(
   });
   log.info('drain: job de turno enfileirado', { event_id: event.id, job_id: job.id, deduped });
   // A soneca do laço da fila sai na hora (#3688): sem este aviso o job esperaria
-  // até o fim do teto de 60 s, e é a PRIMEIRA resposta de um lead que escreveu
+  // até o fim do teto do recuo (quando ligado), e é a PRIMEIRA resposta de um lead que escreveu
   // depois de um período parado que paga a conta. Depois do enfileiramento, e só
   // nele: avisar antes deixaria o laço consultar o relógio e não ver o job.
   knobs.acordarFila?.();
