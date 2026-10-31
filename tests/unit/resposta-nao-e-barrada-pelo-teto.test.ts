@@ -2,7 +2,7 @@
  * O teto do dia (warm-up e `daily_message_limit`) mede quantas pessoas o número
  * ABORDA. Resposta a quem escreveu não é barrada por ele — medido em produção:
  * número com 20/20 no 4º dia de warm-up segurou até o dia seguinte a resposta a
- * dois leads que tinham acabado de escrever (migration 9050).
+ * dois leads que tinham acabado de escrever (migration 9061).
  */
 import { describe, expect, it } from 'vitest';
 import { decidePacing } from '@/lib/agent-engine/pacing/engine';

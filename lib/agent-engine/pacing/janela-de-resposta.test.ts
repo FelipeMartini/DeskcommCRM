@@ -133,7 +133,7 @@ describe('janela de resposta separada da janela de disparo (0495)', () => {
     }
   });
 
-  it('RESPOSTA não é barrada pelo teto do dia; o espaçamento continua (9050)', () => {
+  it('RESPOSTA não é barrada pelo teto do dia; o espaçamento continua (9061)', () => {
     // O teto mede quantas pessoas o número ABORDA. Segurar a resposta a quem
     // escreveu até amanhã perde o lead e não protege o número — medido em
     // produção. O throttle (espaçamento entre mensagens) não abre junto.

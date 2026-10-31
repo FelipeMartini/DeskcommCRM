@@ -7,7 +7,7 @@ import { PACING_DEFAULTS } from "@/lib/agent-engine/pacing/defaults";
 import { loadPacingState, recordSend } from "@/lib/agent-engine/pacing/store";
 
 /**
- * RESPOSTA NÃO GASTA O TETO DO DIA (migration 9050).
+ * RESPOSTA NÃO GASTA O TETO DO DIA (migration 9061).
  *
  * `pacing_ledger.resposta` marca a linha gravada pela resposta a quem escreveu;
  * `loadPacingState` só conta o que não é resposta, e `decidePacing` não aplica o
