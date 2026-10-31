@@ -28,6 +28,11 @@
  * só andou o cursor não audita (cron de minuto, ver
  * tests/unit/cron-audita-so-quando-ha-efeito.test.ts).
  *
+ * Antes das rodadas (Spec 32): abre a importação de cada queda do número
+ * (`lib/channels/historico/quedas.ts`), promove ou cancela as que esperam
+ * (conferindo o número ao vivo) e fecha os avisos de cliente que já foi
+ * respondido. Cada passo tem o seu try/catch; as rodadas seguem mesmo se um falhar.
+ *
  * Auth: Bearer INTERNAL_SECRET (fail-closed), igual aos demais crons.
  */
 import { randomUUID } from "node:crypto";
@@ -36,7 +41,13 @@ import type { NextRequest } from "next/server";
 import { fail, ok } from "@/lib/api/wrappers";
 import { audit } from "@/lib/audit";
 import { autorizaCron } from "@/lib/auth/cron-auth";
+import { fecharAvisosDeClienteRespondido } from "@/lib/channels/historico/avisos-da-queda";
 import { MARGEM_PARA_CHAMADA_MS, PRAZO_DA_CHAMADA_MS } from "@/lib/channels/historico/prazo";
+import {
+  abrirRecuperacoesDasQuedas,
+  organizacoesOperantes,
+  prepararRecuperacoesAguardando,
+} from "@/lib/channels/historico/quedas";
 import { rodarUmaRodada, TETO_PADRAO } from "@/lib/channels/historico/rodada";
 import { recursoOcioso } from "@/lib/cron/piso-ocioso";
 import { logger } from "@/lib/logger";
@@ -67,6 +78,14 @@ const TRAVA_MS = 5 * 60_000;
  * não acusar variável sem uso.
  */
 const PASSOS_DEPOIS_DO_PORTAO = [
+  "const agora",
+  "const recuperacoes",
+  "const passo",
+  "expr await passo(...)",
+  "expr await passo(...)",
+  "let operantes",
+  "expr await passo(...)",
+  "for (organizationId of operantes)",
   "const prazo",
   "const {data, error}",
   "if (error)",
@@ -103,9 +122,46 @@ async function handle(req: NextRequest): Promise<Response> {
   const admin = createAdminClient();
   // O PISO OCIOSO (#3731): a rodada de todo minuto lia `importacoes_de_historico`
   // só para receber lista vazia em quem nunca importou o histórico. Com o portão,
-  // a instalação sem importação `rodando` sai antes dessa leitura — ver
+  // a instalação sem importação, sem queda recente do número e sem aviso aberto sai antes dessa leitura — ver
   // lib/cron/piso-ocioso.ts para o sinal e o custo dele.
   if (await recursoOcioso("historico")) return ok({ pulado: "recurso_ocioso" }, { requestId });
+  // O sinal do portão cobre também o que os passos de baixo fazem (quedas do número
+  // e avisos abertos): sair aqui sem olhar para eles deixaria a recuperação muda.
+  const agora = new Date();
+
+  // Antes das rodadas (Spec 32): abre a importação de cada queda do número, confere
+  // ao vivo o número de cada espera e fecha os avisos de cliente que já foi
+  // respondido. Cada passo tem o seu try/catch: um que falha não para os outros
+  // nem as rodadas. Os três ficam antes do prazo da chamada, que é das rodadas.
+  const recuperacoes = { criadas: 0, promovidas: 0, canceladas: 0, avisosFechados: 0 };
+  const passo = async (nome: string, executa: () => Promise<void>) => {
+    try {
+      await executa();
+    } catch (err) {
+      logger.warn(`[historico-import] ${nome} falhou`, {
+        detail: err instanceof Error ? err.message : "erro",
+        requestId,
+      });
+    }
+  };
+  await passo("abrir recuperações das quedas", async () => {
+    recuperacoes.criadas = (await abrirRecuperacoesDasQuedas(admin, agora)).criadas;
+  });
+  await passo("preparar recuperações aguardando", async () => {
+    const r = await prepararRecuperacoesAguardando(admin, agora);
+    recuperacoes.promovidas = r.promovidas;
+    recuperacoes.canceladas = r.canceladas;
+  });
+  let operantes: string[] = [];
+  await passo("listar organizações operantes", async () => {
+    operantes = await organizacoesOperantes(admin);
+  });
+  for (const organizationId of operantes) {
+    await passo("fechar avisos de cliente respondido", async () => {
+      recuperacoes.avisosFechados += await fecharAvisosDeClienteRespondido(admin, organizationId);
+    });
+  }
+
   const prazo = Date.now() + PRAZO_DA_CHAMADA_MS;
   const { data, error } = await admin
     .from("importacoes_de_historico")
@@ -176,7 +232,7 @@ async function handle(req: NextRequest): Promise<Response> {
     }
   }
 
-  return ok({ encontradas: linhas.length, rodadas, puladas, falhas, status }, { requestId });
+  return ok({ encontradas: linhas.length, rodadas, puladas, falhas, status, recuperacoes }, { requestId });
 }
 
 export const GET = handle;

@@ -29,7 +29,7 @@ import { lerCampanhas } from "@/lib/ai/elegibilidade/campanha";
 import { nomeDoCanal } from "@/lib/channels/estado";
 import { lerConfigPessoal } from "@/lib/contacts/configuracao-pessoal";
 import { podeAdministrarEmpresa } from "@/lib/auth/pode-administrar-empresa";
-import { regrasDeCliente, telefoneDeFichaVaziaLigado } from "@/lib/schemas/settings";
+import { regrasDeCliente, telefoneDeFichaVaziaLigado, nomeInformadoLigado } from "@/lib/schemas/settings";
 import { AssinaturaForm } from "./_assinatura-form";
 import { CampanhasPorPalavraForm } from "./_campanhas-form";
 import { ClientePelaVenda } from "./_clientePelaVenda";
@@ -37,6 +37,7 @@ import { ChannelRoutingForm } from "./_channels-form";
 import { ContatosPessoaisForm } from "./_contatos-pessoais-form";
 import { AtendimentoForm } from "./_form";
 import { TelefoneDeFichaVazia } from "./_telefoneDeFichaVazia";
+import { NomeInformado } from "./_nomeInformado";
 import { traduzir } from "@/lib/i18n/dicionario";
 
 export const dynamic = "force-dynamic";
@@ -120,6 +121,7 @@ export default async function AtendimentoSettingsPage() {
         descartadas={campanhasDescartadas}
         podeEditar={!!podeEditarCampanhas}
       />
+      <NomeInformado ligada={nomeInformadoLigado({ crm: settings.crm })} idioma={idioma} podeMudar={podeAdministrarEmpresa(user, activeOrg)} />
       <TelefoneDeFichaVazia
         ligada={telefoneDeFichaVazia}
         idioma={idioma}

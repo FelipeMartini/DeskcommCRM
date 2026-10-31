@@ -8,6 +8,157 @@ Se você roda o DeskcommCRM numa VPS, **leia a seção da versão para a qual es
 
 ## [Não lançado]
 
+## [1.96.0] — 2026-10-31
+
+### Adicionado
+
+- **O aviso de aniversário pode sair N dias antes da data** A automação `No aniversário de um contato` ganhou o campo **Dias de antecedência** (0 a 365). Com 10, o aviso sai dez dias antes da data de nascimento, às 9h no fuso da sua empresa — tempo para a cliente marcar o horário do mês do aniversário. A conta é de calendário: quem faz aniversário em 05/01 recebe em 26/12, e quem nasceu em 29/02 é avisado contando o dia 28 em ano não bissexto.
+
+  Nada muda no que já está configurado: toda automação de aniversário existente vale com 0 e continua avisando no próprio dia. Cada contato recebe um aviso por ano em cada automação, e duas automações com antecedências diferentes (uma 10 dias antes, outra no dia) funcionam juntas, cada uma no seu dia.
+
+  Crédito: @webtecnica.
+
+- **O painel do administrador ganhou busca (⌘K) nas 20 telas** Quem administra a instalação tinha 20 telas e nenhuma busca: para chegar em Marca, Credenciais ou SMTP era preciso lembrar em que ponto do menu a tela morava — e onze dessas telas são configuração de instalação, abertas de mês em mês. Agora o painel tem a mesma busca do app, com o mesmo atalho.
+
+  O jeito de procurar é pelo problema, não pelo nome da tela: `smtp` leva a E-mail, `chave` a Credenciais, `tenant` a Tenants. Acento não atrapalha — `modulos` acha Módulos.
+
+  Sem digitar nada, a busca mostra o catálogo inteiro agrupado em Operação, Clientes, Canais e Plataforma, com uma linha dizendo o que cada tela resolve. As setas navegam, Enter abre e ESC fecha. Telas de módulo desligado não aparecem, igual ao menu. O menu lateral passou a seguir a mesma ordem dos quatro grupos (Operação, Clientes, Canais, Plataforma), então Tenants deixou de ser o terceiro item e passa a abrir o grupo Clientes, logo depois de LGPD.
+
+- **A automação grava a data do atendimento no card e a mensagem de manutenção sai N dias depois** A clínica que precisa chamar de volta quem fez toxina a cada 4 ou 6 meses agora monta isso com duas regras, sem depender de alguém digitar data no card.
+
+  A primeira é `Quando alguém comparecer ao compromisso` → **Gravar a data do atendimento num campo do negócio**. É uma ação nova: você escolhe o funil e um campo de data dele, e a data do comparecimento vai para esse campo no dia em que a recepção marca "Realizado". O dia gravado é o do relógio da sua empresa, não o do servidor — um atendimento às 23h30 continua sendo o dia dele.
+
+  A segunda é `Quando faltarem N dias para uma data do funil`, que já existia: aponte para o mesmo funil e o mesmo campo, com **N negativo**. `-120` manda a mensagem 120 dias depois do atendimento; `-180`, meio ano. O prazo mora nessa regra, e não na ação — um campo só serve à manutenção de 4 meses e à de 6, e mudar o prazo é editar um número em vez de refazer a automação.
+
+  Remarcar o atendimento rearma o aviso sozinho: o gatilho de data já reconhece a data nova como um episódio novo. E a espera fica guardada no campo, não numa execução pendente — nada fica meses em fila e nenhum follow-up fica vivo segurando a vaga de "um follow-up vivo por contato".
+
+  A ação não cria card: ela grava no card do atendimento e, quando o compromisso não está ligado a um negócio, no card aberto daquele contato no funil escolhido. Sem card aberto e sem negócio, ela não faz nada e a Atividade diz que pulou.
+
+  Crédito: @webtecnica.
+
+- **O ícone "Sugerir resposta" do compositor também mostra a dica ao passar o mouse** Na linha de ações do compositor do inbox, o "+" e o emoji já mostravam a dica desde a 1.88.0; o terceiro ícone, "Sugerir resposta", só se explicava pelo desenho. Agora ele mostra a dica "Sugerir resposta" ao passar o mouse e ao chegar nele pelo teclado (Tab), pelo mesmo componente de tooltip do resto do produto. A altura da linha de ações não muda. Nada a fazer na atualização. Contribuição de @webtecnica, a partir da issue #3268.
+
+- **O funil arquivado abre para olhar, sem tirá-lo do arquivo** Na gaveta **Funis arquivados**, o nome do funil agora é um link. Ele abre o quadro do funil em leitura: dá para ver as etapas e os negócios antes de decidir entre tirar do arquivo e excluir de vez.
+
+  Antes, o único jeito de olhar era tirar do arquivo, abrir e arquivar de novo. Eram três gravações para uma leitura, e quem esquecia a última deixava vivo um funil que queria arquivado.
+
+  No quadro de um funil arquivado, um aviso explica que nada ali grava. Não aparecem o botão **Novo Lead**, as abas Lista e Calendário, o arraste de card, o menu de ações, a seleção em lote, a renomeação de etapa nem o dossiê do negócio. Tirar o funil do arquivo em Funis devolve tudo. O funil ativo continua igual.
+
+  Crédito: @webtecnica.
+
+- **Importar lista na prospecção mostra, antes de importar, o motivo de cada linha que fica de fora** Em CRM › Prospecção › "Usar minha planilha", o botão novo "Conferir a lista antes de importar"
+  mostra quantas empresas entram e quais linhas ficam de fora, cada uma com o número da linha e o
+  motivo: sem nome, sem telefone, telefone inválido, repetido na própria planilha, já é contato do
+  CRM ou excluído a pedido do titular (LGPD). A conferência não cria campanha. Importar direto
+  continua possível, e o resultado da importação passa a listar os mesmos motivos.
+
+  Antes, telefone em branco e telefone inválido diziam a mesma frase, e quem já era contato ou tinha
+  pedido para sair aparecia só como "já estava na base". Agora a supressão da LGPD aparece com o
+  nome dela, e continua barrada também pelo gatilho do banco. As campanhas importadas na 1.95.0
+  seguem com o rótulo "Planilha". Nenhuma migração de banco. Crédito: @webtecnica (#3724).
+
+- **Dois agentes no mesmo número podem dividir o atendimento por etiqueta e por funil** Novo bloco "Público do agente" no gatilho do agente, vazio de fábrica. Nele, o
+  agente pode atender só quem tem certas etiquetas ou está em certos funis, e
+  pode deixar de fora quem tem outras. Estar no funil é ter um negócio aberto
+  nele. Quem casa uma regra de "não atender" fica de fora, mesmo que case as de
+  "atender". Com dois agentes no mesmo número, atende o primeiro, na ordem de
+  prioridade, que aceita o contato. Se nenhum aceitar, a IA não responde e a
+  mensagem fica na caixa de entrada para uma pessoa. Agente sem público
+  configurado atende todo mundo, como antes. Contribuição de @webtecnica.
+  Nada muda na VPS.
+
+- **O compromisso da agenda pode ter um título próprio, digitado na hora de marcar** Ao marcar um compromisso em **Agenda › Novo agendamento**, há agora o campo opcional **Título do compromisso** — "OS 1234", "Atendimento fulano". É esse texto que a grade mostra no bloco, em vez do nome do tipo de agendamento.
+
+  O título também chega ao cliente: a frase padrão do lembrete e o convite do Google usam o título do compromisso. Em branco, nada muda — o título continua sendo o nome do tipo, como antes.
+
+  O campo existe só na criação. Remarcar mantém o título que o compromisso já tem, mas ainda não permite trocá-lo.
+
+  Crédito: @webtecnica (issue de @frankjohann).
+
+### Alterado
+
+- **Etiquetas: a opção de criar vem por último e só quando não existe** No editor de etiquetas da conversa e no do contato/negócio, a lista de sugestões passa a terminar com a opção `Criar «…»`, que só aparece quando o texto digitado não corresponde a nenhuma etiqueta que já existe. Antes, a lista mostrava apenas as etiquetas existentes e o Enter no campo criava uma etiqueta nova com o texto cru: quem digitava "Carteira-Andréia" de memória, com `carteira-andreia` na frente dos olhos, criava a variação que o vocabulário existe para evitar.
+
+  Agora o Enter (ou o clique) com um texto que corresponde a uma etiqueta existente — sem diferenciar maiúscula de minúscula nem acento — aplica a etiqueta que já existe, com a grafia dela. A etiqueta nova só nasce quando a pessoa escolhe a última opção, e nasce na forma que o banco guarda: minúscula, sem espaço sobrando e limitada a 40 caracteres.
+
+  Nada muda na configuração da VPS, não há migração de banco e as etiquetas já gravadas continuam como estão. Quem preferir continuar digitando o nome inteiro e apertando Enter segue funcionando: o que muda é que a etiqueta existente vence, em vez de uma variação nova. Crédito: @webtecnica (#3743, issue #3180).
+
+- **Passo novo abaixo do portão do piso ocioso deixa de nascer desligado sem ninguém ver** O portão do piso ocioso é uma saída antecipada da rota inteira: o que está abaixo dele só roda quando o recurso tem trabalho. Quem acrescentasse um passo novo ali ganhava um passo que não rodava na instalação parada — o caso mais comum —, sem erro, sem log e sem teste vermelho.
+
+  Agora as cinco rotas que passam pelo portão declaram, no próprio arquivo, os passos que rodam depois dele, e uma cerca lê essas rotas e reprova quando a lista não bate com o código, apontando arquivo e linha. Quem acrescentar um passo abaixo do portão vê o vermelho e decide, com a informação na frente, se ele pode mesmo ser pulado.
+
+  Nada muda para quem já roda: a rota sai pelo portão com a mesma resposta e o mesmo status de antes, e as cinco rotas não foram tocadas em comportamento — só ganharam a declaração.
+
+  Crédito: @webtecnica.
+
+### Corrigido
+
+- **Agenda: no fim do mês, o calendário só decide em que mês abrir quando a resposta traz horários publicados** Em **Novo agendamento**, o calendário pula sozinho para o mês seguinte quando o mês de hoje não tem mais horário livre. Essa decisão era gasta pela primeira resposta que chegava, mesmo quando ela não dizia nada (sem horários publicados, ou com erro). Se, no mesmo tipo de agendamento, a resposta seguinte trazia os horários — por exemplo, depois de mudar a duração —, o calendário ficava no mês esgotado, com os dias apagados. Agora só uma resposta com horários publicados decide o mês de abertura. E quem muda de mês pelas setas fica no mês que escolheu.
+
+  Crédito: @paulolimajr77.
+
+- **Agenda: o painel de marcação não fica mais num mês que acabou enquanto a tela está aberta** Em **Novo agendamento**, o calendário já pulava para o mês seguinte quando o mês de hoje não tinha horário livre. Mas a decisão era tomada uma vez, com a pergunta "existe vaga neste mês?" sobre os dados já carregados — e a resposta era "sim" enquanto sobrasse um horário publicado, mesmo já vencido. Numa sexta-feira qualquer, às 16h28 o painel ainda enxergava o 17h30 de hoje e ficava no mês; vinte minutos depois esse horário entrava no aviso mínimo de 60 minutos, o mês inteiro ficava sem um dia clicável, e a tela não revia a decisão: "outubro de 2026", todo apagado, com o próximo horário escondido atrás da seta.
+
+  Agora a abertura pergunta pelo **resto da janela**: um horário que o relógio já passou não conta como vaga, e se o mês em tela não tem nenhum horário agendável o painel abre no próximo mês que tiver — no máximo três saltos seguidos, e sem nenhum mês adiante com vaga ele fica onde está, com o aviso de "nenhum horário livre". A mesma regra reabre a decisão quando o mês acaba **com a tela aberta**. Quem foi para o mês seguinte à mão continua nele, e quem voltou à mão para o mês de hoje fica nele até ele realmente esgotar. Crédito: @webtecnica (#3779).
+
+- **Agenda: no fim do mês, trocar o tipo de agendamento abre o calendário no próximo mês com vaga** Em **Novo agendamento**, o calendário já pulava sozinho para o mês seguinte quando o mês de hoje não tinha mais horário livre. Mas o painel abre no primeiro tipo da lista, e a decisão era tomada uma vez só, com a resposta desse primeiro tipo. Quem escolhia em seguida o tipo que de fato atende via o mês esgotado inteiro apagado, com "Nenhum horário livre", e o próximo horário escondido atrás da seta de mês.
+
+  Agora cada tipo escolhido refaz essa decisão: se o mês de hoje acabou para aquele tipo, o calendário abre no mês seguinte, com o primeiro dia livre aceso. Quem volta à mão para o mês de hoje (para um encaixe, por exemplo) continua lá.
+
+- **A nota interna avisa quando o anexo dela foi apagado pela política de retenção** Quando o prazo de retenção da empresa apaga o anexo de uma nota interna, a nota agora mostra, no lugar do arquivo, o aviso escrito: "Anexo da nota apagado pela política de retenção (N dias)", com o número de dias da sua configuração.
+
+  Antes, a nota que perdia o anexo ficava idêntica a uma nota que nunca teve um: o texto continuava lá e nada dizia que ali havia uma imagem, um áudio ou um documento. Não é erro do sistema nem algo quebrado — é a política de retenção da casa, e agora ela aparece escrita para quem lê a nota. O aviso sai em português e em espanhol.
+
+  A mensagem da conversa cuja mídia foi apagada pela mesma política também passa a mostrar o motivo escrito — "Mídia apagada pela política de retenção (N dias)". Até aqui a tela mostrava só "Mídia indisponível", e o motivo com os dias ficava disponível apenas para leitor de tela.
+
+  Duas coisas ficam de fora, e de propósito. Nota que já perdeu o anexo antes desta versão continua sem aviso: o sistema não tem como saber que houve um arquivo ali, e inventar a marca seria pior que a ausência. E nota redigida por pedido de LGPD não recebe este aviso — ali o anexo não saiu por prazo, e dizer "política de retenção" seria mentira.
+
+- **A conversa que não pôde seguir o vendedor passa a apontar para onde continua** Numa empresa com um número de WhatsApp por vendedor, a conversa que volta para um vendedor nem sempre consegue ir para o número dele: se o cliente já tem outra conversa nesse número, ela ficava no nome do vendedor, presa no número de um colega, e o envio era recusado sem dizer para onde ir. Agora a transferência leva junto a conversa do cliente que está no número do dono novo, quando ela estava sem dono ou com o dono anterior. Conversa que outra pessoa assumiu no meio não é tomada, e conversa que a IA está atendendo continua com a IA.
+
+  O envio recusado diz qual conversa abrir, e a caixa de resposta trava com o botão "Abrir a conversa". A linha do tempo registra o número antigo e o novo, inclusive na troca de carteira, e o diálogo Transferir avisa quando o número não vai mudar. Nada muda na configuração da VPS.
+
+  Crédito: @webtecnica (#3765) e @hudson-souza-mkt (medição na #3732).
+
+- **As telas de configuração deixam de mostrar o erro cru do banco** Quando o banco recusava uma gravação nas credenciais do Google e da Meta, na configuração do funil, no perfil, na troca de idioma ou na marca da instalação, a tela mostrava o texto do Postgres, com nome de tabela e de regra (por exemplo `violates check constraint "platform_branding_accent_hex"`). Agora ela mostra uma frase que diz o que aconteceu e o que fazer: a cor precisa ser um hexadecimal de seis dígitos, a conta não tem permissão, a sessão expirou, a gravação demorou e nada foi salvo. Erro que o sistema não reconhece vira "Não foi possível salvar. Tente de novo.". Na tela de marca, o aviso continua o genérico de antes, e a frase aparece no campo de detalhe técnico, onde antes ficava o texto do banco. O texto original do banco passa a ir para o log do servidor, para quem administra a VPS diagnosticar. Nada muda na configuração da VPS.
+
+  Crédito: @webtecnica (#3752, #3747).
+
+- **Follow-up de falta confirmada: a resposta do paciente encerra a sequência, como a tela mostrava** No gatilho **Falta confirmada pela equipe**, o interruptor "Cancelar se o lead responder" aparecia ligado e travado, mas o valor não era gravado. Para o sistema, o fluxo não cancelava. O paciente respondia "quero remarcar" e o convite seguinte da sequência saía mesmo assim, por cima do atendimento.
+
+  Agora a tela grava o valor ao salvar o gatilho. Os fluxos de falta já salvos sem ele também passam a cancelar na primeira resposta, sem precisar abrir nem salvar de novo. Quem gravou `cancel_on_reply: false` de propósito (pela API ou por importação) continua com o que escolheu, enquanto não salvar o gatilho de novo pela tela, que nesse gatilho só oferece o ligado.
+
+  Crédito: @webtecnica (conserto) e @marcelovolei15 (relato, #3400).
+
+- **No funil, trocar uma etiqueta do filtro por outra não soma mais as duas** No filtro **Tag** do quadro, desmarcar uma etiqueta e logo em seguida marcar outra podia deixar as DUAS escolhidas ("Tag: obra +1") e o quadro vazio. Acontecia quando o servidor demorava a responder à troca de endereço que cada clique faz: o segundo clique partia do filtro de antes do primeiro. Numa VPS lenta, a janela é de quem clica rápido. Agora o quadro aplica o filtro no clique e o endereço alcança depois, então a troca vale o que foi clicado. Nada muda na VPS.
+
+- **A avaliação do site na prospecção não fica lenta em páginas grandes ou malformadas** A leitura do HTML do site do lead (título, descrição, cabeçalhos, texto visível e checklist) passa a ter custo proporcional ao tamanho da página. Antes, certas páginas grandes ou malformadas podiam segurar a avaliação de um site por segundos ou minutos e atrasar o lote inteiro. O resultado em páginas normais é o mesmo de antes. Nada muda na VPS.
+
+- **Oferecer atendimento humano depois de um "Entendi!" não abre mais caso automático** Quando o agente só pergunta se o cliente quer falar com a equipe ("Quer que eu encaminhe para a equipe?"), isso não é promessa de atendimento humano, e a mensagem já não exigia caso aberto. Mas bastava uma abertura curta antes da pergunta, como "Entendi! Quer que eu encaminhe para a equipe?", para a pergunta ser lida como promessa: o envio era vetado e, na segunda tentativa, o sistema abria um caso automático e mandava ao cliente a frase fixa de passagem para humano, sem ninguém ter pedido. Agora uma abertura que seja só reconhecimento, de uma lista curta e fechada ("Entendi", "Certo", "Claro", "Ok", "Combinado", "Anotado", "Perfeito", "Beleza", "Tudo bem", "Tudo certo", "Sem problema", ou duas delas separadas por vírgula), não derruba mais a isenção da pergunta.
+
+  Qualquer outra frase antes ou depois da pergunta faz a mensagem ser conferida inteira, como antes. Por isso "Entendi! Vou anotar aqui. Quer que eu encaminhe para a equipe?" ainda abre caso: é o lado seguro, e toda promessa que já era vetada continua vetada. "Pode deixar" e "Fica tranquilo" ficaram fora da lista porque soam como garantia. O texto da frase fixa e o resumo do caso automático, que a #3725 também pede, não mudaram. Nada muda na VPS: a correção chega pela atualização normal.
+
+  Crédito: @webtecnica.
+
+- **Os crons da prospecção, das campanhas, do histórico e da agenda Google param de consultar o banco quando não há nada para fazer** Instalação parada consumia cota do banco sem ninguém usando: cinco rotas de cron iam ao banco a cada minuto só para descobrir que a fila estava vazia — prospecção sem campanha, campanhas sem campanha, importação de histórico sem importação e agenda Google sem conexão nem compromisso a enviar. No plano grátis do Supabase isso é o que enche o projeto e derruba a instalação em `PGRST002`.
+
+  Agora essas rotas saem antes de qualquer consulta quando o recurso está desligado. Quem responde é um retrato em memória de cinco perguntas ("tem campanha de prospecção? campanha? importação? conexão Google? compromisso a enviar ao Google?"), refeito por uma consulta por minuto para a instalação inteira, fora da cota que derruba o projeto.
+
+  Nada muda para quem usa: com o recurso ligado o cron roda exatamente como antes, e se a leitura do retrato falhar as rotas seguem o caminho normal em vez de parar. Ligar uma campanha ou conectar a agenda vale para o cron já na batida seguinte.
+
+  Crédito: @webtecnica.
+
+- **A prospecção não cita mais como defeito do site o que ela não conseguiu medir** Quando o site da empresa barra o acesso automático do servidor (401, 403, 406, 429, 451, 503 ou desafio anti-robô) ou não responde a tempo, a auditoria agora marca "Site não medido" e a abordagem segue sem falar do site. Antes isso virava "site com problemas" ou "site fora do ar" e entrava na primeira mensagem. Itens do checklist (falta de telefone, fotos, mapa) deixam de classificar o site e de ir para o gancho; link de WhatsApp conta como telefone; título curto deixa de ser defeito; e página montada por JavaScript mostra "Checklist não medido" em vez de faltas inventadas. Vereditos já gravados são corrigidos na leitura, sem mudar o banco: um domínio inexistente auditado antes desta versão aparece como "não medido" até a próxima auditoria. Nada muda na VPS.
+
+  Crédito: @webtecnica (#3742, #3723).
+
+- **Quem não tem nome cadastrado aparece pelo e-mail ou por um código curto, nunca pelo identificador interno** Membro da equipe sem nome no cadastro aparecia de jeitos diferentes em cada tela, e quase sempre com um pedaço do identificador interno, como `Atendente 4fa3917a`. Transferir conversa, menção na nota, funil, tarefas, carteira do contato, automações, financeiro e agenda passam a usar a mesma regra: o nome, depois o e-mail (só nas telas que já mostravam o e-mail), depois `Atendente` com um código curto que não é pedaço do identificador.
+
+  A trilha de auditoria segue mostrando o começo do identificador de quem agiu, porque é o que casa com o filtro e com o CSV exportado.
+
+  Crédito: @webtecnica.
+
+- **"Sugerir resposta" escreve o rascunho na voz do atendente, não na do agente** No Inbox, o botão "Sugerir resposta" roda o agente publicado da conversa para escrever o rascunho que o atendente vai revisar e enviar. Até aqui o agente recebia a mesma instrução da aba "Teste" do agente e seguia o próprio roteiro de atendimento automático, então numa conversa já assumida o rascunho saía como fala do assistente, em terceira pessoa ("vou avisar o atendente e ele já te responde"). Agora o rascunho é pedido em primeira pessoa, como o atendente que vai enviar, sem falar como IA e sem propor passar o atendimento. A aba "Teste" do agente e o atendimento automático não mudaram. Nada a fazer na atualização. Contribuição de @webtecnica, a partir da issue #3757.
+
 ## [1.95.0] — 2026-10-30
 
 ### Adicionado
@@ -13330,7 +13481,8 @@ Primeira versão marcada do DeskcommCRM. O projeto vinha sendo desenvolvido publ
 
 - **Node 22 é obrigatório para desenvolvimento.** A suíte de invariantes instancia o cliente do Supabase, que exige o `WebSocket` global — nativo apenas a partir do Node 22. Isso não afeta quem apenas hospeda: a VPS roda a imagem pronta.
 
-[Não lançado]: https://github.com/melgarafael/DeskcommCRM/compare/v1.95.0...HEAD
+[Não lançado]: https://github.com/melgarafael/DeskcommCRM/compare/v1.96.0...HEAD
+[1.96.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.95.0...v1.96.0
 [1.95.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.94.0...v1.95.0
 [1.94.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.93.0...v1.94.0
 [1.93.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.92.0...v1.93.0
