@@ -70597,3 +70597,15 @@ begin
     execute 'alter publication supabase_realtime drop table public.crm_lead_reactivations';
   end if;
 end $$;
+
+-- ---- pacing_ledger.resposta (migration 9061) ----
+-- Resposta a quem escreveu não gasta nem é barrada pelo teto do dia. O porquê
+-- inteiro está no cabeçalho da migration.
+--
+-- Não cria função, então pode ficar depois da VARREDURA anon.
+alter table public.pacing_ledger
+  add column if not exists resposta boolean not null default false;
+comment on column public.pacing_ledger.resposta is
+  'true = resposta a quem escreveu: vale para o espaçamento, não para o teto do dia (warm-up/daily_message_limit), que conta só disparos (9061).';
+
+notify pgrst, 'reload schema';
