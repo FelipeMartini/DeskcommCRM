@@ -175,6 +175,7 @@ import { agenteJaRespondeuNoAtendimento } from './agente-ja-respondeu';
 import { enviaAvisoForaDoHorario, portasDeProducao } from './aviso-fora-do-horario';
 import { enviarComSaidaConfiguravel } from "@/lib/prospecting/saida-configuravel";
 import { janelaDeEnvioAberta, proximaAberturaDaJanela } from '../pacing/engine';
+import { adiadoPorJanela } from '../pacing/adiados-da-janela';
 import { loadChannelKnobs } from '../pacing/store';
 import { avisarJanelaFechada, resolverAvisoDeJanela } from '../pacing/aviso-de-janela';
 import { resolveConversationTurn, type TurnAgentResolution } from './resolve-turn-agent';
@@ -242,6 +243,9 @@ import {
   previaPedeCorrecaoDoTurnoMudo,
   tetoDePassosAtingido,
 } from './desfecho-da-previa';
+// #3281 — o clique humano pode ocupar a recuperação única do silêncio inicial.
+// Veto, falha e oferta existente não autorizam outra geração.
+import { INSTRUCAO_DO_PEDIDO_HUMANO, previaContinuaAtePropor } from './proposta-sob-pedido';
 import { criarTravaDeDuplicata } from './near-dup';
 import { vetoReason } from '@/lib/leads/veto-activity';
 import { corposEnviadosDesdeUltimaInbound } from './memoria-envio';
@@ -2463,6 +2467,16 @@ async function executarTurnoDoAgente(
         acquiredAt: claimOfJob(liveJob())?.acquired_at,
         delayMs: Math.max(abertura.getTime() - agora.getTime(), 1_000),
         reason: 'fora da janela anti-ban de envio — turno adiado para a abertura',
+        // O rastro que faz o adiamento ser ALCANÇÁVEL (#3383): sem a chave no
+        // payload do MESMO job, quem vem depois não sabe que ele espera uma
+        // ABERTURA (horas) e não um debounce de rajada (8 s) — o drain dava
+        // carona da mensagem das 22h40 num job com `run_after` às 7h, e o
+        // `PUT /api/v1/ai/pacing` não acordava ninguém que já estava na fila.
+        payloadPatch: adiadoPorJanela({
+          tipo: resposta ? 'resposta' : 'disparo',
+          abertura: abertura.toISOString(),
+          janela: `${resposta ? knobs.respostaStartHour : knobs.windowStartHour}h-${resposta ? knobs.respostaEndHour : knobs.windowEndHour}h`,
+        }),
       });
       runLog.info('turno adiado — fora da janela anti-ban de envio', {
         janela: `${resposta ? knobs.respostaStartHour : knobs.windowStartHour}h-${resposta ? knobs.respostaEndHour : knobs.windowEndHour}h`,
@@ -5766,15 +5780,35 @@ async function executarTurnoDoAgente(
     //
     // Só o rascunho ASSISTIDO: a prévia de TESTE (sandbox) mostra o que o agente
     // produziu e uma segunda chamada esconderia o defeito que ela existe para
-    // revelar. Só com texto solto: silêncio sem texto é decisão já tomada, e
-    // pedir de novo pagaria uma chamada de modelo para ouvir a mesma coisa.
+    // revelar. Texto solto conserva a instrução canônica; só o silêncio inicial
+    // sem oferta nem impedimento pode usar a mesma vaga para o pedido humano.
     let correcaoTruncou = false;
     // A correção também pode gastar o teto dela (PASSOS_DA_CORRECAO) só em consultas: na
     // prévia isso é a mesma falha do teto da primeira chamada, não decisão.
     let tetoNaCorrecao = false;
+    // #3281 — só o primeiro silêncio sem oferta nem impedimento recebe o
+    // pedido humano. Ele ocupa a MESMA recuperação abaixo: nunca há terceira
+    // chamada depois de uma correção que também decidiu ficar em silêncio.
+    const pedidoHumano =
+      preview?.kind === 'assisted' &&
+      previaContinuaAtePropor({
+        candidatos: preview.result.candidates.length,
+        propostas: preview.result.proposals.length,
+        impedimentos: preview.result.impediments.map((i) => i.code),
+        tentativasDeEnvio,
+        textoEscrito: turn.result.text,
+        inboundsSemResposta: inboundsNaoRespondidos(preview.context.context.messages).length,
+        finishReason: turn.result.finishReason,
+        saidaTruncada,
+        tetoDePassosAtingido: tetoDePassosAtingido({
+          passosUsados: turn.result.steps?.length ?? 0,
+          maxSteps,
+          finishReason: turn.result.finishReason,
+        }),
+      });
     const correcaoDoTurnoMudoPedida =
       preview?.kind === 'assisted'
-        ? previaPedeCorrecaoDoTurnoMudo({
+        ? pedidoHumano || previaPedeCorrecaoDoTurnoMudo({
             textoEscrito: turn.result.text,
             candidatos: preview.result.candidates.length,
             tentativasDeEnvio,
@@ -5796,7 +5830,10 @@ async function executarTurnoDoAgente(
         job_id: job?.id ?? null,
         previa: preview?.kind ?? null,
       });
-      const pedidoDeCorrecao: ModelMessage = { role: 'user', content: CORRECAO_DO_TURNO_MUDO };
+      const pedidoDeCorrecao: ModelMessage = {
+        role: 'user',
+        content: pedidoHumano ? INSTRUCAO_DO_PEDIDO_HUMANO : CORRECAO_DO_TURNO_MUDO,
+      };
       const correcao = await runModelCall(
         pool,
         deps.llmCfg,
@@ -5812,6 +5849,9 @@ async function executarTurnoDoAgente(
           // Teto em `PASSOS_DA_CORRECAO` (turno-mudo.ts) — o MESMO número mede
           // `tetoNaCorrecao` logo abaixo; dois literais já divergiram (6 aqui, 3 lá).
           maxSteps: Math.min(maxSteps, PASSOS_DA_CORRECAO),
+          ...(preview?.kind === 'assisted'
+            ? { pararQuando: () => preview.result.candidates.length > 0 }
+            : {}),
           ...(agentConfig !== null
             ? {
                 model: agentConfig.model,
