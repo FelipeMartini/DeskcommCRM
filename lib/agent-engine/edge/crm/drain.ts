@@ -23,6 +23,7 @@ import { enqueueJob } from '../../queue/queue';
 import { janelaDeRespostaAberta, soltarAdiadoPelaJanela } from '../../pacing/adiados-da-janela';
 import { decidirRajada, debounceEfetivo } from './debounce';
 import { avisoDeEventoMorto, IA_QUE_NAO_RESPONDEU } from '@/lib/event-log/aviso-de-evento-morto';
+import { acordarLacoDeEventLog } from '@/lib/event-log/sinal-de-trabalho';
 import { canalDesativado } from '@/lib/channels/desativado';
 import { TIPOS_DERIVAVEIS, DERIVACAO_TERMINADA } from '@/lib/messaging/media/derivable';
 import { haQuemAtendaASessao } from '@/lib/ai/agents/quem-atende-a-sessao';
@@ -72,6 +73,13 @@ export interface DrainKnobs {
    * Ausente = `new Date()`.
    */
   clock?: () => Date;
+  /**
+   * Avisa o laço da fila que há job NOVO — corta a soneca dele (#3688). O drain
+   * roda no MESMO worker do laço, então o aviso é uma promessa local, não fila
+   * nem polling. Ausente onde não há laço para acordar (CLI, testes): quem
+   * enfileira não pode depender de existir alguém dormindo.
+   */
+  acordarFila?: () => void;
 }
 
 /** Default de `allowlistTtlMs` (21 dias) para testes que omitem o knob. */
@@ -528,6 +536,22 @@ async function processEvent(
         tipo: midia.type,
         esperando_ha_ms: esperandoHa,
       });
+      // ACORDA o laço do `event_log` — o que roda `media.persist_requested` e
+      // `media.derive_requested`, isto é, quem faz a transcrição acontecer.
+      //
+      // É daqui porque este é o único ponto DENTRO do worker que sabe que a
+      // derivação está pendente: os dois laços sobem no mesmo processo
+      // (`workers/agent-worker/main.ts`), então um `import` basta — sem
+      // LISTEN/NOTIFY, sem conexão nova por worker. O ingest do canal, que
+      // escreve `media.persist_requested`, roda em OUTRO processo (a rota HTTP
+      // do webhook) e continua limitado pelo teto do recuo; acordar de lá é o
+      // que ficaria para um LISTEN/NOTIFY, fora deste PR.
+      //
+      // Sem isto, o laço do event_log dorme até o teto do recuo (30s por
+      // default) e um áudio lento (86s medidos) chega a 116 dos 120s deste
+      // turno; com teto maior passa, e o cliente ouve "não consegui ouvir seu
+      // áudio", o defeito que fez o teto subir de 45s para 120s.
+      acordarLacoDeEventLog();
       return 'adiar';
     }
     log.warn('drain: derivação não concluiu no teto — seguindo sem o texto', {
@@ -605,6 +629,11 @@ async function processEvent(
     ...(runAfter !== undefined ? { runAfter } : {}),
   });
   log.info('drain: job de turno enfileirado', { event_id: event.id, job_id: job.id, deduped });
+  // A soneca do laço da fila sai na hora (#3688): sem este aviso o job esperaria
+  // até o fim do teto do recuo (quando ligado), e é a PRIMEIRA resposta de um lead que escreveu
+  // depois de um período parado que paga a conta. Depois do enfileiramento, e só
+  // nele: avisar antes deixaria o laço consultar o relógio e não ver o job.
+  knobs.acordarFila?.();
   return 'processado';
 }
 
