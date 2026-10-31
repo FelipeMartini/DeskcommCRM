@@ -540,10 +540,10 @@ async function processEvent(
       // do webhook) e continua limitado pelo teto do recuo; acordar de lá é o
       // que ficaria para um LISTEN/NOTIFY, fora deste PR.
       //
-      // Sem isto, o laço do event_log dorme até 60s no recuo e um áudio lento
-      // (86s medidos) faz 60+86 passar do teto de 120s deste turno — o cliente
-      // ouve "não consegui ouvir seu áudio", o defeito que fez o teto subir de
-      // 45s para 120s.
+      // Sem isto, o laço do event_log dorme até o teto do recuo (30s por
+      // default) e um áudio lento (86s medidos) chega a 116 dos 120s deste
+      // turno; com teto maior passa, e o cliente ouve "não consegui ouvir seu
+      // áudio", o defeito que fez o teto subir de 45s para 120s.
       acordarLacoDeEventLog();
       return 'adiar';
     }

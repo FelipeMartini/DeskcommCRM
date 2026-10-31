@@ -143,9 +143,12 @@ const envSchema = z.object({
   EVENT_LOG_DRAIN_INTERVAL_MS: z.coerce.number().int().positive().default(2_000),
   EVENT_LOG_DRAIN_IDLE_INTERVAL_MS: z.coerce.number().int().positive().default(10_000),
   // Teto do recuo do ocioso (#3693). O laço não fica em 10s para sempre: 10s →
-  // 20s → 40s → 60s e para aqui. Sem teto, uma instalação sem uso passaria a
+  // 20s → 30s e para aqui. Sem teto, uma instalação sem uso passaria a
   // esperar horas entre ticks — e um evento que chegasse esperaria junto.
-  EVENT_LOG_DRAIN_IDLE_MAX_INTERVAL_MS: z.coerce.number().int().positive().default(60_000),
+  // 30s e não 60s é decisão do dono (doc 242, opção B): corta a maior parte das
+  // consultas vazias sem deixar automação e aviso ao atendente com cara de
+  // "travou". Preso por `lib/agent-engine/env.test.ts`.
+  EVENT_LOG_DRAIN_IDLE_MAX_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),
   // De quanto em quanto tempo, no MÁXIMO, o laço procura evento preso em
   // `processing`. A varredura procura linhas 10 min atrasadas: fazê-la a cada
   // tick (2s) era consulta ao PostgREST sem chance de achar nada novo.

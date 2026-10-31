@@ -21,9 +21,10 @@
  * com a transcrição chegando ao banco meio minuto depois. Os 3,9s provam que a
  * lentidão não é do Whisper: é fila de cron.
  *
- * 120s cobre dois saltos de cron, mas não cobre dois saltos de RECUO: o recuo
- * ocioso deste laço chega a 60s, e um áudio lento (86s medidos) faz
- * 60+86 > 120 — o "não consegui ouvir" volta. É por isso que existe o
+ * 120s cobre dois saltos de cron, mas mal cobre um salto de RECUO: o recuo
+ * ocioso deste laço chega a 30s (teto default), e um áudio lento (86s medidos)
+ * faz 30+86 = 116 — 4s de folga; com o teto a 60s seriam 146 > 120 e o "não
+ * consegui ouvir" voltaria. É por isso que existe o
  * `sinal-de-trabalho.ts`: quando o drain do turno adia por mídia ainda sendo
  * transcrita, ele ACORDA este laço, e a soneca sai na hora em vez de esperar o
  * teto do recuo. Sem ele, o recuo teria de voltar a 10s (o tráfego que o #3693
@@ -260,7 +261,7 @@ export function proximaRodadaOciosa(resumo: DrainSummary, rodadasOciosas: number
 
 /**
  * A regra de ritmo, sem relógio: tick que MEXEU em alguma linha mantém o laço
- * rápido (e zera o recuo); tick ocioso recua — 10 s, 20 s, 40 s, 60 s, 60 s…
+ * rápido (e zera o recuo); tick ocioso recua — 10 s, 20 s, 30 s, 30 s… (com o teto default)
  *
  * `rodadasOciosas` é quantas rodadas ociosas CONSECUTIVAS já passaram. O relógio
  * e o contador moram no laço (`runEventLogDrainLoop`), não aqui: esta função
@@ -283,8 +284,8 @@ export function proximaEspera(
 /**
  * A soneca do laço. Quem corta é `dormir()` do sinal: `acordar()` resolve a
  * espera em curso, e o pedido feito sem ninguém dormindo é gasto aqui — o
- * `esperar(ms, signal)` local que existia antes não tinha como ser acordado, e
- * o recuo de 60s era o preço que o primeiro evento de uma instalação parada
+ * `esperar(ms, signal)` local que existia antes não tinha como ser acordado, e o
+ * teto do recuo era o preço que o primeiro evento de uma instalação parada
  * pagava (ver `sinal-de-trabalho.ts`).
  */
 export async function runEventLogDrainLoop(

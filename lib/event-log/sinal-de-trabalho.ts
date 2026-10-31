@@ -4,20 +4,22 @@
  *
  * ─── Por que ele existe ──────────────────────────────────────────────────────
  *
- * O recuo ocioso do laço (`drain-loop.ts`) vai de 10s a 60s. Ele é o que segura
+ * O recuo ocioso do laço (`drain-loop.ts`) vai de 10s ao teto (30s por default,
+ * `EVENT_LOG_DRAIN_IDLE_MAX_INTERVAL_MS`). Ele é o que segura
  * o tráfego de quem não tem atendimento, mas ele também é o que um evento novo
  * paga: depois de minutos parado — a noite de uma clínica, o fim de semana — o
- * primeiro evento espera ATÉ 60s só para ser visto. E esse atraso entra no
+ * primeiro evento espera ATÉ o teto só para ser visto. E esse atraso entra no
  * caminho crítico da PRIMEIRA resposta a um áudio:
  *
- *   áudio chega → `media.persist_requested` no event_log → (até 60s de soneca)
- *   → baixa do provedor → `media.derive_requested` → (até 60s de soneca) →
+ *   áudio chega → `media.persist_requested` no event_log → (até o teto de soneca)
+ *   → baixa do provedor → `media.derive_requested` → (até o teto de soneca) →
  *   Whisper transcreve em 3,9s
  *
  * Enquanto isso o drain do turno (`lib/agent-engine/edge/crm/drain.ts`) adia o
  * turno esperando a derivação, com teto de 120s (`TETO_ESPERA_DERIVACAO_MS`).
  * Com o recuo em 60s, um áudio lento — 86s documentados no cabeçalho do
- * `drain.ts` — faz 60+86 passar de 120s e a resposta volta a ser "não consegui
+ * `drain.ts` — faz 60+86 passar de 120s (com o teto default de 30s, 30+86
+ * deixa só 4s de folga) e a resposta volta a ser "não consegui
  * ouvir seu áudio", que é exatamente o defeito que fez o teto subir de 45s para
  * 120s.
  *
@@ -106,7 +108,7 @@ export function criarSinalDeTrabalho(): SinalDeTrabalhoDeEventLog {
       // Ninguém dormindo (o laço está dentro de um tick, ou nem começou): o
       // pedido fica marcado e a PRÓXIMA soneca sai na hora. Deixar pendente e
       // não perder: o tick em curso pode ter consultado o banco ANTES de a
-      // linha chegar, e é justamente esse caso que o recuo de 60s punia.
+      // linha chegar, e é justamente esse caso que o teto do recuo punia.
       pedido = true;
     },
 
