@@ -22,6 +22,12 @@ export const dynamic = "force-dynamic";
 const postSchema = z.object({
   title: z.string().min(1).max(200),
   body: z.string().min(1).max(10_000),
+  /**
+   * #2369 — último dia em que o aprendizado vale (YYYY-MM-DD), no fuso da
+   * organização. Ausente ou `null` = sem prazo, que é o caso de toda entrada
+   * criada antes desta coluna: nenhum cliente antigo muda de comportamento.
+   */
+  valid_until: z.string().date().nullable().optional(),
 });
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -64,6 +70,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       source: "manual",
       status: "active",
       created_by: autorId,
+      valid_until: parsed.data.valid_until ?? null,
     })
     .select("id")
     .single();
@@ -79,6 +86,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     resourceType: "org_memory_entries",
     resourceId: data.id as string,
     requestId,
+    metadata: { valid_until: parsed.data.valid_until ?? null },
   });
 
   return ok({ id: data.id }, { requestId });

@@ -966,6 +966,13 @@ export async function sendMessageHandler(
     media_mime: input.media_mime ?? null,
     media_storage_path: input.media_storage_path ?? null,
     media_size_bytes: input.media_size_bytes ?? null,
+    // Fase 6a do plano de voz: o texto ORIGINAL de uma nota de voz, para a
+    // thread continuar legível depois que `body` deixou de ser o que o
+    // cliente lê. Ver o comentário de `aiVoiceDerivedText` em `HandlerCtx` —
+    // nunca vem do corpo da requisição.
+    ...(ctx.aiVoiceDerivedText
+      ? { media_derived_text: ctx.aiVoiceDerivedText, media_derived_status: "ready" }
+      : {}),
     sent_via: origemDaMensagem(ctx.actor),
     sent_by_user_id: ctx.actor.type === "user" ? ctx.actor.id : null,
     // A PESSOA, não o token (#1613). Só chega aqui pelo ctx validado na rota

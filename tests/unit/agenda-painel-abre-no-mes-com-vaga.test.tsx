@@ -288,6 +288,121 @@ describe("os dias acendem só com os horários do mês em tela", () => {
 });
 
 /**
+ * O MÊS ACABA COM A TELA ABERTA (#3774).
+ *
+ * ─── O defeito ───────────────────────────────────────────────────────────
+ *
+ * Na sexta 30/10/2026, às 16:28 em São Paulo, o painel ainda enxergava 17:00 e
+ * 17:30 em outubro e por isso ficou nele. Vinte minutos depois os dois caíram
+ * dentro do aviso mínimo de 60 min, outubro ficou sem um único dia clicável — e
+ * a decisão de abertura, tomada uma vez, não era revista: a tela ficou 20 s
+ * parada em "outubro de 2026" no trace do e2e (job 124255171221), com o mês
+ * seguinte atrás de uma seta e nenhum dia para clicar.
+ *
+ * A pergunta da abertura era "existe vaga NESTE mês?", feita sobre os dados já
+ * carregados. Enquanto sobrava um horário publicado — mesmo já vencido — a
+ * resposta era "sim", e nada mais era perguntado.
+ *
+ * ─── Por que este harness é diferente do de cima ─────────────────────────
+ *
+ * A consulta de verdade é um RETRATO do instante da abertura: `agoraDaAbertura`
+ * em `app/app/agenda/_client.tsx:356` só é recalculado quando o painel reabre ou
+ * o tipo muda, e é ele que entra na chave do React Query. O relógio que o
+ * painel recebe, esse é de AGORA (`agora={new Date()}`, linha 925). É a
+ * diferença entre os dois que produz o defeito — e é o que `Agenda` (acima) não
+ * modela, porque lá o "servidor" recalcula a resposta a cada render.
+ */
+function AgendaComConsultaCongelada({ hoje }: { hoje: string }) {
+  const ancora = ancoraLocalDoDia(hoje);
+  const [mesDoPainel, setMesDoPainel] = React.useState(() => startOfMonth(ancora));
+  // Como no `_client`: o relógio da CONSULTA congela na abertura do painel.
+  const agoraDaConsulta = React.useMemo(() => new Date(), []);
+  // O cliente redesenha por qualquer motivo (refetch, clique, estado): o que se
+  // mede é o que o painel faz no render seguinte, com o mesmo retrato.
+  const [redesenhou, redesenhar] = React.useReducer((n: number) => n + 1, 0);
+  const onMesVisivel = React.useCallback((mes: Date) => {
+    const proximo = startOfMonth(mes);
+    setMesDoPainel((atual) => (atual.getTime() === proximo.getTime() ? atual : proximo));
+  }, []);
+  const horariosPorDia = React.useMemo(() => {
+    const { de, ate } = janelaDoMesVisivel(mesDoPainel, agoraDaConsulta);
+    return horariosDoSeed(agoraDaConsulta, de, ate);
+  }, [mesDoPainel, agoraDaConsulta]);
+  return (
+    <>
+      <button data-testid="o-cliente-redesenha" onClick={redesenhar}>
+        {redesenhou}
+      </button>
+      <PainelDeMarcacao
+        ancora={ancora}
+        agora={new Date()}
+        responsavel={{ id: "p1", nome: "Ana", trilha: 1 }}
+        fuso="America/Sao_Paulo"
+        horariosPorDia={horariosPorDia}
+        publicouHorarios
+        mesCarregado={mesDoPainel}
+        onMesVisivel={onMesVisivel}
+        permiteEncaixe
+        onConfirmar={vi.fn(async () => undefined)}
+      />
+    </>
+  );
+}
+
+describe("o mês esgota com a tela aberta e a abertura se revê", () => {
+  it("sexta 30/10: consulta das 16:28, relógio às 20:00 — outubro acabou e o painel abre em novembro", () => {
+    congelar("2026-10-30T19:28:00Z"); // 16:28 BRT
+    render(<AgendaComConsultaCongelada hoje="2026-10-30" />);
+
+    // 16:28: o 17:30 de hoje ainda dava — outubro tem vaga, e a tela fica nele.
+    expect(acesos()).toEqual(["2026-10-30"]);
+
+    act(() => {
+      vi.setSystemTime(new Date("2026-10-30T23:00:00Z")); // 20:00 BRT
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId("o-cliente-redesenha"));
+    });
+
+    expect(
+      acesos(),
+      "o painel ficou em outubro com um horário que já passou — o mês acabou e a decisão não foi revista",
+    ).not.toContain("2026-10-30");
+    expect(acesos()).toContain("2026-11-02");
+    expect(acesos().every((k) => k.startsWith("2026-11"))).toBe(true);
+    expect(screen.queryByTestId("motivo-do-bloqueio")).toBeNull();
+  });
+
+  it("de manhã o mês de hoje ainda tem vaga: o painel abre nele e não salta", () => {
+    congelar("2026-10-30T12:00:00Z"); // 09:00 BRT
+    render(<AgendaComConsultaCongelada hoje="2026-10-30" />);
+
+    expect(acesos()).toContain("2026-10-30");
+    expect(acesos().every((k) => k.startsWith("2026-10"))).toBe(true);
+  });
+
+  it("quem foi para o mês seguinte à mão continua nele quando o mês de hoje esgota", () => {
+    congelar("2026-10-30T19:28:00Z");
+    render(<AgendaComConsultaCongelada hoje="2026-10-30" />);
+    act(() => {
+      fireEvent.click(screen.getByTestId("mes-seguinte"));
+    });
+    expect(acesos().every((k) => k.startsWith("2026-11"))).toBe(true);
+
+    act(() => {
+      vi.setSystemTime(new Date("2026-10-30T23:00:00Z"));
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId("o-cliente-redesenha"));
+    });
+
+    // Novembro segue em tela, com vaga, e ninguém trouxe a pessoa de volta.
+    expect(acesos()).toContain("2026-11-02");
+    expect(acesos().every((k) => k.startsWith("2026-11"))).toBe(true);
+  });
+});
+
+/**
  * SÓ A RESPOSTA QUE DECIDE GASTA A DECISÃO (#3777, @paulolimajr77).
  *
  * A troca de tipo (acima) reabre a decisão por CHAVE de tipo. Mas no MESMO tipo

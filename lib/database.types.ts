@@ -11475,6 +11475,7 @@ export type Database = {
           status: string;
           title: string;
           updated_at: string;
+          valid_until: string | null;
         };
         ComputedFields: never;
         Insert: {
@@ -11488,6 +11489,7 @@ export type Database = {
           status?: string;
           title: string;
           updated_at?: string;
+          valid_until?: string | null;
         };
         Update: {
           body?: string;
@@ -11500,6 +11502,7 @@ export type Database = {
           status?: string;
           title?: string;
           updated_at?: string;
+          valid_until?: string | null;
         };
         Relationships: [
           {
@@ -15325,7 +15328,9 @@ export type Database = {
       };
       fn_definir_carteira_do_cliente: {
         Args: {
-          p_actor: string;
+          // Nulo = o SISTEMA (#3514): só com `p_origem: "automacao"`, que a
+          // função exige e recusa a quem chega com ator.
+          p_actor: string | null;
           p_contact: string;
           p_dono: string;
           p_org: string;
@@ -15824,6 +15829,10 @@ export type Database = {
       fn_org_parada_descarta_fila: { Args: { p_org: string }; Returns: undefined };
       fn_passagem_devolvida: {
         Args: { p_conversation_id: string; p_organization_id: string };
+        Returns: number;
+      };
+      fn_passar_conversas_do_contato: {
+        Args: { p_contact: string; p_dono: string; p_org: string };
         Returns: number;
       };
       fn_pgrst_recusar_replay_do_gateway: { Args: Record<PropertyKey, never>; Returns: undefined };

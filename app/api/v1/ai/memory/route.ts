@@ -91,7 +91,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const { data: entries, error: entriesErr } = await admin
     .from("org_memory_entries")
-    .select("id, title, body, source, status, created_at")
+    .select("id, title, body, source, status, created_at, valid_until")
     .eq("organization_id", org.orgId)
     .neq("status", "proposed")
     .order("created_at", { ascending: false });
