@@ -36,7 +36,7 @@ linha `agent-engine pronto` do log.
 | chave | default | o que faz |
 |---|---|---|
 | `QUEUE_POLL_INTERVAL_MS` | `2000` | **Piso da espera ociosa.** Com a fila vazia, é quanto o worker dorme entre uma consulta e a próxima; com o recuo ligado (abaixo), o valor dobra a cada rodada ociosa até o teto. Com job agendado, ele acorda no vencimento e este valor só limita a soneca. |
-| `QUEUE_IDLE_MAX_INTERVAL_MS` | vazio (desligado) | **Teto do recuo com a fila vazia.** Desligado, a instalação parada consulta o banco a cada piso — 3.880 consultas em 2h19 (~28/min) medidas na issue #3688. Com `60000`, cai para ~1/min. Mensagem de cliente acorda a fila na hora; a resposta da equipe a um caso da IA pode esperar até o teto. |
+| `QUEUE_IDLE_MAX_INTERVAL_MS` | vazio (desligado) | **Teto do recuo com a fila vazia.** Desligado, a instalação parada consulta o banco a cada piso — 3.880 consultas em 2h19 (~28/min) medidas na issue #3688. Com `60000`, cai para ~1/min. Mensagem de cliente acorda a fila na hora; a resposta da equipe a um caso da IA e os disparos agendados pelo cron podem esperar até o teto. |
 | `QUEUE_CLAIM_RETRY_INTERVAL_MS` | `250` | Ritmo do *“havia trabalho e eu não peguei”* — todas as vagas de `QUEUE_MAX_CONCURRENCY` ocupadas, ou outro turno rodando para o mesmo contato. |
 
 **Não passe `QUEUE_POLL_INTERVAL_MS` de 10000.** A conexão ociosa do pool expira

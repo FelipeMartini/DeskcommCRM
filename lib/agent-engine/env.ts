@@ -89,7 +89,8 @@ const envSchema = z.object({
   // em 2h19 (~28/min) numa instalação parada; com 60000 a mesma instalação cai
   // para ~1 consulta/min. O custo: só o inbound que passa pelo drain do worker
   // acorda a soneca — job enfileirado pela API do app (resposta da equipe a um
-  // caso da IA) pode esperar até o teto. Por isso não é default (doc 242, C).
+  // caso da IA) e os disparos agendados pelo cron podem esperar até o teto.
+  // Por isso não é default (doc 242, C).
   // O teto fica ACIMA do idleTimeoutMillis do pool (10 s) de propósito: cada
   // rodada depois de um sono longo reconecta (499 B medidos contra 66 B), mas
   // 1 rodada/min a 499 B continua 4× mais barata que 30 rodadas/min a 66 B.
