@@ -128,6 +128,10 @@ export const prospectingInputSchema = z.discriminatedUnion("action", [
   // campanha AGORA, em vez de esperar o tick. Fechada a token: quem dispara
   // gasta rede e é uma pessoa revisando a fila.
   z.object({ action: z.literal("verificar_sites"), id: z.string().uuid() }).strict(),
+  // "Completar fichas" (spec 26 §3.3): acrescenta à ficha dos contatos JÁ EXISTENTES
+  // da campanha o link que falta (o que a pessoa digitou fica). Fechada a token:
+  // escreve no CRM, e quem decide é uma pessoa com sessão.
+  z.object({ action: z.literal("completar_fichas"), id: z.string().uuid() }).strict(),
 ]);
 export type CampaignConfig = z.infer<typeof campaignConfigSchema>;
 export type CampaignPace = Pick<CampaignConfig, "daily_limit" | "interval_minutes">;
@@ -139,7 +143,12 @@ export type SearchInput = z.infer<typeof searchSchema>;
  * de pessoa) nem linha de dado. `origem_da_lista` é o "de onde veio esta lista" da LGPD.
  */
 export interface BuscaDaPlanilha {
-  origem: "planilha";
+  /**
+   * Marca a campanha como IMPORTADA (#3724) — não houve busca no Maps nem engine. O nome é
+   * `importacao` e não `planilha` porque a origem que a esteira lê é o fato de a lista ter
+   * vindo de fora: o formato (csv/xlsx) é detalhe do arquivo, não da campanha.
+   */
+  origem: "importacao";
   name: string;
   niche: string;
   arquivo_bytes: number;
@@ -165,6 +174,13 @@ export const importarPlanilhaCamposSchema = z
     origem_da_lista: z.string().trim().min(3).max(500),
     avaliar_site: CAIXA_DO_FORMULARIO,
     gerar_previa: CAIXA_DO_FORMULARIO,
+    // `previa` só CONFERE: devolve o que entra e o que fica de fora (com o motivo de cada
+    // linha) e não cria campanha nenhuma. Ausente = importar, que é o que o formulário
+    // envia por padrão.
+    previa: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((v) => v === "true"),
   })
   .strict()
   .transform((c) => ({ ...c, gerar_previa: c.avaliar_site && c.gerar_previa }));
@@ -268,11 +284,13 @@ export function safePublicLink(value: string | null): string | undefined {
 /** Public business context shared by prospecting and the Inbox; no raw provider payload. */
 export const siteEnrichmentSchema = z.object({
   ver: z.literal(1),
-  classe: z.enum(["agregador", "sem-site", "site-ok", "site-ruim", "ssl-invalido", "fora-do-ar"]),
+  classe: z.enum(["agregador", "sem-site", "site-ok", "site-ruim", "ssl-invalido", "fora-do-ar", "nao-medido"]),
   problemas: z.array(z.string().max(60)).max(20),
   checklist: z.object({
     tem: z.array(z.string().max(30)).max(12),
     falta: z.array(z.string().max(30)).max(12),
+    // Página montada por JavaScript: o checklist não pôde ser medido (#3723).
+    inconclusivo: z.boolean().optional(),
   }),
   final_url: z.string().max(500).nullable(),
   http_status: z.number().int().min(100).max(599).nullable(),
