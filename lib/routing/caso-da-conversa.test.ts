@@ -64,12 +64,27 @@ describe("motivoParaNaoRotear — de quem é a bola", () => {
     );
   });
 
-  it("awaiting_lead continua barrando mesmo com o cliente já tendo falado", () => {
-    // O estado do caso é a autoridade: quando o cliente responde,
-    // `provide_case_update` leva o caso a `awaiting_human` — é ESSA transição que
-    // devolve a conversa à fila, não a mensagem sozinha.
+  it("awaiting_lead: o cliente respondeu DEPOIS do pedido — a fila volta a valer", () => {
+    // `provide_case_update` (a saída de awaiting_lead) é ferramenta do modelo, e
+    // nenhum gatilho de agent_cases pede roteamento. Com o agente pausado, ou com
+    // um modelo que não chama a ferramenta, o caso ficaria awaiting_lead para
+    // sempre: sem este corte, a resposta do cliente nunca chegaria a ninguém.
     expect(
-      motivoParaNaoRotear({ status: "awaiting_lead", encerradoEm: null }, "2026-10-30T11:59:00Z"),
+      motivoParaNaoRotear(
+        { status: "awaiting_lead", encerradoEm: null, atualizadoEm: "2026-10-30T11:00:00Z" },
+        "2026-10-30T11:59:00Z",
+      ),
+    ).toBeNull();
+  });
+
+  it("awaiting_lead: o cliente falou ANTES do pedido — continua barrando", () => {
+    // A última fala é anterior ao pedido da equipe: o cliente ainda não
+    // respondeu o que foi perguntado.
+    expect(
+      motivoParaNaoRotear(
+        { status: "awaiting_lead", encerradoEm: null, atualizadoEm: "2026-10-30T11:00:00Z" },
+        "2026-10-30T10:30:00Z",
+      ),
     ).toBe("caso_aguardando_cliente");
   });
 
@@ -231,6 +246,19 @@ describe("motivoDoCasoParaRoteamento — a leitura do caso mais recente", () => 
     expect(c.filtros).toContain(`conversation_id=${CONVERSA}`);
     expect(c.ordens).toEqual(["created_at:desc", "id:desc"]);
     expect(c.limite).toBe(1);
+  });
+
+  it("awaiting_lead lido do banco usa updated_at como o instante do pedido", async () => {
+    const { client } = clientDuble({
+      data: { status: "awaiting_lead", closed_at: null, updated_at: "2026-10-30T11:00:00Z" },
+      error: null,
+    });
+    await expect(
+      motivoDoCasoParaRoteamento(client as never, ORG, {
+        id: CONVERSA,
+        last_inbound_at: "2026-10-30T11:59:00Z",
+      }),
+    ).resolves.toBeNull();
   });
 
   it("caso awaiting_human lido do banco devolve null (pode distribuir)", async () => {

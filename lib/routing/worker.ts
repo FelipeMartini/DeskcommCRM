@@ -495,7 +495,7 @@ export async function motivoDoCasoParaRoteamento(
 ): Promise<MotivoDoCaso | null> {
   const { data, error } = await admin
     .from("agent_cases")
-    .select("status, closed_at")
+    .select("status, closed_at, updated_at")
     .eq("organization_id", orgId)
     .eq("conversation_id", conversa.id)
     // O MAIS RECENTE, com desempate determinístico: `created_at` sozinho pode
@@ -513,9 +513,19 @@ export async function motivoDoCasoParaRoteamento(
     });
     return null;
   }
-  const caso = data as { status: string; closed_at: string | null } | null;
+  const caso = data as {
+    status: string;
+    closed_at: string | null;
+    updated_at: string | null;
+  } | null;
   return motivoParaNaoRotear(
-    caso ? { status: caso.status, encerradoEm: caso.closed_at ?? null } : null,
+    caso
+      ? {
+          status: caso.status,
+          encerradoEm: caso.closed_at ?? null,
+          atualizadoEm: caso.updated_at ?? null,
+        }
+      : null,
     conversa.last_inbound_at ?? null,
   );
 }

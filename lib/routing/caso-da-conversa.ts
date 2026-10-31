@@ -69,6 +69,19 @@
  * fechar/reaveriguar `agent_cases` quando a IA segue respondendo) como decisão
  * de produto, não de código. Esta fatia é a opção (b).
  *
+ * ## O mesmo corte vale para `awaiting_lead`
+ *
+ * `awaiting_lead` só sai desse estado por `provideCaseUpdate`, que é uma
+ * ferramenta do MODELO — e nenhum gatilho de `agent_cases` pede roteamento. Com
+ * o agente pausado, ou com um modelo que não chama a ferramenta, o caso ficaria
+ * `awaiting_lead` para sempre e a conversa, fora do rodízio para sempre, mesmo
+ * com o cliente já tendo respondido. Por isso o pedido ao cliente só cala a
+ * fila até o cliente falar: se `last_inbound_at` é maior que
+ * `agent_cases.updated_at` (o instante da transição — a tabela não tem gatilho
+ * de `updated_at`, e os dois escritores de `awaiting_lead`, `markAwaitingLead` e
+ * `fn_responder_caso_por_whatsapp` no `baseline.sql`, gravam `updated_at = now()`), a
+ * fila volta a valer.
+ *
  * Nada aqui olha o relógio do processo: as duas datas comparadas vêm do banco.
  * Puro de propósito — quem lê o banco é `lib/routing/worker.ts`.
  */
@@ -78,6 +91,8 @@ export interface CasoDaConversa {
   status: string;
   /** `agent_cases.closed_at`; só os terminais o preenchem. */
   encerradoEm: string | null;
+  /** `agent_cases.updated_at`; para `awaiting_lead`, o instante do pedido ao cliente. */
+  atualizadoEm?: string | null;
 }
 
 /**
@@ -117,12 +132,15 @@ export function motivoParaNaoRotear(
 ): MotivoDoCaso | null {
   if (!caso) return null;
   if (PEDE_PESSOA.has(caso.status)) return null;
-  if (AGUARDANDO_CLIENTE.has(caso.status)) return "caso_aguardando_cliente";
+  const falouEm = instante(ultimaEntradaDoCliente);
+  // Só cala a fila se o cliente NÃO falou depois do marco do caso.
+  const falouDepois = (marco: string | null | undefined): boolean => {
+    const desde = instante(marco);
+    return desde !== null && falouEm !== null && falouEm > desde;
+  };
+  if (AGUARDANDO_CLIENTE.has(caso.status)) {
+    return falouDepois(caso.atualizadoEm) ? null : "caso_aguardando_cliente";
+  }
   if (!ENCERRADOS.has(caso.status)) return null;
-
-  // Terminal: só cala a fila se o cliente NÃO falou depois do encerramento.
-  const encerrado = instante(caso.encerradoEm);
-  const falouDepois = instante(ultimaEntradaDoCliente);
-  if (encerrado !== null && falouDepois !== null && falouDepois > encerrado) return null;
-  return "caso_encerrado";
+  return falouDepois(caso.encerradoEm) ? null : "caso_encerrado";
 }
