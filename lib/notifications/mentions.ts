@@ -224,8 +224,7 @@ function faixaDaEscolha(
   const nome = mencao.nome.trim();
   if (inicio === undefined || !nome) return null;
   const fim = inicio + 1 + nome.length;
-  if (inicio < 0 || fim > texto.length) return null;
-  if (texto.slice(inicio, fim).toLowerCase() !== `@${nome}`.toLowerCase()) return null;
+  if (!eMencaoEm(texto, inicio, nome)) return null;
   if (ocupadas.some((faixa) => inicio < faixa.fim && fim > faixa.inicio)) return null;
   return { inicio, fim };
 }
@@ -368,7 +367,9 @@ function eMencaoEm(texto: string, inicio: number, nome: string): boolean {
   if (inicio < 0) return false;
   const fim = inicio + 1 + nome.length;
   if (fim > texto.length) return false;
-  return texto.slice(inicio, fim).toLowerCase() === `@${nome}`.toLowerCase();
+  if (texto.slice(inicio, fim).toLowerCase() !== `@${nome}`.toLowerCase()) return false;
+  // A mesma fronteira do `regexDaMencao`: `@Ana Lima123` não é a Ana Lima.
+  return !/[\p{L}\p{N}]/u.test(texto.charAt(fim));
 }
 
 interface MapaDaEdicao {

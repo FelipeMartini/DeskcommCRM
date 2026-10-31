@@ -284,6 +284,13 @@ describe("podarMencoesDaEdicao", () => {
     expect(podarMencoesDaEdicao("fala com @Ana Lima", "fala com @Ana Lima!", [ana1])).toEqual([ana1]);
   });
 
+  it("a posição respeita a mesma fronteira do rótulo: `@Ana Lima123` não segura nem grava a escolha", () => {
+    // Escolheu a Ana Lima, apagou o espaço e seguiu digitando colado ao nome.
+    const lista = [{ ...ana1, inicio: 0 }];
+    expect(podarMencoesDaEdicao("@Ana Lima ", "@Ana Lima123", lista)).toEqual([]);
+    expect(embutirMencoes("@Ana Lima123", lista)).toBe("@Ana Lima123");
+  });
+
   it("a posição decide o pareamento: duas homônimas, a ordem de escolha é a do texto", () => {
     // A escolha da DIREITA foi feita antes (posição 21 com `inicio` menor? não):
     // o que vale é a posição, e não a ordem em que as escolhas entraram na lista.
