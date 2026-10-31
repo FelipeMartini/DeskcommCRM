@@ -4477,6 +4477,8 @@
   "Templates de script": "Script templates",
   "Nenhum template. Crie em Configurações.": "No templates. Create one in Settings.",
   "Mídia indisponível": "Media unavailable",
+  "Anexo da nota apagado pela política de retenção.": "Note attachment deleted by the retention policy.",
+  "Anexo da nota apagado pela política de retenção ({n} dias)": "Note attachment deleted by the retention policy ({n} days)",
   "Áudio": "Audio",
   "Imagem": "Image",
   "Figurinha": "Sticker",

@@ -38,6 +38,7 @@ import { audit } from "@/lib/audit";
 import { autorizaCron } from "@/lib/auth/cron-auth";
 import { MARGEM_PARA_CHAMADA_MS, PRAZO_DA_CHAMADA_MS } from "@/lib/channels/historico/prazo";
 import { rodarUmaRodada, TETO_PADRAO } from "@/lib/channels/historico/rodada";
+import { recursoOcioso } from "@/lib/cron/piso-ocioso";
 import { logger } from "@/lib/logger";
 import { STATUS_OPERANTE, ehOperante, statusDaOrgEmbutida } from "@/lib/organizacao/operante";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -48,6 +49,36 @@ export const dynamic = "force-dynamic";
 const LOTE = 10;
 /** Validade da trava: bem acima de uma rodada lenta, para não rodar em dobro. */
 const TRAVA_MS = 5 * 60_000;
+
+/**
+ * O QUE RODA DEPOIS DO PORTÃO DO PISO OCIOSO (#3773), na ordem do arquivo.
+ *
+ * O `if (await recursoOcioso(...))` desta rota é saída antecipada da ROTA
+ * INTEIRA: o que vier depois dele não roda em instalação ociosa. Esta lista é a
+ * declaração do que roda ali — `tests/unit/cron-passa-pelo-portao.test.ts` lê o
+ * AST deste arquivo e reprova, com arquivo e linha, quando o que está de fato
+ * abaixo do portão divergir dela. Passo novo abaixo do portão entra aqui, e só
+ * depois de a pessoa ver que ele NÃO roda na instalação parada, que é o caso
+ * comum. O #3650 mediu o custo de não haver essa cerca: três passos novos nesta
+ * rota ficaram antes da rodada e o autor teve de alargar o sinal do portão à mão
+ * — os mesmos três, abaixo do `return`, teriam ficado mudos.
+ *
+ * Em runtime a constante não serve para nada — o `void` existe só para o lint
+ * não acusar variável sem uso.
+ */
+const PASSOS_DEPOIS_DO_PORTAO = [
+  "const prazo",
+  "const {data, error}",
+  "if (error)",
+  "const linhas",
+  "let rodadas",
+  "let puladas",
+  "let falhas",
+  "const status",
+  "for (l of linhas)",
+  "return",
+] as const;
+void PASSOS_DEPOIS_DO_PORTAO;
 
 interface Linha {
   id: string;
@@ -70,6 +101,11 @@ async function handle(req: NextRequest): Promise<Response> {
   }
 
   const admin = createAdminClient();
+  // O PISO OCIOSO (#3731): a rodada de todo minuto lia `importacoes_de_historico`
+  // só para receber lista vazia em quem nunca importou o histórico. Com o portão,
+  // a instalação sem importação `rodando` sai antes dessa leitura — ver
+  // lib/cron/piso-ocioso.ts para o sinal e o custo dele.
+  if (await recursoOcioso("historico")) return ok({ pulado: "recurso_ocioso" }, { requestId });
   const prazo = Date.now() + PRAZO_DA_CHAMADA_MS;
   const { data, error } = await admin
     .from("importacoes_de_historico")
