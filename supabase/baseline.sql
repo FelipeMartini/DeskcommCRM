@@ -8824,7 +8824,7 @@ create table if not exists public.crm_lead_risk_states (
 );
 
 comment on table public.crm_lead_risk_states is
-  'Estado de risco por negócio (wave 7 — o ciclo). FORA de crm_leads pelos motivos da 0075 (pulso que mente, 409 fantasma), mas DENTRO da publicação supabase_realtime, ao contrário de crm_lead_scores: risco é mudança de estado, não telemetria. O escritor só grava quando o bucket muda.';
+  'Estado de risco por negócio (wave 7 — o ciclo). FORA de crm_leads pelos motivos da 0075 (pulso que mente, 409 fantasma). Saiu da publicação supabase_realtime na 9046 (#3697): nenhuma tela assina esta tabela, e publicada sem consumidor ela só custava decodificação por escrita. O escritor só grava quando o bucket muda.';
 
 alter table public.crm_lead_risk_states
   drop constraint if exists crm_lead_risk_states_bucket_check;
@@ -8858,6 +8858,7 @@ create index if not exists idx_crm_lead_risk_states_org_bucket
   on public.crm_lead_risk_states (organization_id, bucket, since);
 
 -- DENTRO da publicação — ver o cabeçalho. Idempotente: só adiciona se faltar.
+-- (A 9046 desfaz isto no fim do arquivo: sem consumidor no código, a tabela sai.)
 do $$
 begin
   if not exists (
@@ -9139,6 +9140,8 @@ create trigger trg_crm_lead_reactivations_carimbo
 -- DENTRO da publicação de realtime, pela mesma regra da 0078: proposta nascendo
 -- ou vencendo é MUDANÇA DE ESTADO que o card precisa mostrar sem reload —
 -- não é telemetria.
+-- (A 9046 desfaz isto no fim do arquivo: o card é do NEGÓCIO, e nenhuma tela
+-- assina esta tabela.)
 do $$
 begin
   if not exists (
@@ -37318,6 +37321,14 @@ begin
     vencimento date not null,
     valor_cents bigint not null check (valor_cents > 0),
 
+    -- A MOEDA DA PARCELA (#3379). Linha de dinheiro carrega a sua unidade, como
+    -- `financial_entries.currency` e `sales.currency`: herdar
+    -- `organizations.currency` na hora de LER faria o histórico inteiro mudar de
+    -- rótulo no dia em que a organização trocasse de moeda. O default é o
+    -- backfill das parcelas que já existem (todas nasceram sem coluna, e o
+    -- `financial_entries` delas nasceu em BRL).
+    currency text not null default 'BRL' check (char_length(currency) = 3),
+
     -- Preservada mesmo se o lançamento do caixa for desfeito — a MESMA decisão
     -- de `financial_entries.sale_id`: o link é conveniência de navegação, nunca
     -- a fonte da verdade do valor ou da data.
@@ -37521,11 +37532,15 @@ begin
     raise exception 'conta_invalida' using errcode = '22023';
   end if;
 
+  -- A entrada do caixa nasce na MOEDA DA PARCELA (#3379): `financial_entries`
+  -- tem `default 'BRL'`, então sem esta coluna o dinheiro de uma parcela em
+  -- dólar entrava no extrato em real — o valor certo no bloco errado do
+  -- relatório.
   insert into public.financial_entries
-    (organization_id, account_id, account_plan_id, direction, amount_cents,
+    (organization_id, account_id, account_plan_id, direction, amount_cents, currency,
      description, status, paid_at, origin, created_by_user_id)
   values (
-    p_org, p_account_id, p_account_plan_id, 'in', v_parcela.valor_cents,
+    p_org, p_account_id, p_account_plan_id, 'in', v_parcela.valor_cents, v_parcela.currency,
     format('Parcela %s de honorários', v_parcela.numero), 'paid', now(), 'manual', auth.uid()
   )
   returning id into v_entry;
@@ -41666,7 +41681,10 @@ create table if not exists public.companies (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint companies_normalized_cnpj_digits
-    check (normalized_cnpj is null or normalized_cnpj ~ '^\d{14}$')
+    -- #3495: 12 posições de dígito ou LETRA maiúscula + 2 dígitos verificadores.
+    -- O CNPJ alfanumérico da Receita (`12.ABC.345/01DE-35`) cabe aqui; o dígito
+    -- em si quem confere é `isValidCnpj`, no código.
+    check (normalized_cnpj is null or normalized_cnpj ~ '^[0-9A-Z]{14}$')
 );
 
 create index if not exists idx_companies_org_updated
@@ -71005,6 +71023,39 @@ begin
 end;
 $recibos_9018$;
 
+-- ---- parcela de honorários na moeda da organização (migration 0770, #3379) ----
+-- Módulo opcional: `fn_honorarios_provisionar()` só roda na INSTALAÇÃO, então
+-- quem já tem o módulo jamais passaria por ela de novo e ficaria sem a coluna —
+-- e a rota de criação, que passou a mandá-la, quebraria com `42703`. O bloco é
+-- guardado por `to_regclass` (a tabela pode não existir) e é feito de
+-- `if not exists` / `drop ... if exists`, porque o `update.sh` re-aplica este
+-- arquivo sem `ON_ERROR_STOP`. Corpo completo em
+-- supabase/migrations/20261031122853_0770_parcela_de_honorarios_na_moeda_da_organizacao.sql.
+
+do $$
+begin
+  if to_regclass('public.honorarios_parcelas') is null then
+    return;
+  end if;
+
+  alter table public.honorarios_parcelas
+    add column if not exists currency text not null default 'BRL';
+
+  alter table public.honorarios_parcelas
+    drop constraint if exists honorarios_parcelas_currency_check;
+  alter table public.honorarios_parcelas
+    add constraint honorarios_parcelas_currency_check check (char_length(currency) = 3);
+
+  -- O comentário mora DENTRO da guarda: fora dela, `comment on column` numa base
+  -- com o módulo NÃO instalado derruba o install inteiro (`ON_ERROR_STOP=1`) por
+  -- uma tabela que, de propósito, não existe ali.
+  execute $c$
+    comment on column public.honorarios_parcelas.currency is
+      'Moeda da parcela, resolvida de organizations.currency no servidor quando a parcela nasce (#3379). Linha de dinheiro carrega a própria unidade — é o que permite o histórico não mudar de rótulo quando a organização troca de moeda.'
+  $c$;
+end
+$$;
+
 -- ---- Recuperar as mensagens da queda do número (migration 9033, Spec 32) ----
 -- Espelho idempotente da 9033; o porquê está no cabeçalho dela. Não cria função,
 -- então pode ficar depois da VARREDURA anon. Os dois kinds novos entraram no
@@ -71072,5 +71123,82 @@ create unique index if not exists agent_inbox_recuperacao_da_queda_aberto_unico
 create unique index if not exists agent_inbox_cliente_sem_resposta_na_queda_aberto_unico
   on public.agent_inbox_items (organization_id, kind, ref_id)
   where status = 'open' and kind = 'cliente_sem_resposta_na_queda';
+
+-- ---- CNPJ alfanumérico da Receita em normalized_cnpj (migration 9056, #3495) ----
+-- Espelho idempotente da 9056: `update.sh` re-aplica este arquivo sem
+-- `ON_ERROR_STOP`, então o `drop ... if exists` vem antes do `add`. O corpo
+-- acima (CREATE TABLE) já nasce com a régua nova; este bloco é a cura para quem
+-- instalou antes da 9056. O porquê está no cabeçalho da migration.
+alter table public.companies
+  drop constraint if exists companies_normalized_cnpj_digits;
+
+alter table public.companies
+  add constraint companies_normalized_cnpj_digits
+  check (normalized_cnpj is null or normalized_cnpj ~ '^[0-9A-Z]{14}$');
+
+notify pgrst, 'reload schema';
+
+-- ---- realtime sem consumidor: o que ninguém assina sai da publicação (9046, #3697) ----
+-- `ai_agents` entra na lista do `foreach` lá em cima (linha do bloco "realtime:
+-- inbox, kanban e IA") porque na época a tela de agentes parecia candidata a
+-- tempo real; ela nunca assinou — lê por PostgREST. `crm_lead_risk_states`
+-- (0078) e `crm_lead_reactivations` (0082) entraram pela regra "mudança de
+-- estado pinta o card", mas o card é do NEGÓCIO (`crm_leads`), e nenhuma tela
+-- abre canal nas duas. As três saem AQUI, no fim, pelo mesmo desenho do
+-- `crm_lead_scores` (0075): o `add` fica na posição em que aconteceu, o `drop`
+-- vem depois — o baseline é aplicado inteiro e em ordem, então a lista final
+-- não repete tabela e o resultado é o mesmo de uma instalação migrada.
+-- Idempotente e guardado: `alter publication ... drop table` não aceita
+-- `if exists`, então só executa o que está de fato em `pg_publication_tables`.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication where pubname = 'supabase_realtime'
+  ) then
+    -- publicação ausente: nada a tirar (instância que nunca ligou realtime).
+    return;
+  end if;
+
+  -- ai_agents: a tela de agentes lê por PostgREST; nenhum canal assina.
+  if exists (
+    select 1 from pg_publication_tables
+     where pubname = 'supabase_realtime'
+       and schemaname = 'public'
+       and tablename = 'ai_agents'
+  ) then
+    execute 'alter publication supabase_realtime drop table public.ai_agents';
+  end if;
+
+  -- crm_lead_risk_states: risco é lido junto do negócio; nenhum canal assina.
+  if exists (
+    select 1 from pg_publication_tables
+     where pubname = 'supabase_realtime'
+       and schemaname = 'public'
+       and tablename = 'crm_lead_risk_states'
+  ) then
+    execute 'alter publication supabase_realtime drop table public.crm_lead_risk_states';
+  end if;
+
+  -- crm_lead_reactivations: proposta de reativação é lida pela tela; nenhum
+  -- canal assina.
+  if exists (
+    select 1 from pg_publication_tables
+     where pubname = 'supabase_realtime'
+       and schemaname = 'public'
+       and tablename = 'crm_lead_reactivations'
+  ) then
+    execute 'alter publication supabase_realtime drop table public.crm_lead_reactivations';
+  end if;
+end $$;
+
+-- ---- pacing_ledger.resposta (migration 9061) ----
+-- Resposta a quem escreveu não gasta nem é barrada pelo teto do dia. O porquê
+-- inteiro está no cabeçalho da migration.
+--
+-- Não cria função, então pode ficar depois da VARREDURA anon.
+alter table public.pacing_ledger
+  add column if not exists resposta boolean not null default false;
+comment on column public.pacing_ledger.resposta is
+  'true = resposta a quem escreveu: vale para o espaçamento, não para o teto do dia (warm-up/daily_message_limit), que conta só disparos (9061).';
 
 notify pgrst, 'reload schema';

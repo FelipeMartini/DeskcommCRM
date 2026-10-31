@@ -7176,8 +7176,8 @@ export const DICIONARIO: Traducoes = {
   "Hora de início da janela": { es: "Hora de inicio de la ventana" },
   "h até": { es: "h hasta" },
   "Hora de fim da janela": { es: "Hora de fin de la ventana" },
-  "Quando o cliente escreve, o agente responde nesta janela. Em branco, segue a janela de disparo. Use 0 e 24 para responder a qualquer hora — o teto diário e o intervalo entre envios continuam valendo.": {
-    es: "Cuando el cliente escribe, el agente responde dentro de esta ventana. En blanco, sigue la ventana de envíos proactivos. Usa 0 y 24 para responder a cualquier hora: el tope diario y el intervalo entre envíos siguen valiendo.",
+  "Quando o cliente escreve, o agente responde nesta janela. Em branco, segue a janela de disparo. Use 0 e 24 para responder a qualquer hora — o intervalo entre envios continua valendo. A resposta não conta no teto diário.": {
+    es: "Cuando el cliente escribe, el agente responde dentro de esta ventana. En blanco, sigue la ventana de envíos proactivos. Usa 0 y 24 para responder a cualquier hora: el intervalo entre envíos sigue valiendo. La respuesta no cuenta en el tope diario.",
   },
   "Disparos em massa, prospecção e mensagens que retomam conversa parada só saem nesta janela. Fora dela, o envio fica agendado para a próxima abertura — você vê o motivo na conversa.": {
     es: "Los envíos masivos, la prospección y los mensajes que retoman una conversación detenida solo salen dentro de esta ventana. Fuera de ella, el envío queda programado para cuando se abra de nuevo, y el motivo aparece en la conversación.",
@@ -7226,8 +7226,8 @@ export const DICIONARIO: Traducoes = {
   "Teto diário de envios": { es: "Tope diario de envíos" },
   "sem teto definido": { es: "sin tope definido" },
   "Teto diário de mensagens": { es: "Tope diario de mensajes" },
-  "Máximo de mensagens que este número envia por dia. Números novos também respeitam o aquecimento automático abaixo, o que for menor.": {
-    es: "Máximo de mensajes que este número envía por día. En los números nuevos también rige el calentamiento automático de abajo, y se aplica el límite que sea menor.",
+  "Máximo de mensagens que este número inicia por dia: primeira mensagem, follow-up e campanha. A resposta a quem escreveu não conta. Números novos também respeitam o aquecimento automático abaixo, o que for menor.": {
+    es: "Máximo de mensajes que este número inicia por día: primer mensaje, seguimiento y campaña. La respuesta a quien escribió no cuenta. Los números nuevos también respetan el calentamiento automático de abajo, lo que sea menor.",
   },
   "Fuso horário IANA": { es: "Zona horaria IANA" },
   "Usar o padrão": { es: "Usar el predeterminado" },
@@ -7744,6 +7744,9 @@ export const DICIONARIO: Traducoes = {
   },
   "Entre 5 minutos e 24 horas. Sessenta minutos é a ordem de grandeza de um atendimento humano.": {
     es: "Entre 5 minutos y 24 horas. Sesenta minutos es el orden de magnitud de una atención humana.",
+  },
+  "De 5 minutos a 30 dias. Uma cotação com fornecedor leva dias — 5.000 minutos são três dias e meio. Sessenta minutos é a ordem de grandeza de um atendimento humano.": {
+    es: "De 5 minutos a 30 días. Una cotización con proveedor lleva días: 5.000 minutos son tres días y medio. Sesenta minutos es el orden de magnitud de una atención humana.",
   },
   "Quando não há ninguém disponível, o sistema tenta de novo mais tarde. Ao estourar, a conversa fica na fila esperando alguém.": {
     es: "Cuando no hay nadie disponible, el sistema vuelve a intentarlo más tarde. Si se agotan los intentos, la conversación queda en la fila esperando a alguien.",
@@ -8616,6 +8619,26 @@ export const DICIONARIO: Traducoes = {
   "Arquivar esta conversa?": { es: "¿Archivar esta conversación?" },
   "O atendimento é encerrado. Se o cliente escrever de novo, você pode reabrir.": {
     es: "La atención se cierra. Si el cliente vuelve a escribir, puedes reabrirla.",
+  },
+  "Este contato está com a equipe. Ao fechar, o que acontece?": {
+    es: "Este contacto está con el equipo. Al cerrar, ¿qué pasa?",
+  },
+  "Devolver ao automático ao fechar": { es: "Devolver al automático al cerrar" },
+  "A IA volta a atender este cliente na próxima mensagem dele. Se o contato estiver marcado como sempre atendimento humano, ele continua com a equipe.": {
+    es: "La IA vuelve a atender a este cliente en su próximo mensaje. Si el contacto está marcado como siempre atención humana, sigue con el equipo.",
+  },
+  "Manter com a equipe": { es: "Mantener con el equipo" },
+  "A conversa fecha e a IA continua calada para este cliente: a próxima mensagem dele espera uma pessoa.": {
+    es: "La conversación se cierra y la IA sigue en silencio para este cliente: su próximo mensaje espera a una persona.",
+  },
+  "Conversa encerrada. A IA não voltou neste contato: ele está marcado como sempre atendimento humano, e a marca continua mandando. Para a IA atender, remova a marca na ficha do contato.": {
+    es: "Conversación cerrada. La IA no volvió en este contacto: está marcado como siempre atención humana, y la marca sigue mandando. Para que la IA lo atienda, quita la marca en la ficha del contacto.",
+  },
+  "Conversa encerrada, mas não consegui devolver o atendimento ao automático — a trava continua. Use Devolver ao automático na conversa para tentar de novo.": {
+    es: "Conversación cerrada, pero no pude devolver la atención al automático: el bloqueo continúa. Usa Devolver al automático en la conversación para intentarlo de nuevo.",
+  },
+  "Conversa encerrada. A IA não voltou neste contato: a conversa é de outro atendente, e só um gerente pode devolvê-la ao automático.": {
+    es: "Conversación cerrada. La IA no volvió en este contacto: la conversación es de otro atendente, y solo un gerente puede devolverla al automático.",
   },
   "Arquivar encerra este atendimento e guarda a conversa no histórico. Se o cliente escrever de novo, ela volta.": {
     es: "Archivar cierra esta atención y guarda la conversación en el historial. Si el cliente vuelve a escribir, ella vuelve.",
