@@ -37317,6 +37317,14 @@ begin
     vencimento date not null,
     valor_cents bigint not null check (valor_cents > 0),
 
+    -- A MOEDA DA PARCELA (#3379). Linha de dinheiro carrega a sua unidade, como
+    -- `financial_entries.currency` e `sales.currency`: herdar
+    -- `organizations.currency` na hora de LER faria o histórico inteiro mudar de
+    -- rótulo no dia em que a organização trocasse de moeda. O default é o
+    -- backfill das parcelas que já existem (todas nasceram sem coluna, e o
+    -- `financial_entries` delas nasceu em BRL).
+    currency text not null default 'BRL' check (char_length(currency) = 3),
+
     -- Preservada mesmo se o lançamento do caixa for desfeito — a MESMA decisão
     -- de `financial_entries.sale_id`: o link é conveniência de navegação, nunca
     -- a fonte da verdade do valor ou da data.
@@ -37520,11 +37528,15 @@ begin
     raise exception 'conta_invalida' using errcode = '22023';
   end if;
 
+  -- A entrada do caixa nasce na MOEDA DA PARCELA (#3379): `financial_entries`
+  -- tem `default 'BRL'`, então sem esta coluna o dinheiro de uma parcela em
+  -- dólar entrava no extrato em real — o valor certo no bloco errado do
+  -- relatório.
   insert into public.financial_entries
-    (organization_id, account_id, account_plan_id, direction, amount_cents,
+    (organization_id, account_id, account_plan_id, direction, amount_cents, currency,
      description, status, paid_at, origin, created_by_user_id)
   values (
-    p_org, p_account_id, p_account_plan_id, 'in', v_parcela.valor_cents,
+    p_org, p_account_id, p_account_plan_id, 'in', v_parcela.valor_cents, v_parcela.currency,
     format('Parcela %s de honorários', v_parcela.numero), 'paid', now(), 'manual', auth.uid()
   )
   returning id into v_entry;
@@ -70426,6 +70438,39 @@ begin
   end if;
 end;
 $recibos_9018$;
+
+-- ---- parcela de honorários na moeda da organização (migration 0770, #3379) ----
+-- Módulo opcional: `fn_honorarios_provisionar()` só roda na INSTALAÇÃO, então
+-- quem já tem o módulo jamais passaria por ela de novo e ficaria sem a coluna —
+-- e a rota de criação, que passou a mandá-la, quebraria com `42703`. O bloco é
+-- guardado por `to_regclass` (a tabela pode não existir) e é feito de
+-- `if not exists` / `drop ... if exists`, porque o `update.sh` re-aplica este
+-- arquivo sem `ON_ERROR_STOP`. Corpo completo em
+-- supabase/migrations/20261031122853_0770_parcela_de_honorarios_na_moeda_da_organizacao.sql.
+
+do $$
+begin
+  if to_regclass('public.honorarios_parcelas') is null then
+    return;
+  end if;
+
+  alter table public.honorarios_parcelas
+    add column if not exists currency text not null default 'BRL';
+
+  alter table public.honorarios_parcelas
+    drop constraint if exists honorarios_parcelas_currency_check;
+  alter table public.honorarios_parcelas
+    add constraint honorarios_parcelas_currency_check check (char_length(currency) = 3);
+
+  -- O comentário mora DENTRO da guarda: fora dela, `comment on column` numa base
+  -- com o módulo NÃO instalado derruba o install inteiro (`ON_ERROR_STOP=1`) por
+  -- uma tabela que, de propósito, não existe ali.
+  execute $c$
+    comment on column public.honorarios_parcelas.currency is
+      'Moeda da parcela, resolvida de organizations.currency no servidor quando a parcela nasce (#3379). Linha de dinheiro carrega a própria unidade — é o que permite o histórico não mudar de rótulo quando a organização troca de moeda.'
+  $c$;
+end
+$$;
 
 -- ---- Recuperar as mensagens da queda do número (migration 9033, Spec 32) ----
 -- Espelho idempotente da 9033; o porquê está no cabeçalho dela. Não cria função,
