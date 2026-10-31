@@ -18100,6 +18100,12 @@ export const DICIONARIO: Traducoes = {
   "Padrão inválido configurado neste campo: a gravação está bloqueada até a correção.": {
     es: "Patrón inválido configurado en este campo: la escritura queda bloqueada hasta corregirlo.",
   },
+  // #3508 — a recusa do valor que não é opção da lista (API e MCP). O campo e o
+  // valor recusado vão em `details.recusas`, não na frase: a frase é chave
+  // traduzível, o dado do tenant não é.
+  "O valor não é uma das opções cadastradas neste campo.": {
+    es: "El valor no es una de las opciones registradas en este campo.",
+  },
   // ─── Alarme de SLA ao encarregado (lib/lgpd/sla-alarm.ts, issue #2347) ─────
   // O e-mail fala a LÍNGUA de quem recebe, que vem do PAÍS (`PerfilDoPais.idioma`):
   // Portugal fala `pt-PT` e cai no português daqui. A LEI continua vindo do país,

@@ -277,8 +277,8 @@ export const customFieldSchema = z.object({
    * ele é gravado como digitado. DESLIGADO (o padrão, e a chave ausente em toda
    * definição que já existe), a escrita só aceita um valor que case com uma
    * opção (por `value`, `label` ou apelido), gravando o `value` CANÔNICO.
-   * Hoje a régua vale na ficha (CustomFieldsEditor); `validarValorPesquisavel`
-   * existe pronta para as escritas do servidor, ainda não plugada (#2521).
+   * A régua vale na ficha (CustomFieldsEditor) e, desde #3508, nas escritas do
+   * servidor (`lib/leads/opcao-do-campo-no-servidor.ts`).
    */
   allow_new: z.boolean().optional(),
   /**

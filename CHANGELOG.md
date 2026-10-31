@@ -8,6 +8,187 @@ Se você roda o DeskcommCRM numa VPS, **leia a seção da versão para a qual es
 
 ## [Não lançado]
 
+## [1.97.0] — 2026-10-31
+
+### ⚠️ Requer atenção
+
+- **Campos de seleção passam a gravar a opção do funil, não o texto cru** Se uma integração sua (pela API) ou o agente de IA grava num campo do tipo "Lista de uma escolha", "Lista de várias escolhas" ou "Lista pesquisável" (sem "permitir valor novo") um valor que não está entre as opções cadastradas no funil, essa escrita passa a ser recusada com o erro `custom_field_value_not_in_list`, e nada é gravado. Antes de atualizar, cadastre no funil as opções que faltam ou ajuste a integração.
+
+  O valor que casa com uma opção é gravado pelo valor dela (`sp`, não `São Paulo`): se a sua integração lê o campo de volta esperando o texto que enviou, ela passa a receber o valor da opção. Numa lista de várias escolhas, o texto `casa, apartamento` passa a ser gravado como lista (`["casa","apto"]`).
+
+  Formulários de captação não são recusados: o valor fora da lista entra como veio.
+
+### Adicionado
+
+- **Ajuda dentro do produto, no rodapé do menu** Agora existe **Ajuda** no fim do rodapé do menu lateral — o que se procura quando o resto não respondeu. A tela abre um índice por jornada, com o caminho para cada tarefa e uma linha dizendo quando procurar aquilo: conversas, funil, contatos, canais, agente de IA e equipe. Quem instalou o servidor vê também "Para quem instala e mantém", com o atalho para a atualização da instalação — e só ele vê: o bloco depende de `is_platform_admin`, então atendente e gerente não recebem um link que terminaria em 403. Todo o texto passa pelo dicionário: espanhol completo, inglês já traduzido (o catálogo em inglês ainda não é servido, conforme `lib/i18n/registro.ts`) e qualquer outra língua cai no português, como o resto da interface. Nada muda na VPS e nenhuma migration foi necessária. Este é o índice da ajuda; os artigos longos, com capturas e versão, são a fatia seguinte da #3567. Crédito: @webtecnica (#3572).
+
+- **Aprendizado da Memória da IA pode ter prazo e sai sozinho da conversa depois dele** Em **Memória da IA › Aprendizados**, cada aprendizado ganha o campo opcional **Vale até**. Depois desse dia, contado no fuso da empresa, os agentes deixam de usá-lo no atendimento e a ferramenta de consulta das regras da empresa também para de devolvê-lo. É o caso da programação da semana, da promoção do mês e do cardápio do dia, que antes continuavam valendo até alguém arquivar à mão.
+
+  Aprendizados sem data continuam valendo para sempre, exatamente como antes. Nada a fazer na atualização. Crédito: @webtecnica (#3537, issue #2369).
+
+- **Avise a equipe na transferência humana e preencha nomes informados no atendimento** O número interno configurado em **Central de alertas → Aviso no WhatsApp** também pode receber um aviso quando o assistente transfere uma conversa para atendimento humano. Quem já deixou esse aviso ligado passa a receber as transferências: há uma tentativa por episódio, com link para o CRM e sem nome ou resumo da conversa; resultado incerto não é reenviado automaticamente. Para receber só os avisos de casos, desligue **Avisar também nas transferências para atendimento humano** na mesma tela. Em **Configurações → Distribuição de atendimento**, uma nova opção, desligada por padrão, permite preencher o nome vazio da ficha quando o cliente informa seu próprio nome por texto e o assistente usa a capacidade **Anotar dado que o cliente informou**. O nome preenchido assim aparece na linha do tempo do contato. Nome existente continua exigindo revisão; a seleção pelo assistente pode errar e a ficha deve ser conferida. Nenhuma variável ou alteração manual na VPS é necessária. Contribuição de @SerusoNakamoto.
+
+- **Conversas da queda do número voltam sozinhas** Quando o WhatsApp da empresa cai e volta com QR novo, as mensagens trocadas pelo celular nesse período agora voltam para o CRM sozinhas, sem ninguém apertar botão. Só entram as conversas de quem já tem ficha no CRM; quem não tem ficha continua fora, e nenhuma ficha nova é criada. As mensagens aparecem na conversa e sobem a caixa com a não lida, mas a IA não responde a elas, e nenhuma automação ou aviso dispara por causa delas. Se a equipe não respondeu ao cliente nesse período, a Central avisa. A importação manual do histórico ganha a opção "Só contatos do CRM", ligada por padrão. Nada a fazer na VPS. Contribuição de @paulolimajr77.
+
+- **A planilha de produtos aceita a foto por URL** A importação de produtos ganhou a coluna de foto. Cada linha pode trazer um
+  link ou até cinco, separados por barra vertical, na ordem em que o atendente de
+  IA deve enviá-los: o primeiro é a capa. A planilha modelo, baixada pela tela de
+  Produtos, já vem com a coluna.
+
+  O servidor baixa cada link e guarda o arquivo no catálogo, do mesmo jeito que o
+  envio feito pela tela. A foto continua sendo do catálogo mesmo que o anúncio de
+  origem saia do ar, e o produto passa a ser apresentado com ela na conversa.
+
+  Linha com link que não abre não entra e o motivo aparece no resumo da
+  importação, com o endereço recusado. Quem não usa a coluna não muda nada: o
+  produto é importado como antes e as fotos enviadas pela tela ficam intactas.
+
+- **O agente pode responder por nota de voz (ElevenLabs)** Agora o agente pode responder ao cliente falando, não só escrevendo — a mesma voz,
+  escolhida por você, em toda conversa. Para ligar: cadastre e valide uma chave do
+  ElevenLabs em **Agente de IA → Credenciais**, escolha a voz em **Agente de IA → Provedores**
+  (dá para ouvir uma prévia antes de decidir), e ligue "Responder falando" na versão
+  do agente, em **Agente de IA → Editar agente**. Você escolhe
+  quando: sempre, nunca, ou só quando o cliente mandar áudio primeiro (o padrão). Contribuição de @advglauberpires.
+
+  Respostas com link ou longas continuam saindo em texto, para o cliente não perder
+  o link nem o fim da mensagem. Nas conexões pela API oficial do WhatsApp (e pelos
+  parceiros que seguem a mesma regra), por enquanto a resposta sai sempre em texto:
+  lá o áudio chegaria como anexo, não como nota de voz.
+
+  A mesma chave do ElevenLabs também pode ouvir os áudios do cliente: em
+  **Agente de IA → Provedores**, no ponto "Ouvir o áudio do cliente", escolha
+  **ElevenLabs (Scribe)**. O padrão continua sendo "Automático" — quem não escolher nada
+  segue transcrevendo como antes.
+
+  O texto que o agente escreveria continua existindo — a conversa não fica cega: a
+  busca, a exportação de dados e o classificador de follow-up continuam lendo
+  normalmente. O custo da síntese entra no mesmo orçamento mensal da organização
+  que já existe para o resto da inteligência artificial.
+
+  Nenhuma organização muda de comportamento com isto: o recurso nasce desligado em
+  toda versão existente, e continua desligado até você ligar os três passos acima.
+
+- **A automação "Atribuir a um atendente" pode passar também o cliente e as conversas** Na ação "Atribuir a um atendente" (modo pessoa fixa), duas opções novas, as duas
+  desligadas por padrão: "Passar também o contato (carteira)" e "Passar também as
+  conversas abertas do contato". É a passagem do pré-vendedor para o vendedor: o
+  negócio muda de dono e, se você quiser, o cliente vai junto.
+
+  Com "contato" ligado, a carteira do cliente passa para a pessoa escolhida e leva
+  as conversas abertas que estavam com o dono anterior ou sem dono. As que a IA
+  está atendendo ficam com a IA. Com "conversas" ligado, as conversas abertas que
+  estão com qualquer outra pessoa vão também, como no botão Transferir. Conversa
+  encerrada não é tocada. Se uma das passagens não acontecer, a aba Atividade diz
+  qual, e o negócio fica com o novo dono do mesmo jeito.
+
+  Automações que já existem continuam fazendo exatamente o que faziam. Nada
+  precisa ser feito na instalação.
+
+  Contribuição de @webtecnica.
+
+- **Sair da etapa agora cancela o toque pendente do follow-up — e o operador vê o motivo na fila** A etapa com fluxo publicado já fazia a primeira metade: card que entrava nela nascia inscrito no follow-up. Faltava a outra. Agora, quando o negócio sai da etapa, o toque que ela armou e ainda não saiu é cancelado, em vez de chegar horas depois falando de uma etapa onde o card não está mais.
+
+  O operador não perde o rastro: a inscrição aparece na fila como cancelada, com o motivo "Lead saiu da etapa do follow-up" e a proveniência na trilha do contato dizendo de qual etapa para qual o card foi. A pausa pedida por uma pessoa e a pausa de atendimento humano continuam de pé — arrastar o card não desfaz o que gente decidiu. E o próprio fluxo que move o card de etapa não cancela a si mesmo, então um fluxo que move e depois fala continua falando. Quando o card vai para outra etapa que também tem fluxo, o toque da etapa antiga sai e o fluxo da nova começa. Nada a fazer na atualização. Contribuição de @webtecnica (#3603).
+
+### Alterado
+
+- **Sugerir resposta faz um pedido explícito quando o agente fica em silêncio** Quando uma pessoa clica em **Sugerir resposta** e o primeiro turno termina em silêncio sem impedimento, a recuperação limitada informa ao agente que uma pessoa pediu uma proposta de texto. A sugestão continua destinada à revisão antes da aprovação.
+
+  Essa recuperação é única: texto solto mantém sua correção existente, sem uma terceira tentativa. Uma resposta ou proposta de ação já oferecida, veto de janela, ritmo ou conteúdo, falha de geração e conversa sem mensagem pendente não autorizam o pedido adicional. O turno automático e a cadeia de aprovação permanecem os mesmos. O pedido ao agente solicita somente a mensagem destinada ao cliente, sem justificativa privada no corpo.
+
+  Contribuição de @webtecnica a partir do PR #3557, adaptada pela manutenção.
+
+- **O card que chega numa etapa do funil aparece no topo da coluna, e o quadro ganha cards compactos** O card que chega a uma etapa passa a aparecer no topo da coluna, e não mais no
+  fim ou num ponto qualquer dela. Vale para a conversa nova que abre um negócio
+  sozinha, para o negócio criado à mão, pela API ou pela importação, para o
+  **Mover para…** do card e o seletor de etapa do dossiê, para o painel do Inbox,
+  a barra de ações em lote, as automações, o assistente, o agendamento, a
+  transferência para atendimento humano e para **Marcar como ganho/perdido**.
+  Vários cards movidos juntos chegam ao topo na mesma ordem em que estavam.
+  Arrastar um card continua deixando-o onde você soltou, e reordenar dentro da
+  mesma etapa continua como antes. Ao arquivar uma etapa, os negócios dela vão
+  para a etapa escolhida mantendo a posição que tinham. Cards que já estão nas
+  colunas não mudam de lugar. Dois cards com a mesma posição deixam de trocar de
+  lugar a cada atualização da tela.
+
+  No quadro do funil, o botão **Compacta**, ao lado das abas de visão, deixa os
+  cards mais baixos para caber mais contatos na coluna. No modo compacto o card
+  mostra título, valor, agente, responsável, tarefas e tempo na etapa; a linha da
+  conversa e os contatos saem do card e continuam no dossiê, que abre com o mesmo
+  clique. A escolha fica guardada no navegador de quem usa. Nada a fazer na atualização.
+  Contribuição de @webtecnica (issue #3461).
+
+- **O menu só mostra Chamadas para quem usa telefonia** A tela **Chamadas** deixava de ter porta no hub "Ver tudo em CRM", na busca (⌘K), no menu lateral e na barra do celular de quem nunca usou telefonia — antes ela aparecia para todas as empresas e abria vazia.
+
+  A porta aparece quando a empresa tem **qualquer** um destes: o tronco SIP salvo em Configurações, o tronco da instalação (`VOIP_TRUNK_ENDPOINT`), um número ativo cadastrado, ou alguma ligação SIP no histórico. Ligação de WhatsApp não conta, porque tem tela própria. Em **Recursos opcionais**, "Telefonia da empresa" segue a mesma régua.
+
+  Nada a fazer na atualização. Crédito: @webtecnica (#3599, issue #1290).
+
+- **Etiquetas: a ficha do contato sugere a etiqueta que já existe ao digitar** Na ficha do contato e no diálogo de contato novo, digitar parte do nome de uma etiqueta passa a sugerir as etiquetas cadastradas em Configurações › Tags e as que já estão em negócios e conversas, e não só as usadas nos contatos recentes. Quem digita "diam" recebe "cliente diamante", com a cor do vocabulário, em vez de criar uma etiqueta nova parecida. É a mesma busca que o editor de etiquetas do Inbox já fazia. Se a leitura das sugestões falhar, a ficha avisa, em vez de mostrar a lista vazia em silêncio. Nada muda na instalação e não há migração. Contribuição de @webtecnica.
+
+### Corrigido
+
+- **Abrir a janela de resposta solta na hora o atendimento que estava esperando** Quando o cliente escrevia fora da janela de resposta do canal, o turno da IA ficava agendado para a abertura, e isso continua igual. Faltava o resto. Se a empresa abrisse a janela depois (por exemplo, 0h–24h), o turno seguia dormindo até o horário antigo, e uma nova mensagem do mesmo cliente entrava junto nesse turno adiado. O cliente ficava sem resposta até a manhã seguinte.
+
+  Agora, ao salvar uma janela que já está aberta, os turnos que esperavam por ela rodam na hora. Uma mensagem nova que chega com a janela aberta também acorda o turno adiado, em vez de pegar carona nele. O cliente recebe uma resposta só. Com a janela fechada nada muda. Nada a fazer na VPS.
+
+  Contribuição de @webtecnica (#3419).
+
+- **Campos de seleção passam a gravar a opção do funil, não o texto cru** Um funil com a opção "São Paulo" (valor `sp`) nascia com `estado: "sao paulo"` quando o negócio entrava pela API, pelo agente de IA ou por um formulário de captação: a ficha não reconhecia o texto como nenhuma opção e mostrava o campo vazio. Filtros, relatórios e mensagens com `{{estado}}` passavam a somar uma grafia por formulário.
+
+  A régua que já existia na ficha passou a valer nas três portas de escrita do servidor. Ela ignora maiúscula, acento e espaço, casa por valor, rótulo ou apelido, e grava sempre o valor da opção — `sao paulo`, `SÃO PAULO` e `SP` chegam ao banco como `sp`. Numa seleção múltipla, `casa, apartamento` vira a lista das duas opções, e um rótulo que já contém vírgula ("Rio de Janeiro, RJ") não é partido ao meio.
+
+  O que não está na lista tem dois destinos, de propósito: na API e nas ferramentas do agente a escrita é recusada com o motivo, e nada é gravado; na captação por formulário o valor entra como veio, porque recusar perderia o contato que a empresa pagou para receber. A limpeza de um campo continua livre, e campo sem opções cadastradas segue aceitando qualquer valor.
+
+  Nenhum dado já gravado é convertido: quem tem o texto fora da lista continua com ele, e a edição só julga o que mudou.
+
+  Contribuição de @webtecnica (#3508).
+
+- **O menu do usuário leva ao modo administrador de primeira** Quem é dono da instalação chega ao painel pelo item "Modo administrador", no
+  menu do próprio usuário. O clique fechava o menu e, em navegador carregado, não
+  abria o painel: a pessoa ficava na tela em que estava, sem aviso nenhum, e
+  concluía que o painel não existia.
+
+  Agora o item abre o painel. O clique comum é levado pela própria porta, sem
+  depender do link que fecha o menu no mesmo instante; abrir em aba nova, com
+  Ctrl, Command ou o botão do meio, continua funcionando como antes.
+
+- **A conta do ChatGPT por assinatura renova sozinha no 401 e avisa na Central quando desconecta** Quando a IA usa a assinatura do ChatGPT e o login vence no meio de um atendimento, o sistema agora renova o login uma vez e tenta a resposta de novo, em vez de deixar o cliente sem resposta. A renovação passa a acontecer uma vez por janela de validade do login, e não a cada mensagem. Quando a renovação é recusada, o motivo aparece em IA › Credenciais (por exemplo, "acesso revogado" ou "sem resposta da OpenAI"), e a Central de avisos ganha um único item, "A conta do ChatGPT desconectou", com o botão para reconectar. Esse item se fecha sozinho quando o login volta, seja pela reconexão, seja por uma renovação que voltou a dar certo. Ao religar a conta, a lista de modelos já vem preenchida, e o primeiro "Publicar" não falha mais por modelo não encontrado. Nada precisa ser feito na instalação.
+
+  Para quem integra: se a sua integração lê o campo `kind` dos itens da Central de avisos (`agent_inbox_items`), ela vai passar a ver também o valor `assinatura_desconectada`. Outros valores novos podem aparecer no futuro.
+
+  Contribuição de @webtecnica.
+
+- **CPF inválido impede criar o contato até ser corrigido** O aviso de CPF inválido embaixo do campo já existia desde a 1.93.0, mas os botões "Criar contato" e "Salvar e iniciar conversa" seguiam clicáveis enquanto ele estava na tela. Agora os dois ficam desabilitados enquanto o aviso estiver visível, e corrigir o número os libera na hora. O campo continua opcional: vazio cria o contato como antes. O servidor não mudou. Nada muda na VPS. Contribuição de @webtecnica (#3621).
+
+- **A tela Equipe não mostra mais erro a quem atende ou só consulta** Quem entra com papel de atendente ou de leitura e abre Equipe via, na aba Membros, a mensagem vermelha "Erro ao carregar membros.": a lista de membros e papéis é de gerentes e administradores, e a tela tentava carregá-la para todo mundo. Agora essa pessoa lê, no lugar, que a lista fica com quem gerencia e com quem falar para mudar o próprio papel ou chamar alguém para a equipe. As abas de setores e de atendimento continuam como estavam. Nada precisa ser feito na instalação.
+
+- **Follow-up de silêncio não insiste com quem só respondeu a uma mensagem automática sem dizer nada** Quando uma automação envia uma mensagem ao cliente — aniversário, lembrete de agenda, pesquisa pós-atendimento, aviso ou campanha — o fluxo de follow-up por silêncio não inscreve mais o contato se, desde esse envio, nada do que ele mandou tem conteúdo: reação (a linha de reação, que nem carrega texto) ou texto só de emoji, sem nenhuma letra nem dígito. Antes, o CRM tratava a reação como desinteresse e o fluxo "Lead novo sem retorno" mandava até seis mensagens de venda em sete dias para quem só havia agradecido o parabéns. Agora basta uma mensagem com conteúdo no período — o "quero, quanto custa?" respondido à campanha, por exemplo — para o contato continuar no fluxo e receber a retomada. O corte vale quando a última mensagem enviada antes da resposta dele foi automática e a resposta chegou em até 48 horas; fluxos por etapa, por caso e por retorno agendado seguem iguais, e nada precisa ser feito na instalação.
+
+- **O assistente só oferece horário que a agenda devolveu** Uma nova conferência antes do envio compara cada dia e horário que o assistente
+  escreve ao cliente com o que a busca de horários livres devolveu naquela mesma
+  resposta. Horário que a busca não trouxe é barrado, e o assistente refaz a
+  resposta consultando a agenda do dia. A mesma conferência barra "sua consulta
+  está agendada" quando nenhuma marcação foi gravada. Se o assistente insistir no
+  erro, a orientação passa a ser não citar horário e chamar a equipe. Contribuição de @fillipeagra-cyber.
+
+  Lembrar ao cliente a consulta que ele já tem continua permitido. Só vale para
+  agentes com ferramenta de agenda e para texto escrito pelo modelo; não pede
+  configuração nem migração.
+
+- **A prévia de voz passa a contar no orçamento de IA da organização** O botão de ouvir a prévia de voz, em Agente de IA › Provedores, gera o áudio com a chave do ElevenLabs da organização — e esse gasto agora entra no orçamento de IA dela do mesmo jeito que a voz do agente já entrava. Antes de gerar, a prévia passa pela mesma conferência de orçamento: com o limite do mês atingido e a IA configurada para parar nele, a tela mostra que o orçamento acabou e nenhum áudio é gerado. Depois de gerar, o custo aparece em Uso de IA e soma no gasto do mês, como a síntese de uma resposta real. Nada precisa ser feito na instalação.
+
+- **O agente não diz mais "já encaminhei" sem que alguém tenha sido acionado de fato** Quando o agente afirma que já passou o pedido adiante — "Já encaminhei!", "Pronto, encaminhado!" — e logo depois pergunta se pode avisar a equipe, a conferência de promessas deixava a frase passar, porque a primeira parte não dizia para quem e a segunda era só uma pergunta. Agora essa afirmação conta como promessa de atendimento humano, e segue o mesmo caminho das outras: só sai se houver alguém de fato acionado. Frases como "Já te encaminhei o link" ou "Seu pedido foi encaminhado" continuam livres. Nada precisa ser feito na instalação.
+
+- **O título de um compromisso que já existe passa a ser editável** O título de um compromisso criado com texto livre (#3766) ficava travado no que foi digitado na criação: mandar um `title` novo para a rota de alteração devolvia uma recusa genérica, porque o campo era descartado antes da validação, e a função de transição aplicava a mudança por uma lista fechada de campos que não incluía o título. Agora o título é um campo editável como a anotação interna e o convidado.
+
+  Título vazio é recusado com uma mensagem que aponta o campo — a edição não volta ao nome do tipo sozinha, porque o tipo pode ter mudado desde a marcação e trocar o texto por outro que ninguém escolheu seria pior que recusar. A mudança de título também marca o compromisso para ser reenviado ao Google, então o evento remoto acompanha a edição em vez de revertê-la na sincronização seguinte.
+
+  Nada muda na configuração da VPS; a atualização aplica uma migration que substitui a função de transição.
+
+  Crédito: @webtecnica (#3776).
+
+- **A voz do agente obedece ao interruptor de orçamento da tela de administração** Quem administra a instalação pode afrouxar ou desligar a trava do orçamento de IA pela tela de administração. O chat e a prévia de voz já seguiam essa escolha, mas a resposta falada do agente continuava olhando só a configuração do servidor: com a trava afrouxada na tela, o texto saía e o áudio era barrado como se o limite ainda valesse. Agora a voz segue a mesma escolha que o chat. Nada precisa ser feito na instalação.
+
 ## [1.96.0] — 2026-10-31
 
 ### Adicionado
@@ -13481,7 +13662,8 @@ Primeira versão marcada do DeskcommCRM. O projeto vinha sendo desenvolvido publ
 
 - **Node 22 é obrigatório para desenvolvimento.** A suíte de invariantes instancia o cliente do Supabase, que exige o `WebSocket` global — nativo apenas a partir do Node 22. Isso não afeta quem apenas hospeda: a VPS roda a imagem pronta.
 
-[Não lançado]: https://github.com/melgarafael/DeskcommCRM/compare/v1.96.0...HEAD
+[Não lançado]: https://github.com/melgarafael/DeskcommCRM/compare/v1.97.0...HEAD
+[1.97.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.96.0...v1.97.0
 [1.96.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.95.0...v1.96.0
 [1.95.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.94.0...v1.95.0
 [1.94.0]: https://github.com/melgarafael/DeskcommCRM/compare/v1.93.0...v1.94.0
