@@ -24,6 +24,7 @@ import {
   mensagemDasRegrasQuePerdemOCampo,
   regrasDeDataQuePerdemOCampo,
 } from "@/lib/automation/campo-do-gatilho-de-data";
+import { respostaParaOperador } from "@/lib/erros/para-operador";
 import type { Idioma } from "@/lib/i18n/idiomas";
 import type { PipelineConfigPatch } from "@/lib/schemas/settings";
 
@@ -105,7 +106,14 @@ export async function aplicarConfigDoFunil(
     .eq("id", pipelineId)
     .eq("organization_id", orgId)
     .maybeSingle();
-  if (readErr) return { ok: false, error: readErr.message };
+  // #3747: a frase da tela vem do mapeador; o texto do Postgres fica no log.
+  if (readErr) {
+    return respostaParaOperador(readErr, {
+      contexto: "[pipeline.config] falha ao ler o pipeline",
+      idioma: opcoes.idioma,
+      campos: { pipeline_id: pipelineId },
+    });
+  }
   if (!row) return { ok: false, error: "not_found" };
 
   const proxima = mesclarConfig(
@@ -138,7 +146,13 @@ export async function aplicarConfigDoFunil(
     .update({ vocabulary: proxima.vocabulary, settings: proxima.settings })
     .eq("id", pipelineId)
     .eq("organization_id", orgId);
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    return respostaParaOperador(error, {
+      contexto: "[pipeline.config] falha ao gravar a configuração do pipeline",
+      idioma: opcoes.idioma,
+      campos: { pipeline_id: pipelineId },
+    });
+  }
 
   return { ok: true };
 }

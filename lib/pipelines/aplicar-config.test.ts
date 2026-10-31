@@ -9,11 +9,14 @@
  *     ausentes ficam como estão.
  *  2. A consulta e o update filtram `organization_id` à mão — o client do token é o admin, a RLS
  *     não vale. Funil de outra organização é `not_found`, igual a um inexistente.
- *  3. Erro do banco volta como `{ ok: false }` (a rota decide o status), e nada é gravado se a
- *     leitura falhou ou o funil não é da organização.
+ *  3. Erro do banco volta como `{ ok: false }` com a FRASE do operador, nunca o texto do Postgres
+ *     (#3747; a rota decide o status), e nada é gravado se a leitura falhou ou o funil não é da
+ *     organização.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
+
+import { mensagemParaOperador } from "@/lib/erros/para-operador";
 
 import { aplicarConfigDoFunil, mesclarConfig, resumoDaConfig } from "./aplicar-config";
 
@@ -219,19 +222,29 @@ describe("aplicarConfigDoFunil", () => {
     expect(db.filtros).toContainEqual(["organization_id", OUTRA_ORG]);
   });
 
-  it("erro de leitura volta com a mensagem do banco e nada é gravado", async () => {
+  // #3747: o texto do Postgres (constraint, relação, tabela) nunca chega à tela nem ao corpo da
+  // rota; vai para o log, e quem opera lê a frase do mapeador.
+  it("erro de leitura volta como frase do operador, sem o texto do banco, e nada é gravado", async () => {
     const db = bancoDeFunis({ erroDeLeitura: "boom na leitura" });
     const r = await aplicarConfigDoFunil(db.client, ORG, FUNIL, { vocabulary: { lead: "x" } });
-    expect(r).toEqual({ ok: false, error: "boom na leitura" });
+    expect(r).toEqual({
+      ok: false,
+      error: mensagemParaOperador({ message: "boom na leitura" }, "pt-BR"),
+    });
+    expect(JSON.stringify(r)).not.toContain("boom");
     expect(db.escritas).toEqual([]);
   });
 
-  it("erro de escrita volta com a mensagem do banco", async () => {
+  it("erro de escrita volta como frase do operador, sem o texto do banco", async () => {
     const db = bancoDeFunis({
       linha: { vocabulary: {}, settings: {} },
       erroDeEscrita: "boom ao gravar",
     });
     const r = await aplicarConfigDoFunil(db.client, ORG, FUNIL, { vocabulary: { lead: "x" } });
-    expect(r).toEqual({ ok: false, error: "boom ao gravar" });
+    expect(r).toEqual({
+      ok: false,
+      error: mensagemParaOperador({ message: "boom ao gravar" }, "pt-BR"),
+    });
+    expect(JSON.stringify(r)).not.toContain("boom");
   });
 });

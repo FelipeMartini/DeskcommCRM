@@ -15816,6 +15816,10 @@ export type Database = {
         Args: { p_conversation_id: string; p_organization_id: string; p_to_user_id: string };
         Returns: string;
       };
+      fn_conversa_que_continua: {
+        Args: { p_conversation_id: string; p_organization_id: string; p_user_id: string };
+        Returns: string;
+      };
       fn_org_operante: { Args: { p_org: string }; Returns: boolean };
       fn_org_parada_descarta_fila: { Args: { p_org: string }; Returns: undefined };
       fn_passagem_devolvida: {
