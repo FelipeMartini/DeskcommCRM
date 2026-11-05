@@ -16,6 +16,7 @@ import {
 } from "@/lib/impersonate/cookie-edge";
 
 const COOKIE_NAME = "sb-deskcomm-auth";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function proxy(request: NextRequest) {
   // Saída de emergência do CSS personalizado. ANTES do `NextResponse.next`: ele
@@ -29,6 +30,12 @@ export async function proxy(request: NextRequest) {
   // O caminho atual, para os Server Components (o `next` do desafio de MFA em
   // `exigirProvaDeMfa`). Mesma regra: antes do `next`, e sempre gravado.
   request.headers.set("x-pathname", request.nextUrl.pathname);
+  // O id da requisição (#3971): o que veio do navegador, se for um UUID, ou um
+  // novo. Mesma regra: antes do `next`, para chegar a quem lê `x-request-id`
+  // (Server Actions, `requestIdOf(req)`) e daí ao audit log.
+  const recebido = request.headers.get("x-request-id");
+  const requestId = recebido && UUID.test(recebido) ? recebido : crypto.randomUUID();
+  request.headers.set("x-request-id", requestId);
   const response = NextResponse.next({ request: { headers: request.headers } });
 
   // Exceção de quadro, só para as origens que o operador nomeou em EMBED_FRAME_ANCESTORS (vazio =
@@ -40,11 +47,14 @@ export async function proxy(request: NextRequest) {
   );
   if (quadroPermitido) response.headers.set("Content-Security-Policy", quadroPermitido);
 
-  // Inject X-Request-Id for downstream correlation (audit log, error wrappers).
-  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
-  response.headers.set("x-request-id", requestId);
-
   const { pathname, search } = request.nextUrl;
+  // Sob `/api/`, o `X-Request-Id` da RESPOSTA é de `ok()`/`fail()`: é o id que a
+  // rota grava no log e no audit. Cabeçalho posto aqui VENCE o da rota — o Next
+  // só acrescenta o da rota quando o do middleware não existe — e o `ID:` que a
+  // tela mostra deixava de existir no log. Fora de `/api/`, ninguém mais o põe.
+  if (!pathname.startsWith("/api/")) {
+    response.headers.set("x-request-id", requestId);
+  }
   // Recupera retornos de OAuth social já emitidos antes da landing pública existir.
   // Apenas a navegação é tratada: o vínculo de conta segue protegido pelos guards canônicos.
   // Passa adiante só o SINAL `connected=1` — nunca o `connect_token` nem o valor recebido.

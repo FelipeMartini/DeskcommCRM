@@ -39,6 +39,9 @@ export function resumoDaConfig(patch: PipelineConfigPatch): Record<string, unkno
     won_reasons_count: patch.won_reasons?.length ?? null,
     won_reason_required: patch.won_reason_required ?? null,
     reabertura: patch.reabertura ?? null,
+    // #4076: a janela (ou `0`, o desligamento) — decisão de quem opera, e o efeito dela é reabrir
+    // card existente, então fica registrado.
+    reabrir_perdido_dias: patch.reabrir_perdido_dias ?? null,
     entrada_do_inbox_ativa: patch.entrada_do_inbox?.ativa ?? null,
     // #2995: quantos cards o quadro deixa de mostrar é decisão de quem opera — a auditoria
     // registra o número (ou `0`, o desligamento).
@@ -70,6 +73,12 @@ export function mesclarConfig(
   if (patch.comanda_no_ganho !== undefined) settings.comanda_no_ganho = patch.comanda_no_ganho;
   if (patch.reabertura !== undefined) settings.reabertura = patch.reabertura;
   if (patch.reabertura_campos !== undefined) settings.reabertura_campos = patch.reabertura_campos;
+  // #4076 — a janela em que o perdido recente volta a ser o MESMO card. `0` é o desligado e vai como
+  // veio: pular o zero deixaria a janela antiga gravada e quem desmarcasse a opção continuaria
+  // reabrindo card.
+  if (patch.reabrir_perdido_dias !== undefined) {
+    settings.reabrir_perdido_dias = patch.reabrir_perdido_dias;
+  }
   // A entrada do Inbox (issue #3011): a ETAPA em que a conversa nova vira card neste funil. Grava o
   // bloco inteiro, e não campo a campo, porque `ativa` e `stage_id` são uma decisão só — desligar
   // sem perder a etapa escolhida é o que a tela precisa poder fazer.
