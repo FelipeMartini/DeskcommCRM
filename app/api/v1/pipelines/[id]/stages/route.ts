@@ -108,7 +108,7 @@ export async function GET(req: NextRequest, ctx: RouteCtx): Promise<Response> {
   // derrubar uma listagem de etapas que já foi lida com sucesso.
   let fluxos: Awaited<ReturnType<typeof carregaFluxosPorEtapa>> | null = null;
   try {
-    fluxos = await carregaFluxosPorEtapa(supabase, authz.org.orgId);
+    fluxos = await carregaFluxosPorEtapa(supabase, authz.organizationId);
   } catch {
     fluxos = null;
   }

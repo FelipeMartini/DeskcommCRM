@@ -134,7 +134,7 @@ export function llmEdgeConfigFromEnv(fonte: {
   if (raciocinio !== 'provider' && raciocinio !== 'disabled') {
     throw new Error("DEEPSEEK_THINKING inválido — use 'provider' ou 'disabled' (default provider)");
   }
-  const semPadrao = env.LLM_TOOL_SCHEMA_SEM_PADRAO;
+  const semPadrao = fonte.LLM_TOOL_SCHEMA_SEM_PADRAO;
   if (semPadrao !== undefined && semPadrao !== 'on' && semPadrao !== 'off') {
     throw new Error("LLM_TOOL_SCHEMA_SEM_PADRAO inválido — use 'on' ou 'off'");
   }
