@@ -124,7 +124,14 @@ const TETO: Readonly<Record<string, { tokens: number; motivo: string }>> = {
   "schedule_followup": { tokens: 200, motivo: BASE },
   "save_lead_note": { tokens: 229, motivo: BASE },
   "get_lead_note": { tokens: 99, motivo: BASE },
-  "search_knowledge": { tokens: 131, motivo: BASE },
+  "search_knowledge": {
+    tokens: 172,
+    motivo:
+      "+41 da frase do fork na descrição de `query` (\"escreva também as palavras parecidas\"): a busca da " +
+      "base daqui é por palavras, sem embeddings, e é essa frase que faz o modelo escrever os sinônimos " +
+      "(commit 95c34e6e7 do fork, 11/10/2026). O oficial mede 131. Na próxima sincronização este item " +
+      "conflita: manter o do fork.",
+  },
   "request_human_handoff": { tokens: 510, motivo: BASE },
   "read_skill_reference": { tokens: 154, motivo: BASE },
   "open_human_case": { tokens: 384, motivo: BASE },
@@ -133,7 +140,8 @@ const TETO: Readonly<Record<string, { tokens: number; motivo: string }>> = {
   "schedule_followup (com negócio)": { tokens: 314, motivo: BASE },
 };
 
-const TETO_TOTAL = 29952;
+// 29952 do oficial + 41 do fork em `search_knowledge` (ver o motivo dela acima).
+const TETO_TOTAL = 29993;
 
 const VARIANTE = "schedule_followup (com negócio)";
 
