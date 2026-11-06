@@ -18,6 +18,8 @@ const h = vi.hoisted(() => ({
   settings: {} as Record<string, unknown>,
   regras: [] as Array<{ name: string; trigger_config: unknown }>,
   filtrosDasRegras: [] as Array<[string, unknown]>,
+  /** Os filtros `.eq` que a leitura do funil aplicou — o dublê os HONRA, como o banco. */
+  filtrosDoFunil: [] as Array<[string, unknown]>,
   gravou: null as unknown,
   idioma: "pt-BR",
   /** A organização da LINHA e o papel de quem salva — o caso de recusa os varia. */
@@ -46,11 +48,23 @@ vi.mock("@/lib/supabase/server", () => ({
       const cadeia: Record<string, unknown> = {};
       if (tabela === "crm_pipelines") {
         cadeia.select = () => cadeia;
-        cadeia.eq = () => cadeia;
-        cadeia.maybeSingle = async () => ({
-          data: { vocabulary: {}, settings: h.settings, organization_id: h.orgDaFila },
-          error: null,
-        });
+        cadeia.eq = (coluna: string, valor: unknown) => {
+          h.filtrosDoFunil.push([coluna, valor]);
+          return cadeia;
+        };
+        // Fork: a leitura filtra por organização (a escrita única, `aplicarConfigDoFunil`, serve
+        // também ao token, que usa o client admin e não tem RLS). O dublê aplica esse filtro como o
+        // banco: funil de outra organização não volta linha nenhuma.
+        cadeia.maybeSingle = async () => {
+          const daOrg = h.filtrosDoFunil.find(([coluna]) => coluna === "organization_id");
+          const casa = !daOrg || daOrg[1] === h.orgDaFila;
+          return {
+            data: casa
+              ? { vocabulary: {}, settings: h.settings, organization_id: h.orgDaFila }
+              : null,
+            error: null,
+          };
+        };
         cadeia.update = (payload: unknown) => {
           h.gravou = payload;
           // Fork: a escrita única (`aplicarConfigDoFunil`) filtra o update por id E organização.
@@ -103,6 +117,7 @@ beforeEach(() => {
   h.settings = { fields: [NASCIMENTO_NEGOCIO] };
   h.regras = [];
   h.filtrosDasRegras = [];
+  h.filtrosDoFunil = [];
   h.gravou = null;
   h.idioma = "pt-BR";
   h.orgDaFila = ORG;
@@ -494,11 +509,18 @@ describe("updatePipelineConfig — a ordem dos campos do funil (#4043)", () => {
   it("outra organização continua intacta: a recusa vem antes de qualquer escrita", async () => {
     h.orgDaFila = "99999999-9999-4999-8999-999999999999";
 
+    // Fork: funil de OUTRA organização responde igual a funil que não existe (`not_found`), e
+    // nunca `forbidden_tenant` — dizer "existe, mas não é seu" já vaza a existência
+    // (cabeçalho de `lib/pipelines/aplicar-config.ts`). O oficial compara a organização da linha
+    // DEPOIS de lê-la; aqui o filtro vai na consulta, então a linha nem chega. O que o teste prova
+    // é o mesmo: a recusa é nomeada, vem antes de qualquer escrita, e o filtro da organização de
+    // quem salva foi de fato pedido (sem ele, o dublê devolveria a linha e a escrita passaria).
     expect(await updatePipelineConfig(FUNIL, { fields: [SEGURO, AEREO] })).toEqual({
       ok: false,
-      error: "forbidden_tenant",
+      error: "not_found",
     });
 
+    expect(h.filtrosDoFunil).toContainEqual(["organization_id", ORG]);
     expect(h.gravou).toBeNull();
   });
 
