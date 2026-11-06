@@ -15,8 +15,7 @@ import { podeAdministrarEmpresa } from "@/lib/auth/pode-administrar-empresa";
 import { aplicarConfigDoFunil, resumoDaConfig } from "@/lib/pipelines/aplicar-config";
 
 export type UpdatePipelineConfigResult =
-  | { ok: true }
-  | { ok: false; error: string; details?: unknown };
+  { ok: true } | { ok: false; error: string; details?: unknown };
 
 export async function updatePipelineConfig(
   pipelineId: string,

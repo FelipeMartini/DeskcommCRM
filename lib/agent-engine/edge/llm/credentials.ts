@@ -41,7 +41,7 @@ import {
   type ModoDeOrcamento,
 } from './orcamento';
 import type { RaciocinioDeepseek } from './providers';
-import type { CacheTtl } from './stable-prefix';
+import { ESQUEMA_SEM_PADRAO_PADRAO, type CacheTtl } from './stable-prefix';
 
 /** Config da camada LLM montada do env validado (padrão crmEdgeConfigFromEnv). */
 export interface LlmEdgeConfig {
@@ -84,6 +84,12 @@ export interface LlmEdgeConfig {
    */
   deepseekThinking?: RaciocinioDeepseek;
   /**
+   * Knob LLM_TOOL_SCHEMA_SEM_PADRAO: tira o `pattern` que só repete o `format`
+   * do esquema das ferramentas no fio. Ausente = `ESQUEMA_SEM_PADRAO_PADRAO`
+   * (stable-prefix.ts), o único default.
+   */
+  esquemaSemPadrao?: boolean;
+  /**
    * `AI_BUDGET_ENFORCEMENT` já normalizado — o kill switch do operador da
    * instalação. Ausente = `'on'`, e `'on'` NÃO LIGA NADA: significa apenas
    * "respeite o que cada organização escolheu". A chave só sabe AFROUXAR.
@@ -118,6 +124,7 @@ export function llmEdgeConfigFromEnv(fonte: {
   LLM_CACHE_TTL?: string;
   AI_BUDGET_ENFORCEMENT?: string;
   DEEPSEEK_THINKING?: string;
+  LLM_TOOL_SCHEMA_SEM_PADRAO?: string;
 }): LlmEdgeConfig {
   const ttl = fonte.LLM_CACHE_TTL ?? '1h';
   if (ttl !== '5m' && ttl !== '1h') {
@@ -126,6 +133,10 @@ export function llmEdgeConfigFromEnv(fonte: {
   const raciocinio = fonte.DEEPSEEK_THINKING ?? 'provider';
   if (raciocinio !== 'provider' && raciocinio !== 'disabled') {
     throw new Error("DEEPSEEK_THINKING inválido — use 'provider' ou 'disabled' (default provider)");
+  }
+  const semPadrao = fonte.LLM_TOOL_SCHEMA_SEM_PADRAO;
+  if (semPadrao !== undefined && semPadrao !== 'on' && semPadrao !== 'off') {
+    throw new Error("LLM_TOOL_SCHEMA_SEM_PADRAO inválido — use 'on' ou 'off'");
   }
   return {
     ...(fonte.ANTHROPIC_API_KEY ? { anthropicApiKey: fonte.ANTHROPIC_API_KEY } : {}),
@@ -138,6 +149,7 @@ export function llmEdgeConfigFromEnv(fonte: {
       : {}),
     cacheTtl: ttl,
     deepseekThinking: raciocinio,
+    esquemaSemPadrao: semPadrao === undefined ? ESQUEMA_SEM_PADRAO_PADRAO : semPadrao === 'on',
     // Sem `if` de valor vazio, ao contrário das chaves acima: aqui o ausente
     // TEM um significado ('on'), e o normalizador é quem o dá. Um campo
     // opcional que some faria o seam ter de repetir o default, e dois defaults

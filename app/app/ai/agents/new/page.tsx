@@ -12,6 +12,7 @@ import { ambienteComAsChavesDoPainel } from "@/lib/ai/chaves-da-instalacao";
 import { omniRouterServeAOrganizacao } from "@/lib/ai/omnirouter-ativo";
 import { lerAmbiente } from "@/lib/instalacao/ambiente";
 import { fusoUtilizavel } from "@/lib/tempo/fusos";
+import { skillsDisponiveis } from "@/lib/ai/skills/skills-do-agente";
 
 import { AgentForm } from "../[id]/_components/AgentForm";
 
@@ -73,6 +74,7 @@ export default async function NewAgentPage() {
         provedoresOferecidos={await idsDosProvedoresOferecidos(createAdminClient())}
         provedorPadrao={llmDaOrg?.provider}
         channelSessions={channelSessions}
+        skills={await skillsDisponiveis(createAdminClient(), activeOrg.orgId)}
         organizationTimezone={fusoUtilizavel(activeOrg.timezone)}
       />
     </div>
