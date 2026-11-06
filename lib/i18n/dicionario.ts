@@ -241,6 +241,17 @@ export const DICIONARIO: Traducoes = {
   "CEP": { es: "Código postal" },
   "UF": { es: "Provincia" },
   "Logradouro": { es: "Calle" },
+  // Preenchimento pelo CEP (#3494, fatia 2). As quatro frases são o que a tela
+  // diz ao lado do campo: a consulta em andamento, o CEP curto (aviso, não
+  // impedimento), o CEP inexistente e a falha do serviço — esta última manda
+  // preencher à mão, porque o cadastro continua possível.
+  "Buscando o CEP…": { es: "Buscando el código postal…" },
+  "CEP deve ter 8 dígitos.": { es: "El código postal debe tener 8 dígitos." },
+  "CEP não encontrado.": { es: "Código postal no encontrado." },
+  "Não foi possível consultar o CEP agora. Preencha o endereço à mão.": {
+    es: "No fue posible consultar el código postal ahora. Complete la dirección a mano.",
+  },
+  "Endereço preenchido pelo CEP.": { es: "Dirección completada con el código postal." },
   "Escolha um agente": { es: "Elija un agente" },
   "Remover regra de remetente": { es: "Eliminar regla de remitente" },
   "Adicionar número do remetente": { es: "Añadir número del remitente" },
@@ -4265,7 +4276,9 @@ export const DICIONARIO: Traducoes = {
   "Concluídos": { es: "Concluidos" },
   "Nenhum caso aberto": { es: "Ningún caso abierto" },
   "Nenhum caso concluído": { es: "Ningún caso concluido" },
-  "Quando a IA precisar de você, aparece aqui.": { es: "Cuando la IA te necesite, lo verás aquí." },
+  "Os casos aparecem aqui quando um agente publicado, com \"Deixar o agente pedir uma tarefa a alguém e seguir conversando\" ligado, pede algo a você. Conversa passada para uma pessoa vai para o Inbox.": {
+    es: "Los casos aparecen aquí cuando un agente publicado, con \"Dejar que el agente pida una tarea a alguien y siga conversando\" activado, te pide algo. La conversación transferida a una persona va al Inbox.",
+  },
   "Casos concluídos, cancelados ou repassados ficam aqui.": {
     es: "Los casos concluidos, cancelados o transferidos quedan aquí.",
   },
@@ -19894,6 +19907,22 @@ export const DICIONARIO: Traducoes = {
   // Escrita do destino numa conversa: a fila tem de ser desta organização.
   "Setor inexistente nesta organização.": {
     es: "El sector no existe en esta organización.",
+  },
+  // ─── #3003: o menu ⋯ do cabeçalho da conversa e as guias das ações que ele
+  // guardou. O nome acessível do gatilho é "Mais ações", que já tem entrada
+  // acima ("Más acciones") — o mesmo nome do menu da barra de ações em lote.
+  "Mais ações desta conversa": { es: "Más acciones de esta conversación" },
+  "Liga para o telefone deste contato pelo navegador.": {
+    es: "Llama al teléfono de este contacto desde el navegador.",
+  },
+  "Marca um horário na agenda para este contato, sem enviar mensagem a ele.": {
+    es: "Reserva un horario en la agenda para este contacto, sin enviarle mensaje.",
+  },
+  "Abre uma sala de vídeo e manda o link dela pelo chat desta conversa.": {
+    es: "Abre una sala de video y envía su enlace por el chat de esta conversación.",
+  },
+  "Tira a conversa da fila até o horário escolhido; depois ela volta sozinha.": {
+    es: "Saca la conversación de la cola hasta la hora elegida; después vuelve sola.",
   },
   // #3813 — a escolha "Quando o contato tiver horário marcado", no passo que
   // envia (WhatsApp e mensagem escrita pela IA). As três opções dizem o EFEITO:
